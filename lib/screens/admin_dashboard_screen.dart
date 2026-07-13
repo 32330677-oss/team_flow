@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'login_screen.dart';
 import 'project_management_screen.dart'; // استيراد صفحة المشاريع الجديدة
+import 'workers_screen.dart'; // تم إضافة استيراد صفحة العمال الجديدة هنا
+import 'worker_assignment_screen.dart'; // استيراد شاشة التعيينات الجديدة
 
 class AdminDashboardScreen extends StatelessWidget {
   const AdminDashboardScreen({super.key});
@@ -30,7 +32,6 @@ class AdminDashboardScreen extends StatelessWidget {
         'icon': Icons.business,
         'color': const Color(0xff1a2a6c),
         'onTap': () {
-          // 👈 هنا تم ربط كارد المشاريع بالصفحة الجديدة
           Navigator.push(
             context,
             MaterialPageRoute(builder: (context) => const ProjectManagementScreen()),
@@ -38,11 +39,15 @@ class AdminDashboardScreen extends StatelessWidget {
         },
       },
       {
-        'title': 'العقود والمواقع',
-        'icon': Icons.gavel,
+        'title': 'توزيع وحركة العمال', // 👈 تم تغيير الاسم هنا
+        'icon': Icons.alt_route,       // 👈 تم تغيير الأيقونة لتناسب الحركة والتوزيع
         'color': const Color(0xffb21f1f),
         'onTap': () {
-          // سنبرمجها في المرحلة القادمة
+          // 👈 تم الربط الفعلي هنا بشاشة التعيينات الجديدة بدلاً من تركه فارغاً
+          Navigator.push(
+            context,
+            MaterialPageRoute(builder: (context) => const WorkerAssignmentScreen()),
+          );
         },
       },
       {
@@ -50,7 +55,10 @@ class AdminDashboardScreen extends StatelessWidget {
         'icon': Icons.people,
         'color': const Color(0xfffdbb2d),
         'onTap': () {
-          // سنبرمجها في المرحلة القادمة
+          Navigator.push(
+            context,
+            MaterialPageRoute(builder: (context) => const WorkersScreen()),
+          );
         },
       },
       {
@@ -69,7 +77,6 @@ class AdminDashboardScreen extends StatelessWidget {
         centerTitle: true,
         backgroundColor: const Color(0xff1a2a6c),
         elevation: 4,
-        // 👈 زر تسجيل الخروج مثبت هنا في الـ AppBar
         actions: [
           IconButton(
             icon: const Icon(Icons.logout, color: Colors.white),
@@ -113,15 +120,14 @@ class AdminDashboardScreen extends StatelessWidget {
               style: TextStyle(fontSize: 14, color: Colors.grey),
             ),
             const SizedBox(height: 20),
-            // بناء شبكة الكاردات (Grid)
             Expanded(
               child: GridView.builder(
                 itemCount: dashboardItems.length,
                 gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                  crossAxisCount: 2, // كاردين بجانب بعضهما
+                  crossAxisCount: 2,
                   crossAxisSpacing: 16,
                   mainAxisSpacing: 16,
-                  childAspectRatio: 1.1, // أبعاد الكارد لتكون متناسقة
+                  childAspectRatio: 1.1,
                 ),
                 itemBuilder: (context, index) {
                   final item = dashboardItems[index];

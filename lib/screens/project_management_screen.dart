@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:dio/dio.dart';
+import 'project_contracts_screen.dart'; // 👈 استيراد شاشة العقود المخصصة للمشروع
 
 class ProjectManagementScreen extends StatefulWidget {
   const ProjectManagementScreen({super.key});
@@ -10,12 +11,11 @@ class ProjectManagementScreen extends StatefulWidget {
 
 class _ProjectManagementScreenState extends State<ProjectManagementScreen> {
   final Dio _dio = Dio();
-  final String _apiUrl = 'http://192.168.1.3:5000/api/projects'; // الـ IP الخاص بسيرفرك
+  final String _apiUrl = 'http://192.168.1.3:5000/api/projects'; 
   
   List _projects = [];
   bool _isLoading = true;
 
-  // متحكمات حقول الإدخال للمشروع الجديد
   final _formKey = GlobalKey<FormState>();
   final TextEditingController _nameController = TextEditingController();
   final TextEditingController _clientController = TextEditingController();
@@ -24,10 +24,9 @@ class _ProjectManagementScreenState extends State<ProjectManagementScreen> {
   @override
   void initState() {
     super.initState();
-    _fetchProjects(); // جلب المشاريع فور فتح الصفحة
+    _fetchProjects(); 
   }
 
-  // 1. دالة جلب المشاريع من السيرفر
   Future<void> _fetchProjects() async {
     setState(() => _isLoading = true);
     try {
@@ -46,7 +45,6 @@ class _ProjectManagementScreenState extends State<ProjectManagementScreen> {
     }
   }
 
-  // 2. دالة إرسال مشروع جديد للسيرفر
   Future<void> _addProject() async {
     if (!_formKey.currentState!.validate()) return;
 
@@ -58,11 +56,11 @@ class _ProjectManagementScreenState extends State<ProjectManagementScreen> {
       });
 
       if (response.data['status'] == 'success') {
-        Navigator.pop(context); // إغلاق النافذة المنبثقة
+        Navigator.pop(context); 
         _nameController.clear();
         _clientController.clear();
         _locationController.clear();
-        _fetchProjects(); // إعادة تحديث القائمة
+        _fetchProjects(); 
         
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('تم إضافة المشروع بنجاح!'), backgroundColor: Colors.green),
@@ -75,7 +73,6 @@ class _ProjectManagementScreenState extends State<ProjectManagementScreen> {
     }
   }
 
-  // 3. نافذة منبثقة لإدخال بيانات المشروع (Dialog)
   void _showAddProjectDialog() {
     showModalBottomSheet(
       context: context,
@@ -85,7 +82,7 @@ class _ProjectManagementScreenState extends State<ProjectManagementScreen> {
       ),
       builder: (context) => Padding(
         padding: EdgeInsets.only(
-          bottom: MediaQuery.of(context).viewInsets.bottom, // لرفع الحقول فوق لوحة المفاتيح
+          bottom: MediaQuery.of(context).viewInsets.bottom, 
           top: 20, left: 20, right: 20,
         ),
         child: Form(
@@ -151,6 +148,18 @@ class _ProjectManagementScreenState extends State<ProjectManagementScreen> {
                       elevation: 3,
                       margin: const EdgeInsets.symmetric(vertical: 8),
                       child: ListTile(
+                        // 👈 تفعيل الضغط على كارد المشروع للانتقال التلقائي لشاشة عقوده
+                        onTap: () {
+                          Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (context) => ProjectContractsScreen(
+                                projectId: project['project_id'],
+                                projectName: project['project_name'],
+                              ),
+                            ),
+                          );
+                        },
                         leading: const CircleAvatar(
                           backgroundColor: Color(0xfff4a742),
                           child: Icon(Icons.business, color: Colors.white),
