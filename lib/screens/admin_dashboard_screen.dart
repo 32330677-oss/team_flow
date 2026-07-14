@@ -4,7 +4,7 @@ import 'login_screen.dart';
 import 'project_management_screen.dart'; // استيراد صفحة المشاريع الجديدة
 import 'workers_screen.dart'; // تم إضافة استيراد صفحة العمال الجديدة هنا
 import 'worker_assignment_screen.dart'; // استيراد شاشة التعيينات الجديدة
-
+import 'hr_management_screen.dart'; // 👈 أضف هذا السطر هنا
 class AdminDashboardScreen extends StatelessWidget {
   const AdminDashboardScreen({super.key});
 
@@ -51,16 +51,16 @@ class AdminDashboardScreen extends StatelessWidget {
         },
       },
       {
-        'title': 'إدارة العمال',
-        'icon': Icons.people,
-        'color': const Color(0xfffdbb2d),
-        'onTap': () {
-          Navigator.push(
-            context,
-            MaterialPageRoute(builder: (context) => const WorkersScreen()),
-          );
-        },
-      },
+  'title': 'إدارة العمال والمشرفين', // يمكنك تغيير العنوان ليصبح أشمل
+  'icon': Icons.people,
+  'color': const Color(0xfffdbb2d),
+  'onTap': () {
+    Navigator.push(
+      context,
+      MaterialPageRoute(builder: (context) => const HRManagementScreen()), // 👈 التوجيه للشاشة الوسيطة
+    );
+  },
+},
       {
         'title': 'الحضور والرواتب',
         'icon': Icons.analytics,

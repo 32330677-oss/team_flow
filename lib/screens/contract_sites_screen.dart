@@ -18,9 +18,14 @@ class ContractSitesScreen extends StatefulWidget {
 class _ContractSitesScreenState extends State<ContractSitesScreen> {
   final Dio _dio = Dio();
   late final String _apiUrl;
+  late final String _supervisorsUrl; // 👈 عنوان جلب المشرفين
   
   List _sites = [];
+  List _supervisors = []; // 👈 قائمة لتخزين المشرفين القادمين من السيرفر
+  int? _selectedSupervisorId; // 👈 لتخزين الـ ID الخاص بالمشرف المختار
+  
   bool _isLoading = true;
+  bool _isLoadingSupervisors = false; // 👈 لمراقبة تحميل قائمة المشرفين
 
   final _formKey = GlobalKey<FormState>();
   final TextEditingController _nameController = TextEditingController();
@@ -30,6 +35,7 @@ class _ContractSitesScreenState extends State<ContractSitesScreen> {
   void initState() {
     super.initState();
     _apiUrl = 'http://192.168.1.3:5000/api/sites';
+    _supervisorsUrl = 'http://192.168.1.3:5000/api/users/supervisors'; // 👈 ضبط مسار المشرفين
     _fetchSites();
   }
 
@@ -52,22 +58,43 @@ class _ContractSitesScreenState extends State<ContractSitesScreen> {
     }
   }
 
-  // 2. إضافة موقع جديد مربوط بالعقد الحالي
+  // ⚡ جلب قائمة المشرفين النشطين فقط لعرضهم في الـ Dropdown
+  Future<void> _fetchActiveSupervisors() async {
+    setState(() => _isLoadingSupervisors = true);
+    try {
+      final response = await _dio.get(_supervisorsUrl);
+      if (response.data['status'] == 'success') {
+        setState(() {
+          // فلترة المشرفين ليظهر فقط النشطين منهم (Active)
+          _supervisors = (response.data['data'] as List)
+              .where((supervisor) => supervisor['status'] == 'Active')
+              .toList();
+          _isLoadingSupervisors = false;
+        });
+      }
+    } catch (e) {
+      setState(() => _isLoadingSupervisors = false);
+      print("🚨 Error fetching supervisors: $e");
+    }
+  }
+
+  // 2. إضافة موقع جديد مربوط بالعقد الحالي وبالمشرف المختار
   Future<void> _addSite() async {
     if (!_formKey.currentState!.validate()) return;
 
     try {
       final response = await _dio.post(_apiUrl, data: {
-  'site_name': _nameController.text.trim(),
-  'location': _detailsController.text.trim(), // 👈 تم تعديل المفتاح هنا إلى location
-  'contract_id': widget.contractId, 
-  'supervisor_id': null 
+        'site_name': _nameController.text.trim(),
+        'location': _detailsController.text.trim(),
+        'contract_id': widget.contractId, 
+        'supervisor_id': _selectedSupervisorId // 👈 تم استبدال الـ null بالـ ID الفعلي المختار!
       });
 
       if (response.data['status'] == 'success') {
         Navigator.pop(context);
         _nameController.clear();
         _detailsController.clear();
+        setState(() => _selectedSupervisorId = null); // إعادة تصفير الاختيار
         _fetchSites(); // تحديث القائمة فوراً
         
         ScaffoldMessenger.of(context).showSnackBar(
@@ -75,57 +102,91 @@ class _ContractSitesScreenState extends State<ContractSitesScreen> {
         );
       }
     } catch (e) {
-  // 👈 أضف هذا السطر لمراقبة الخطأ الحقيقي
-  print("🚨 DIO ERROR DETAILS: $e");
-  
-  ScaffoldMessenger.of(context).showSnackBar(
-    const SnackBar(content: Text('فشل إنشاء الموقع الجديد'), backgroundColor: Colors.red),
-  );
-}
+      print("🚨 DIO ERROR DETAILS: $e");
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('فشل إنشاء الموقع الجديد'), backgroundColor: Colors.red),
+      );
+    }
   }
 
   // 3. نافذة إضافة موقع جديد (Dialog)
-  void _showAddSiteDialog() {
+  void _showAddSiteDialog() async {
+    // جلب المشرفين قبل فتح الـ BottomSheet لكي تكون القائمة جاهزة مباشرة
+    await _fetchActiveSupervisors();
+
+    if (!mounted) return;
+
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
       shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
-      builder: (context) => Padding(
-        padding: EdgeInsets.only(
-          bottom: MediaQuery.of(context).viewInsets.bottom,
-          top: 20, left: 20, right: 20,
-        ),
-        child: Form(
-          key: _formKey,
-          child: SingleChildScrollView(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                Text('إضافة موقع لـ ${widget.contractName}', style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold), textAlign: TextAlign.center),
-                const SizedBox(height: 15),
-                TextFormField(
-                  controller: _nameController,
-                  decoration: const InputDecoration(labelText: 'اسم الموقع / القطاع *', border: OutlineInputBorder()),
-                  validator: (value) => value == null || value.isEmpty ? 'الرجاء إدخال اسم الموقع' : null,
-                ),
-                const SizedBox(height: 12),
-                TextFormField(
-                  controller: _detailsController,
-                  decoration: const InputDecoration(labelText: 'تفاصيل الموقع الجغرافي أو العنوان', border: OutlineInputBorder()),
-                  maxLines: 2,
-                ),
-                const SizedBox(height: 20),
-                ElevatedButton(
-  onPressed: () => _addSite(), // 👈 التعديل هنا لضمان تشغيل الدالة فوراً
-  style: ElevatedButton.styleFrom(
-    backgroundColor: const Color(0xffb21f1f), 
-    padding: const EdgeInsets.symmetric(vertical: 12)
-  ),
-  child: const Text('حفظ الموقع', style: TextStyle(color: Colors.white, fontSize: 16)),
-),
-                const SizedBox(height: 20),
-              ],
+      builder: (context) => StatefulBuilder( // 👈 استخدام StatefulBuilder لتحديث حالة الـ Dropdown داخل الـ BottomSheet
+        builder: (context, setModalState) => Padding(
+          padding: EdgeInsets.only(
+            bottom: MediaQuery.of(context).viewInsets.bottom,
+            top: 20, left: 20, right: 20,
+          ),
+          child: Form(
+            key: _formKey,
+            child: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Text('إضافة موقع لـ ${widget.contractName}', style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold), textAlign: TextAlign.center),
+                  const SizedBox(height: 15),
+                  TextFormField(
+                    controller: _nameController,
+                    decoration: const InputDecoration(labelText: 'اسم الموقع / القطاع *', border: OutlineInputBorder()),
+                    validator: (value) => value == null || value.isEmpty ? 'الرجاء إدخال اسم الموقع' : null,
+                  ),
+                  const SizedBox(height: 12),
+                  TextFormField(
+                    controller: _detailsController,
+                    decoration: const InputDecoration(labelText: 'تفاصيل الموقع الجغرافي أو العنوان', border: OutlineInputBorder()),
+                    maxLines: 2,
+                  ),
+                  const SizedBox(height: 12),
+                  
+                  // ⚡ قائمة اختيار المشرفين (Dropdown)
+                  _isLoadingSupervisors
+                      ? const Center(child: Padding(
+                          padding: EdgeInsets.all(8.0),
+                          child: CircularProgressIndicator(),
+                        ))
+                      : DropdownButtonFormField<int>(
+                          decoration: const InputDecoration(
+                            labelText: 'تعيين مشرف للموقع',
+                            border: OutlineInputBorder(),
+                            prefixIcon: Icon(Icons.person, color: Colors.orange),
+                          ),
+                          value: _selectedSupervisorId,
+                          hint: const Text('اختر مشرفاً لهذا الموقع (اختياري)'),
+                          items: _supervisors.map((supervisor) {
+                            return DropdownMenuItem<int>(
+                              value: supervisor['user_id'], // الـ ID الذي سيُرسل لقاعدة البيانات
+                              child: Text(supervisor['full_name'] ?? supervisor['username']),
+                            );
+                          }).toList(),
+                          onChanged: (value) {
+                            setModalState(() { // تحديث الاختيار داخل الـ Modal
+                              _selectedSupervisorId = value;
+                            });
+                          },
+                        ),
+                  
+                  const SizedBox(height: 20),
+                  ElevatedButton(
+                    onPressed: () => _addSite(), 
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: const Color(0xffb21f1f), 
+                      padding: const EdgeInsets.symmetric(vertical: 12)
+                    ),
+                    child: const Text('حفظ الموقع', style: TextStyle(color: Colors.white, fontSize: 16)),
+                  ),
+                  const SizedBox(height: 20),
+                ],
+              ),
             ),
           ),
         ),
@@ -167,13 +228,16 @@ class _ContractSitesScreenState extends State<ContractSitesScreen> {
                         trailing: Container(
                           padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                           decoration: BoxDecoration(
-                            color: site['status'] == 'Active' ? Colors.green.shade100 : Colors.grey.shade300,
+                            color: site['site_status'] == 'Active' ? Colors.green.shade100 : Colors.grey.shade300,
                             borderRadius: BorderRadius.circular(5),
                           ),
                           child: Text(
-  site['site_status'] == 'Active' ? 'نشط' : 'متوقف', // 👈 التعديل هنا لـ site_status
-  style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
-),
+                            site['site_status'] == 'Active' ? 'نشط' : 'متوقف', 
+                            style: TextStyle(
+                              color: site['site_status'] == 'Active' ? Colors.green.shade900 : Colors.grey.shade700, 
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
                         ),
                         isThreeLine: true,
                       ),
