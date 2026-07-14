@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:dio/dio.dart';
-import '../constants.dart'; // تأكد من مسار ملف الـ constants لديك لاستيراد ApiConfig
+import 'package:team_flow/constants.dart'; // ✅ الاستيراد الموحد
 
 class SupervisorManagementScreen extends StatefulWidget {
   const SupervisorManagementScreen({Key? key}) : super(key: key);
@@ -10,20 +9,13 @@ class SupervisorManagementScreen extends StatefulWidget {
 }
 
 class _SupervisorManagementScreenState extends State<SupervisorManagementScreen> {
-  final Dio _dio = Dio(
-    BaseOptions(
-      connectTimeout: const Duration(seconds: 5),
-      receiveTimeout: const Duration(seconds: 5),
-    ),
-  );
-
-  // استخدام المسار المركزي للباكيند الذي قمنا بتهيئته للمشرفين
-  final String _apiUrl = '${ApiConfig.baseUrl}/users/supervisors';
+  // ✅ لم نعد بحاجة لتعريف Dio محلي هنا
+  
+  final String _apiUrl = '/users/supervisors'; // ✅ مسار نسبي
 
   List<dynamic> _supervisors = [];
   bool _isLoading = true;
 
-  // أجهزة التحكم بالمدخلات لنموذج إضافة مشرف جديد
   final _formKey = GlobalKey<FormState>();
   final _nameController = TextEditingController();
   final _usernameController = TextEditingController();
@@ -35,16 +27,15 @@ class _SupervisorManagementScreenState extends State<SupervisorManagementScreen>
     _fetchSupervisors();
   }
 
-  // حساب الإحصائيات الفورية للمشرفين
   int get _totalSupervisors => _supervisors.length;
   int get _activeSupervisors => _supervisors.where((s) => s['status'] == 'Active').length;
   int get _inactiveSupervisors => _totalSupervisors - _activeSupervisors;
 
-  // 1. جلب قائمة المشرفين من الباكيند
   Future<void> _fetchSupervisors() async {
     setState(() => _isLoading = true);
     try {
-      final response = await _dio.get(_apiUrl);
+      // ✅ استخدام ApiConfig.dio الموحد
+      final response = await ApiConfig.dio.get(_apiUrl);
       if (response.statusCode == 200 && response.data['status'] == 'success') {
         setState(() {
           _supervisors = response.data['data'];
@@ -57,49 +48,45 @@ class _SupervisorManagementScreenState extends State<SupervisorManagementScreen>
     }
   }
 
-  // 2. إرسال طلب إنشاء مشرف جديد للباكيند
   Future<void> _addSupervisor() async {
     if (!_formKey.currentState!.validate()) return;
 
     try {
-      final response = await _dio.post(_apiUrl, data: {
+      // ✅ التوكن يتم إرساله تلقائياً من خلال الـ Interceptor في ApiConfig
+      final response = await ApiConfig.dio.post(_apiUrl, data: {
         'full_name': _nameController.text.trim(),
         'username': _usernameController.text.trim(),
         'password': _passwordController.text.trim(),
       });
 
       if (response.statusCode == 201 && response.data['status'] == 'success') {
-        Navigator.pop(context); // إغلاق نافذة الإدخال
+        Navigator.pop(context);
         _clearControllers();
-        _fetchSupervisors(); // تحديث القائمة فوراً
+        _fetchSupervisors();
         _showSnackBar('تم إضافة المشرف بنجاح وتفعيل حسابه', Colors.green);
       }
     } catch (e) {
-      String errorMessage = 'فشل حفظ المشرف، تأكد من أن اسم المستخدم غير مكرر.';
-      if (e is DioException && e.response != null) {
-        errorMessage = e.response!.data['message'] ?? errorMessage;
-      }
-      _showSnackBar(errorMessage, Colors.red);
+      _showSnackBar('فشل حفظ المشرف، تأكد من البيانات.', Colors.red);
     }
   }
 
-  // 3. تعديل حالة المشرف (نشط / متوقف) وإرسالها للباكيند
   Future<void> _toggleStatus(int userId, String currentStatus) async {
     final newStatus = currentStatus == 'Active' ? 'Inactive' : 'Active';
     try {
-      final response = await _dio.patch('$_apiUrl/$userId/status', data: {
+      // ✅ استخدام الـ Patch مع ApiConfig.dio
+      final response = await ApiConfig.dio.patch('$_apiUrl/$userId/status', data: {
         'status': newStatus,
       });
 
       if (response.statusCode == 200 && response.data['status'] == 'success') {
-        _fetchSupervisors(); // إعادة جلب البيانات لتحديث الحالة على الواجهة
+        _fetchSupervisors();
         _showSnackBar(
           newStatus == 'Active' ? 'تم تفعيل حساب المشرف' : 'تم تعطيل حساب المشرف بنجاح',
           Colors.orange,
         );
       }
     } catch (e) {
-      _showSnackBar('فشل تعديل حالة المشرف، يرجى التحقق من اتصال السيرفر', Colors.red);
+      _showSnackBar('فشل تعديل حالة المشرف', Colors.red);
     }
   }
 
@@ -115,14 +102,11 @@ class _SupervisorManagementScreenState extends State<SupervisorManagementScreen>
     );
   }
 
-  // نافذة (BottomSheet) منسقة لإضافة المشرف
   void _openAddSupervisorSheet() {
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-      ),
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
       builder: (context) => Padding(
         padding: EdgeInsets.only(
           bottom: MediaQuery.of(context).viewInsets.bottom,
@@ -134,16 +118,9 @@ class _SupervisorManagementScreenState extends State<SupervisorManagementScreen>
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                Container(
-                  width: 50,
-                  height: 5,
-                  decoration: BoxDecoration(color: Colors.grey[300], borderRadius: BorderRadius.circular(10)),
-                ),
+                Container(width: 50, height: 5, decoration: BoxDecoration(color: Colors.grey[300], borderRadius: BorderRadius.circular(10))),
                 const SizedBox(height: 15),
-                const Text(
-                  'إنشاء حساب مشرف جديد',
-                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Color(0xffb21f1f)),
-                ),
+                const Text('إنشاء حساب مشرف جديد', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Color(0xffb21f1f))),
                 const SizedBox(height: 15),
                 TextFormField(
                   controller: _nameController,
@@ -182,7 +159,6 @@ class _SupervisorManagementScreenState extends State<SupervisorManagementScreen>
     );
   }
 
-  // بناء كروت الإحصائيات (KPI Widget) بلون متناسق
   Widget _buildKPICard(String title, String value, Color color) {
     return Expanded(
       child: Card(
@@ -210,7 +186,6 @@ class _SupervisorManagementScreenState extends State<SupervisorManagementScreen>
         title: const Text('إدارة المشرفين (Supervisors)', style: TextStyle(fontWeight: FontWeight.bold, color: Colors.white)),
         backgroundColor: const Color(0xffb21f1f),
         centerTitle: true,
-        iconTheme: const IconThemeData(color: Colors.white),
       ),
       floatingActionButton: FloatingActionButton(
         onPressed: _openAddSupervisorSheet,
@@ -221,7 +196,6 @@ class _SupervisorManagementScreenState extends State<SupervisorManagementScreen>
           ? const Center(child: CircularProgressIndicator())
           : Column(
               children: [
-                // صف العدادات الإحصائية للمشرفين
                 Padding(
                   padding: const EdgeInsets.all(12.0),
                   child: Row(
@@ -240,54 +214,18 @@ class _SupervisorManagementScreenState extends State<SupervisorManagementScreen>
                           itemBuilder: (context, index) {
                             final supervisor = _supervisors[index];
                             final isUserActive = supervisor['status'] == 'Active';
-
                             return Card(
                               margin: const EdgeInsets.symmetric(horizontal: 15, vertical: 6),
                               elevation: 2,
                               shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                               child: ListTile(
-                                contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                                leading: CircleAvatar(
-                                  backgroundColor: const Color(0xffb21f1f).withOpacity(0.1),
-                                  child: const Icon(Icons.person, color: Color(0xffb21f1f)),
-                                ),
-                                title: Text(
-                                  supervisor['full_name'] ?? 'مستخدم بدون اسم',
-                                  style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
-                                ),
-                                subtitle: Padding(
-                                  padding: const EdgeInsets.only(top: 4.0),
-                                  child: Text(
-                                    'اسم المستخدم: @${supervisor['username'] ?? 'غير محدد'}\nالصلاحية: مشرف موقع',
-                                    style: TextStyle(color: Colors.grey[600], height: 1.3),
-                                  ),
-                                ),
-                                trailing: Row(
-                                  mainAxisSize: MainAxisSize.min,
-                                  children: [
-                                    // نص الحالة
-                                    Text(
-                                      isUserActive ? 'نشط' : 'معطل',
-                                      style: TextStyle(
-                                        color: isUserActive ? Colors.green : Colors.red,
-                                        fontWeight: FontWeight.bold,
-                                      ),
-                                    ),
-                                    const SizedBox(width: 8),
-                                    // سويتش لتغيير حالة حساب المشرف فوراً
-                                    Switch(
-                                      value: isUserActive,
-                                      activeColor: Colors.green,
-                                      inactiveThumbColor: Colors.red,
-                                      inactiveTrackColor: Colors.red.shade100,
-                                      onChanged: (val) {
-                                        _toggleStatus(
-                                          supervisor['user_id'],
-                                          supervisor['status'],
-                                        );
-                                      },
-                                    ),
-                                  ],
+                                leading: CircleAvatar(backgroundColor: const Color(0xffb21f1f).withOpacity(0.1), child: const Icon(Icons.person, color: Color(0xffb21f1f))),
+                                title: Text(supervisor['full_name'] ?? 'مستخدم بدون اسم', style: const TextStyle(fontWeight: FontWeight.bold)),
+                                subtitle: Text('اسم المستخدم: @${supervisor['username'] ?? 'غير محدد'}'),
+                                trailing: Switch(
+                                  value: isUserActive,
+                                  activeColor: Colors.green,
+                                  onChanged: (val) => _toggleStatus(supervisor['user_id'], supervisor['status']),
                                 ),
                               ),
                             );

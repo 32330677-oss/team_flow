@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:dio/dio.dart';
+import 'package:team_flow/constants.dart'; // ✅ استيراد ملف الإعدادات الموحد
 
 class ContractSitesScreen extends StatefulWidget {
   final int contractId;
@@ -16,16 +16,16 @@ class ContractSitesScreen extends StatefulWidget {
 }
 
 class _ContractSitesScreenState extends State<ContractSitesScreen> {
-  final Dio _dio = Dio();
+  // ✅ استخدام الروابط الفرعية فقط لأن الرابط الأساسي معرّف داخل الـ ApiConfig
   late final String _apiUrl;
-  late final String _supervisorsUrl; // 👈 عنوان جلب المشرفين
+  late final String _supervisorsUrl; 
   
   List _sites = [];
-  List _supervisors = []; // 👈 قائمة لتخزين المشرفين القادمين من السيرفر
-  int? _selectedSupervisorId; // 👈 لتخزين الـ ID الخاص بالمشرف المختار
+  List _supervisors = []; 
+  int? _selectedSupervisorId; 
   
   bool _isLoading = true;
-  bool _isLoadingSupervisors = false; // 👈 لمراقبة تحميل قائمة المشرفين
+  bool _isLoadingSupervisors = false; 
 
   final _formKey = GlobalKey<FormState>();
   final TextEditingController _nameController = TextEditingController();
@@ -34,8 +34,8 @@ class _ContractSitesScreenState extends State<ContractSitesScreen> {
   @override
   void initState() {
     super.initState();
-    _apiUrl = 'http://192.168.1.3:5000/api/sites';
-    _supervisorsUrl = 'http://192.168.1.3:5000/api/users/supervisors'; // 👈 ضبط مسار المشرفين
+    _apiUrl = '/sites'; // ✅ مسار فرعي مبسط
+    _supervisorsUrl = '/users/supervisors'; // ✅ مسار فرعي مبسط
     _fetchSites();
   }
 
@@ -43,7 +43,8 @@ class _ContractSitesScreenState extends State<ContractSitesScreen> {
   Future<void> _fetchSites() async {
     setState(() => _isLoading = true);
     try {
-      final response = await _dio.get('$_apiUrl/contract/${widget.contractId}');
+      // ✅ استخدام ApiConfig.dio للطلب تلقائياً مع التوكن
+      final response = await ApiConfig.dio.get('$_apiUrl/contract/${widget.contractId}');
       if (response.data['status'] == 'success') {
         setState(() {
           _sites = response.data['data'];
@@ -62,10 +63,10 @@ class _ContractSitesScreenState extends State<ContractSitesScreen> {
   Future<void> _fetchActiveSupervisors() async {
     setState(() => _isLoadingSupervisors = true);
     try {
-      final response = await _dio.get(_supervisorsUrl);
+      // ✅ استخدام ApiConfig.dio للطلب تلقائياً مع التوكن
+      final response = await ApiConfig.dio.get(_supervisorsUrl);
       if (response.data['status'] == 'success') {
         setState(() {
-          // فلترة المشرفين ليظهر فقط النشطين منهم (Active)
           _supervisors = (response.data['data'] as List)
               .where((supervisor) => supervisor['status'] == 'Active')
               .toList();
@@ -83,19 +84,20 @@ class _ContractSitesScreenState extends State<ContractSitesScreen> {
     if (!_formKey.currentState!.validate()) return;
 
     try {
-      final response = await _dio.post(_apiUrl, data: {
+      // ✅ استخدام ApiConfig.dio لإرسال طلب الـ POST والتوكن يضاف تلقائياً بالخلفية
+      final response = await ApiConfig.dio.post(_apiUrl, data: {
         'site_name': _nameController.text.trim(),
         'location': _detailsController.text.trim(),
         'contract_id': widget.contractId, 
-        'supervisor_id': _selectedSupervisorId // 👈 تم استبدال الـ null بالـ ID الفعلي المختار!
+        'supervisor_id': _selectedSupervisorId 
       });
 
       if (response.data['status'] == 'success') {
         Navigator.pop(context);
         _nameController.clear();
         _detailsController.clear();
-        setState(() => _selectedSupervisorId = null); // إعادة تصفير الاختيار
-        _fetchSites(); // تحديث القائمة فوراً
+        setState(() => _selectedSupervisorId = null); 
+        _fetchSites(); 
         
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('تم إنشاء الموقع بنجاح!'), backgroundColor: Colors.green),
@@ -111,7 +113,6 @@ class _ContractSitesScreenState extends State<ContractSitesScreen> {
 
   // 3. نافذة إضافة موقع جديد (Dialog)
   void _showAddSiteDialog() async {
-    // جلب المشرفين قبل فتح الـ BottomSheet لكي تكون القائمة جاهزة مباشرة
     await _fetchActiveSupervisors();
 
     if (!mounted) return;
@@ -120,7 +121,7 @@ class _ContractSitesScreenState extends State<ContractSitesScreen> {
       context: context,
       isScrollControlled: true,
       shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
-      builder: (context) => StatefulBuilder( // 👈 استخدام StatefulBuilder لتحديث حالة الـ Dropdown داخل الـ BottomSheet
+      builder: (context) => StatefulBuilder( 
         builder: (context, setModalState) => Padding(
           padding: EdgeInsets.only(
             bottom: MediaQuery.of(context).viewInsets.bottom,
@@ -148,7 +149,6 @@ class _ContractSitesScreenState extends State<ContractSitesScreen> {
                   ),
                   const SizedBox(height: 12),
                   
-                  // ⚡ قائمة اختيار المشرفين (Dropdown)
                   _isLoadingSupervisors
                       ? const Center(child: Padding(
                           padding: EdgeInsets.all(8.0),
@@ -164,12 +164,12 @@ class _ContractSitesScreenState extends State<ContractSitesScreen> {
                           hint: const Text('اختر مشرفاً لهذا الموقع (اختياري)'),
                           items: _supervisors.map((supervisor) {
                             return DropdownMenuItem<int>(
-                              value: supervisor['user_id'], // الـ ID الذي سيُرسل لقاعدة البيانات
+                              value: supervisor['user_id'], 
                               child: Text(supervisor['full_name'] ?? supervisor['username']),
                             );
                           }).toList(),
                           onChanged: (value) {
-                            setModalState(() { // تحديث الاختيار داخل الـ Modal
+                            setModalState(() { 
                               _selectedSupervisorId = value;
                             });
                           },

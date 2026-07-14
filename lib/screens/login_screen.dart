@@ -3,6 +3,8 @@ import 'package:dio/dio.dart';
 import '../services/auth_service.dart'; // تأكد من صحة مسار ملف الخدمة عندك
 import 'admin_dashboard_screen.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+import 'supervisor_dashboard.dart';
+
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
 
@@ -18,6 +20,7 @@ class _LoginScreenState extends State<LoginScreen> {
   bool _isLoading = false;
   bool _isPasswordHidden = true;
   final _storage = const FlutterSecureStorage();
+
   void _handleLogin() async {
     final email = _emailController.text.trim();
     final password = _passwordController.text.trim();
@@ -42,40 +45,48 @@ class _LoginScreenState extends State<LoginScreen> {
       _isLoading = false;
     });
 
-if (result != null && result['status'] == 'success') {
-  String token = result['token'];
-  String role = result['user']['role']; // سحب الـ role (Admin أو Supervisor)
-  String fullName = result['user']['full_name'] ?? 'المستخدم';
+    if (result != null && result['status'] == 'success') {
+      String token = result['token'];
+      String role = result['user']['role']; // سحب الـ role (Admin أو Supervisor)
+      String fullName = result['user']['full_name'] ?? 'المستخدم';
 
-  // 👈 حفظ البيانات في ذاكرة الهاتف المشفرة
-  await _storage.write(key: 'jwt_token', value: token);
-  await _storage.write(key: 'user_role', value: role);
+      // 👈 حفظ البيانات في ذاكرة الهاتف المشفرة
+final userIdRaw = result['user']['user_id'] ?? result['user']['id'];
+final int supervisorId = (userIdRaw != null) ? int.parse(userIdRaw.toString()) : 0;
 
-  ScaffoldMessenger.of(context).showSnackBar(
-    SnackBar(content: Text("أهلاً بك يا $fullName، تم تسجيل الدخول بنجاح!"), backgroundColor: Colors.green),
-  );
+await _storage.write(key: 'jwt_token', value: token);
+await _storage.write(key: 'user_role', value: role);
+await _storage.write(key: 'user_id', value: supervisorId.toString()); // ✅ حفظ الآي دي
+await _storage.write(key: 'user_name', value: fullName); // ✅ حفظ الاسم الكامل
 
-  // التوجيه الذكي (المبدئي) بناءً على الـ Role
-  Future.delayed(const Duration(seconds: 1), () {
-    if (role == 'Admin') {
-      Navigator.pushReplacement(
-        context,
-        MaterialPageRoute(builder: (context) => const AdminDashboardScreen()),
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text("أهلاً بك يا $fullName، تم تسجيل الدخول بنجاح!"), backgroundColor: Colors.green),
       );
+
+      // التوجيه الذكي بناءً على الـ Role
+      Future.delayed(const Duration(seconds: 1), () {
+        if (role == 'Admin') {
+          Navigator.pushReplacement(
+            context,
+            MaterialPageRoute(builder: (context) => const AdminDashboardScreen()),
+          );
+        } else {
+          // جلب الـ ID بأمان مع التحقق من كلا الاسمين (user_id أو id) وتحويله لـ int
+          final userIdRaw = result['user']['user_id'] ?? result['user']['id'];
+          final int supervisorId = (userIdRaw != null) ? int.parse(userIdRaw.toString()) : 0; 
+
+          Navigator.pushReplacement(
+            context,
+            MaterialPageRoute(
+              builder: (context) => SupervisorDashboard(
+                supervisorId: supervisorId, // مررنا المتغير الآمن
+                supervisorName: result['user']['full_name'] ?? result['user']['username'] ?? 'مشرف جديد',
+              ),
+            ),
+          );
+        }
+      });
     } else {
-      // شاشة مؤقتة للمشرف لكي لا نتشتت الآن
-      Navigator.pushReplacement(
-        context,
-        MaterialPageRoute(
-          builder: (context) => Scaffold(
-            appBar: AppBar(title: const Text('لوحة المشرف')),
-            body: const Center(child: Text('مرحباً بك يا مشرف. شاشتك قيد التطوير حالياً بعد إنهاء قسم الأدمن.')),
-          ),
-        ),
-      );
-    }
-  });
-} else {
       String errorMsg = result?['message'] ?? "فشل الاتصال بالسيرفر";
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(

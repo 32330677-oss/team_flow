@@ -2,9 +2,10 @@ import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 
-// استيراد الشاشات الخاصة بك (تأكد من صحة المسارات في مشروعك)
+// استيراد الشاشات الخاصة بك
 import 'screens/login_screen.dart';
 import 'screens/admin_dashboard_screen.dart';
+import 'screens/supervisor_dashboard.dart'; // ✅ استيراد شاشة المشرف هنا
 
 void main() {
   runApp(const MyApp());
@@ -21,12 +22,24 @@ class MyApp extends StatelessWidget {
     String? token = await storage.read(key: 'jwt_token');
     String? role = await storage.read(key: 'user_role');
 
-    // إذا كان التوكن موجوداً والمستخدم Admin، نتوجه مباشرة للـ Dashboard
-    if (token != null && role == 'Admin') {
-      return const AdminDashboardScreen();
+    // إذا كان التوكن موجوداً
+    if (token != null && token.isNotEmpty) {
+      if (role == 'Admin') {
+        // 1️⃣ توجيه الأدمن مباشرة
+        return const AdminDashboardScreen();
+      } else if (role == 'Supervisor') {
+        // 2️⃣ توجيه المشرف مباشرة مع جلب بياناته المخزنة
+        String? userIdRaw = await storage.read(key: 'user_id') ?? '0';
+        String? userName = await storage.read(key: 'user_name') ?? 'مشرف';
+        
+        return SupervisorDashboard(
+          supervisorId: int.parse(userIdRaw),
+          supervisorName: userName,
+        );
+      }
     }
     
-    // في حال عدم وجود توكن أو إذا كان الحساب مشرف (قيد التطوير)، يذهب لصفحة اللوجن
+    // في حال عدم وجود توكن أو أي حالة أخرى، نذهب لصفحة اللوجن
     return const LoginScreen();
   }
 
@@ -49,9 +62,11 @@ class MyApp extends StatelessWidget {
       
       theme: ThemeData(
         primarySwatch: Colors.blue,
-        fontFamily: 'Roboto', // يمكنك استبداله بخط عربي لاحقاً
+        fontFamily: 'Roboto', 
       ),
-      
+      routes: {
+        '/login': (context) => const LoginScreen(),
+      },
       // استخدام FutureBuilder لعرض شاشة انتظار بيضاء صغيرة أثناء فحص الذاكرة
       home: FutureBuilder<Widget>(
         future: _checkLoginStatus(),

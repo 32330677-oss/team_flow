@@ -1,7 +1,7 @@
 import 'contract_sites_screen.dart';
 import 'package:flutter/material.dart';
-import 'package:dio/dio.dart';
-import 'package:flutter/material.dart';
+import 'package:team_flow/constants.dart'; // ✅ استيراد ملف الإعدادات الموحد
+
 class ProjectContractsScreen extends StatefulWidget {
   final int projectId;
   final String projectName;
@@ -17,7 +17,7 @@ class ProjectContractsScreen extends StatefulWidget {
 }
 
 class _ProjectContractsScreenState extends State<ProjectContractsScreen> {
-  final Dio _dio = Dio();
+  // ✅ استخدام المسار الفرعي الموحد
   late final String _apiUrl;
   
   List _contracts = [];
@@ -32,8 +32,8 @@ class _ProjectContractsScreenState extends State<ProjectContractsScreen> {
   @override
   void initState() {
     super.initState();
-    // تحضير رابط جلب العقود بناءً على الـ ID الخاص بالمشروع الحالي
-    _apiUrl = 'http://192.168.1.3:5000/api/contracts';
+    // ✅ تهيئة المسار الفرعي الموحد
+    _apiUrl = '/contracts';
     _fetchContracts();
   }
 
@@ -41,7 +41,8 @@ class _ProjectContractsScreenState extends State<ProjectContractsScreen> {
   Future<void> _fetchContracts() async {
     setState(() => _isLoading = true);
     try {
-      final response = await _dio.get('$_apiUrl/project/${widget.projectId}');
+      // ✅ استخدام ApiConfig.dio لإرسال الطلب مع التوكن تلقائياً
+      final response = await ApiConfig.dio.get('$_apiUrl/project/${widget.projectId}');
       if (response.data['status'] == 'success') {
         setState(() {
           _contracts = response.data['data'];
@@ -61,7 +62,8 @@ class _ProjectContractsScreenState extends State<ProjectContractsScreen> {
     if (!_formKey.currentState!.validate()) return;
 
     try {
-      final response = await _dio.post(_apiUrl, data: {
+      // ✅ استخدام ApiConfig.dio لإرسال الـ POST مع التوكن المرفق تلقائياً بالهيدرز
+      final response = await ApiConfig.dio.post(_apiUrl, data: {
         'contract_name': _nameController.text.trim(),
         'description': _descController.text.trim(),
         'project_id': widget.projectId, // 👈 ربط تلقائي بالمشروع الحالي
@@ -174,17 +176,17 @@ class _ProjectContractsScreenState extends State<ProjectContractsScreen> {
                       margin: const EdgeInsets.symmetric(vertical: 6),
                       child: ListTile(
                         onTap: () {
-    // 👈 عند الضغط على العقد، ننتقل لشاشة المواقع الخاصة به
-    Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder: (context) => ContractSitesScreen(
-          contractId: contract['contract_id'],
-          contractName: contract['contract_name'],
-        ),
-      ),
-    );
-  },
+                          // 👈 الانتقال لشاشة المواقع الخاصة بالعقد المختار
+                          Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (context) => ContractSitesScreen(
+                                contractId: contract['contract_id'],
+                                contractName: contract['contract_name'],
+                              ),
+                            ),
+                          );
+                        },
                         leading: const CircleAvatar(
                           backgroundColor: Color(0xffb21f1f),
                           child: Icon(Icons.gavel, color: Colors.white, size: 20),

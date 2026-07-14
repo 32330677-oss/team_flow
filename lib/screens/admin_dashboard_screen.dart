@@ -1,18 +1,21 @@
 import 'package:flutter/material.dart';
-import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+import 'package:team_flow/constants.dart'; // ✅ استيراد ملف الإعدادات الموحد بدلاً من SecureStorage
 import 'login_screen.dart';
 import 'project_management_screen.dart'; // استيراد صفحة المشاريع الجديدة
 import 'workers_screen.dart'; // تم إضافة استيراد صفحة العمال الجديدة هنا
 import 'worker_assignment_screen.dart'; // استيراد شاشة التعيينات الجديدة
 import 'hr_management_screen.dart'; // 👈 أضف هذا السطر هنا
+
 class AdminDashboardScreen extends StatelessWidget {
   const AdminDashboardScreen({super.key});
 
-  // دالة تسجيل الخروج ومسح الذاكرة الآمنة
+  // دالة تسجيل الخروج ومسح الذاكرة الآمنة الموحدة
   Future<void> _handleLogout(BuildContext context) async {
-    const storage = FlutterSecureStorage();
-    await storage.delete(key: 'jwt_token');
-    await storage.delete(key: 'user_role');
+    // ✅ استخدام الـ Storage المشترك المعرف داخل ApiConfig بدلاً من إنشاء واحد جديد
+await ApiConfig.storage.delete(key: 'jwt_token');
+await ApiConfig.storage.delete(key: 'user_role');
+await ApiConfig.storage.delete(key: 'user_id');
+await ApiConfig.storage.delete(key: 'user_name');
 
     if (context.mounted) {
       Navigator.pushAndRemoveUntil(
@@ -51,16 +54,16 @@ class AdminDashboardScreen extends StatelessWidget {
         },
       },
       {
-  'title': 'إدارة العمال والمشرفين', // يمكنك تغيير العنوان ليصبح أشمل
-  'icon': Icons.people,
-  'color': const Color(0xfffdbb2d),
-  'onTap': () {
-    Navigator.push(
-      context,
-      MaterialPageRoute(builder: (context) => const HRManagementScreen()), // 👈 التوجيه للشاشة الوسيطة
-    );
-  },
-},
+        'title': 'إدارة العمال والمشرفين', // يمكنك تغيير العنوان ليصبح أشمل
+        'icon': Icons.people,
+        'color': const Color(0xfffdbb2d),
+        'onTap': () {
+          Navigator.push(
+            context,
+            MaterialPageRoute(builder: (context) => const HRManagementScreen()), // 👈 التوجيه للشاشة الوسيطة
+          );
+        },
+      },
       {
         'title': 'الحضور والرواتب',
         'icon': Icons.analytics,
