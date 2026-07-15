@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:dio/dio.dart';
 import 'package:team_flow/screens/site_attendance_screen.dart';
+import 'package:team_flow/constants.dart';
 class SupervisorDashboard extends StatefulWidget {
   final int supervisorId;
   final String supervisorName;
@@ -16,7 +17,7 @@ class SupervisorDashboard extends StatefulWidget {
 }
 
 class _SupervisorDashboardState extends State<SupervisorDashboard> {
-  final Dio _dio = Dio();
+  final Dio _dio = ApiConfig.dio;
   final String _apiUrl = 'http://192.168.1.3:5000/api/sites/supervisor';
   
   List _mySites = [];
@@ -30,16 +31,17 @@ class _SupervisorDashboardState extends State<SupervisorDashboard> {
 
   // جلب المواقع المسؤولة عنها هذا المشرف تلقائياً
   Future<void> _fetchMySites() async {
-    setState(() => _isLoading = true);
-    try {
-      final response = await _dio.get('$_apiUrl/${widget.supervisorId}');
-      if (response.data['status'] == 'success') {
-        setState(() {
-          _mySites = response.data['data'];
-          _isLoading = false;
-        });
-      }
-    } catch (e) {
+  setState(() => _isLoading = true);
+  try {
+    // نطلب المسار بدون الـ ID (السيرفر سيقرأ الـ ID من التوكن)
+    final response = await _dio.get('/sites/my-sites'); 
+    if (response.data['status'] == 'success') {
+      setState(() {
+        _mySites = response.data['data'];
+        _isLoading = false;
+      });
+    }
+  } catch (e) {
       setState(() => _isLoading = false);
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('فشل جلب المواقع المسؤولة عنها'), backgroundColor: Colors.red),

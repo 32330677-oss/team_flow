@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:dio/dio.dart';
 import 'project_contracts_screen.dart'; // 👈 استيراد شاشة العقود المخصصة للمشروع
-
+import 'package:team_flow/constants.dart';
 class ProjectManagementScreen extends StatefulWidget {
   const ProjectManagementScreen({super.key});
 
@@ -10,9 +10,8 @@ class ProjectManagementScreen extends StatefulWidget {
 }
 
 class _ProjectManagementScreenState extends State<ProjectManagementScreen> {
-  final Dio _dio = Dio();
-  final String _apiUrl = 'http://192.168.1.3:5000/api/projects'; 
-  
+ final Dio _dio = ApiConfig.dio;
+final String _apiUrl = '/projects';  
   List _projects = [];
   bool _isLoading = true;
 

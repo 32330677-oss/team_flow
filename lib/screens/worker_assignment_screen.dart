@@ -29,8 +29,7 @@ class _WorkerAssignmentScreenState extends State<WorkerAssignmentScreen> {
       final resWorkers = await ApiConfig.dio.get('/workers');
       if (resWorkers.statusCode == 200) _workers = resWorkers.data['data'] ?? [];
       
-      // هنا الرابط الصحيح بناءً على الروتر الخاص بك (رقم 5 هو الـ supervisorId)
-      final resSites = await ApiConfig.dio.get('/sites/supervisor/5'); 
+     final resSites = await ApiConfig.dio.get('/sites/all-sites');
       if (resSites.statusCode == 200) _sites = resSites.data['data'] ?? [];
       
       final resAssignments = await ApiConfig.dio.get('/assignments');
@@ -42,18 +41,18 @@ class _WorkerAssignmentScreenState extends State<WorkerAssignmentScreen> {
     setState(() => _isLoading = false);
   }
 
-  Future<void> _createAssignment() async {
+Future<void> _createAssignment() async {
     if (_selectedWorkerId == null || _selectedSiteId == null) {
       _showSnackBar('يرجى تحديد العامل والموقع أولاً', Colors.orange);
       return;
     }
     try {
+      // حذفنا السطر الخاص بـ assigned_by_user_id: 5 
       final response = await ApiConfig.dio.post('/assignments', data: {
-        'worker_id': _selectedWorkerId,
-        'site_id': _selectedSiteId,
-        'contract_id': null,
-        'assigned_by_user_id': 5 
-      });
+  'worker_id': _selectedWorkerId,
+  'site_id': _selectedSiteId,
+});
+      
       if (response.statusCode == 201 || response.statusCode == 200) {
         Navigator.pop(context);
         _loadData(); 

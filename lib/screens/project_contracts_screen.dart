@@ -63,14 +63,15 @@ class _ProjectContractsScreenState extends State<ProjectContractsScreen> {
 
     try {
       // ✅ استخدام ApiConfig.dio لإرسال الـ POST مع التوكن المرفق تلقائياً بالهيدرز
-      final response = await ApiConfig.dio.post(_apiUrl, data: {
-        'contract_name': _nameController.text.trim(),
-        'description': _descController.text.trim(),
-        'project_id': widget.projectId, // 👈 ربط تلقائي بالمشروع الحالي
-        'hourly_rate': double.parse(_rateController.text.trim()),
-        'overtime_hourly_rate': double.parse(_overtimeRateController.text.trim()),
-        'admin_id': null // يمكن تمريره لاحقاً من التوكن
-      });
+    // عدل هذا الجزء فقط داخل دالة _addContract
+final response = await ApiConfig.dio.post(_apiUrl, data: {
+  'contract_name': _nameController.text.trim(),
+  'description': _descController.text.trim(),
+  'project_id': widget.projectId,
+  'hourly_rate': double.parse(_rateController.text.trim()),
+  'overtime_hourly_rate': double.parse(_overtimeRateController.text.trim()),
+  // لا ترسل admin_id، السيرفر سيأخذه من التوكن تلقائياً
+});
 
       if (response.data['status'] == 'success') {
         Navigator.pop(context);
