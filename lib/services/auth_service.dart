@@ -1,6 +1,6 @@
 import 'package:dio/dio.dart';
 import 'package:shared_preferences/shared_preferences.dart'; // ✅ استيراد الحزمة لحفظ التوكن
-
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 class AuthService {
   final String baseUrl = "http://192.168.1.3:5000/api/auth";
   final Dio dio = Dio(BaseOptions(
@@ -9,32 +9,33 @@ class AuthService {
   ));
 
   // دالة إرسال طلب تسجيل الدخول للباكيند
-  Future<Map<String, dynamic>?> login(String email, String password) async {
-    try {
-      final response = await dio.post(
-        '$baseUrl/login',
-        data: {
-          'email': email,
-          'password': password,
-        },
-      );
+Future<Map<String, dynamic>?> login(String email, String password) async {
+  try {
+    final response = await dio.post('$baseUrl/login', data: {
+      'email': email,
+      'password': password,
+    });
 
-      if (response.statusCode == 200) {
-        final responseData = response.data;
+    if (response.statusCode == 200) {
+      final responseData = response.data;
 
-        // ✅ التعديل الاحترافي: حفظ التوكن في الذاكرة المحلية عند نجاح الدخول
-        if (responseData != null && responseData['token'] != null) {
-          SharedPreferences prefs = await SharedPreferences.getInstance();
-          await prefs.setString('token', responseData['token']); // حفظ التوكن باسم 'token'
-          print("🔑 Saved Token Successfully: ${responseData['token']}");
-        }
+      // 1. تنظيف أي توكن قديم في SharedPreferences لضمان عدم وجود تضارب
+      SharedPreferences prefs = await SharedPreferences.getInstance();
+      await prefs.remove('token'); 
 
-        return responseData; // إرجاع التوكن وبيانات الأدمن بنجاح
+      // 2. التوحيد: الحفظ في FlutterSecureStorage وباسم 'jwt_token'
+      if (responseData != null && responseData['token'] != null) {
+        const storage = FlutterSecureStorage();
+        await storage.write(key: 'jwt_token', value: responseData['token']);
+        print("🔑 Token saved securely to jwt_token and old token cleared.");
       }
-    } on DioException catch (e) {
-      print("Login Error: ${e.response?.data ?? e.message}");
-      return e.response?.data; 
+
+      return responseData;
     }
+  } catch (e) {
+    print("❌ Login Error: $e");
     return null;
   }
+  return null;
+}
 }

@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
+import 'package:team_flow/constants.dart';
 import 'package:dio/dio.dart';
-import 'package:team_flow/constants.dart'; // ✅ استيراد ملف الإعدادات الموحد
-
 class SiteAttendanceScreen extends StatefulWidget {
   final int siteId;
   final String siteName;
@@ -19,168 +18,181 @@ class SiteAttendanceScreen extends StatefulWidget {
 class _SiteAttendanceScreenState extends State<SiteAttendanceScreen> {
   bool _isLoading = true;
   List<dynamic> _workers = [];
-  
-  Map<int, String> _attendanceStates = {}; 
+  List<dynamic> _rejectedRecords = [];
 
   @override
   void initState() {
     super.initState();
-    _fetchWorkers();
+    _fetchData();
   }
 
-  // 1. جلب قائمة العمال
-  Future<void> _fetchWorkers() async {
+  Future<void> _fetchData() async {
+    setState(() => _isLoading = true);
     try {
-      // ✅ استدعاء الـ dio الموحد مباشرة (يقرأ ويرسل التوكن والـ IP تلقائياً بالخلفية)
-      final response = await ApiConfig.dio.get(
-        '/attendance/sites/${widget.siteId}/workers', 
-      );
+      // 1. جلب العمال
+      final workersRes = await ApiConfig.dio.get('/attendance/sites/${widget.siteId}/workers');
+      // 2. جلب المرفوضات لكل المشرف
+      final rejectedRes = await ApiConfig.dio.get('/attendance/rejected');
 
-      if (response.statusCode == 200 && response.data['status'] == 'success') {
-        setState(() {
-          _workers = response.data['data'];
-          _isLoading = false;
-          
-          for (var worker in _workers) {
-            _attendanceStates[worker['worker_id']] = 'Present';
-          }
-        });
-      }
-    } catch (e) {
-      print("🚨 Error fetching workers: $e");
+      if (!mounted) return;
       setState(() {
+        _workers = workersRes.data['data'];
+        // فلترة المرفوضات الخاصة بهذا الموقع فقط
+        _rejectedRecords = (rejectedRes.data['data'] as List)
+            .where((r) => r['site_id'] == widget.siteId)
+            .toList();
         _isLoading = false;
       });
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('خطأ في جلب عمال الموقع أو غير مصرح لك')),
-      );
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _isLoading = false);
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('خطأ في تحميل البيانات')));
     }
   }
 
-  // 2. إرسال سجل الحضور والغياب
-  Future<void> _submitAttendance() async {
-    setState(() {
-      _isLoading = true;
-    });
-
+Future<void> _handleAction(String endpoint, int workerId) async {
+    setState(() => _isLoading = true);
     try {
-      List<Map<String, dynamic>> attendanceData = _attendanceStates.entries.map((entry) {
-        return {
-          'worker_id': entry.key,
-          'status': entry.value,
-        };
-      }).toList();
-
-      // ✅ استخدام الـ dio الموحد لعملية الـ Post أيضاً بكل بساطة وسرعة
-      final response = await ApiConfig.dio.post(
-        '/attendance',
-        data: {
-          'siteId': widget.siteId,
-          'attendance': attendanceData,
-        },
-      );
-
-      if (response.statusCode == 201) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('تم حفظ سجل الحضور والغياب بنجاح!'),
-            backgroundColor: Colors.green,
-          ),
-        );
-        Navigator.pop(context); 
-      }
-    } catch (e) {
-      print("🚨 Error submitting attendance: $e");
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('حدث خطأ أثناء حفظ الحضور، يرجى المحاولة لاحقاً'),
-          backgroundColor: Colors.red,
-        ),
-      );
-    } finally {
-      setState(() {
-        _isLoading = false;
+      print("Sending request to: $endpoint with workerId: $workerId");
+      await ApiConfig.dio.post(endpoint, data: {
+        'worker_id': workerId,
+        'site_id': widget.siteId
       });
+      
+      await _fetchData();
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+        content: Text('تم التنفيذ!'), 
+        backgroundColor: Colors.green
+      ));
+    } catch (e) {
+      // هذه هي النسخة التي ستكشف لنا السبب الحقيقي للخطأ
+      String errorMessage = 'خطأ غير معروف';
+      
+      if (e is DioException) {
+        if (e.response != null && e.response!.data != null) {
+          // هنا نصل لرسالة الخطأ التي يرسلها السيرفر فعلياً
+          errorMessage = e.response!.data['message'] ?? e.response!.data.toString();
+        } else {
+          errorMessage = e.message ?? 'خطأ في الاتصال';
+        }
+      } else {
+        errorMessage = e.toString();
+      }
+
+      print("ERROR DETAILS: $errorMessage");
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: Text(errorMessage),
+        backgroundColor: Colors.red,
+      ));
+    } finally {
+      setState(() => _isLoading = false);
+    }
+  }
+
+  Future<void> _submitDay() async {
+    setState(() => _isLoading = true);
+    try {
+      await ApiConfig.dio.post('/attendance/submit', data: {'siteId': widget.siteId});
+      Navigator.pop(context);
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('فشل الإرسال النهائي')));
+    } finally {
+      setState(() => _isLoading = false);
     }
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        title: Text('حضور عمال: ${widget.siteName}'),
-        backgroundColor: Colors.blueAccent,
-      ),
+      appBar: AppBar(title: Text(widget.siteName)),
       body: _isLoading
           ? const Center(child: CircularProgressIndicator())
-          : _workers.isEmpty
-              ? const Center(child: Text('لا يوجد عمال معينين في هذا الموقع حالياً.'))
-              : Column(
-                  children: [
-                    Expanded(
-                      child: ListView.builder(
-                        itemCount: _workers.length,
-                        itemBuilder: (context, index) {
-                          final worker = _workers[index];
-                          final workerId = worker['worker_id'];
-                          final currentStatus = _attendanceStates[workerId];
+          : Column(
+              children: [
+                // --- منطقة المرفوضات (تظهر فقط إذا وُجد شيء) ---
+                if (_rejectedRecords.isNotEmpty)
+                  ExpansionTile(
+                    backgroundColor: Colors.red.withOpacity(0.1),
+                    title: Text("${_rejectedRecords.length} سجل مرفوض يحتاج تصحيح", 
+                                style: const TextStyle(color: Colors.red, fontWeight: FontWeight.bold)),
+                    children: _rejectedRecords.map((record) => ListTile(
+                      title: Text(record['full_name']),
+                      subtitle: Text("ملاحظة الأدمن: ${record['admin_rejection_notes'] ?? 'لا يوجد'}"),
+                      trailing: const Icon(Icons.edit, color: Colors.blue),
+                      onTap: () { /* هنا تفتح شاشة التعديل الخاصة بك */ },
+                    )).toList(),
+                  ),
 
-                          return Card(
-                            margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                            child: ListTile(
-                              title: Text(
-                                worker['full_name'],
-                                style: const TextStyle(fontWeight: FontWeight.bold),
+                // --- قائمة العمال ---
+                Expanded(
+                  child: ListView.builder(
+                    itemCount: _workers.length,
+                    itemBuilder: (context, index) {
+                      final worker = _workers[index];
+                      final workerId = worker['worker_id'];
+                      final attendanceId = worker['attendance_id'];
+                    final bool isInBreak = worker['current_leave_id'] != null;
+                 return Card(
+        margin: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+        child: ListTile(
+          title: Text(worker['full_name'], style: const TextStyle(fontWeight: FontWeight.bold)),
+          subtitle: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(worker['job_position'] ?? 'عامل'),
+              const SizedBox(height: 10),
+              
+              // المنطق الذكي للأزرار
+              attendanceId == null
+                  ? ElevatedButton.icon(
+                      onPressed: () => _handleAction('/attendance/checkin', workerId),
+                      icon: const Icon(Icons.check_circle),
+                      label: const Text('تسجيل حضور'),
+                      style: ElevatedButton.styleFrom(backgroundColor: Colors.green),
+                    )
+                  : Wrap(
+                      spacing: 5,
+                      children: [
+                        // [هنا الجزء المعدل] نتحقق من حالة الاستراحة
+                        isInBreak
+                            ? TextButton.icon(
+                                onPressed: () => _handleAction('/attendance/leave/end', workerId),
+                                icon: const Icon(Icons.play_arrow, color: Colors.green),
+                                label: const Text('إنهاء الاستراحة'),
+                              )
+                            : TextButton.icon(
+                                onPressed: () => _handleAction('/attendance/leave/start', workerId),
+                                icon: const Icon(Icons.timer_off, color: Colors.orange),
+                                label: const Text('استراحة'),
                               ),
-                              subtitle: Text(worker['job_position'] ?? 'عامل رئيسي'),
-                              trailing: ToggleButtons(
-                                borderRadius: BorderRadius.circular(8),
-                                constraints: const BoxConstraints(minWidth: 70, minHeight: 36),
-                                isSelected: [
-                                  currentStatus == 'Present',
-                                  currentStatus == 'Absent',
-                                ],
-                                onPressed: (int buttonIndex) {
-                                  setState(() {
-                                    _attendanceStates[workerId] = buttonIndex == 0 ? 'Present' : 'Absent';
-                                  });
-                                },
-                                fillColor: currentStatus == 'Present' 
-                                    ? Colors.green.withOpacity(0.2) 
-                                    : Colors.red.withOpacity(0.2),
-                                selectedColor: currentStatus == 'Present' ? Colors.green : Colors.red,
-                                children: const [
-                                  Text('حاضر 🟢', style: TextStyle(fontWeight: FontWeight.bold)),
-                                  Text('غائب 🔴', style: TextStyle(fontWeight: FontWeight.bold)),
-                                ],
-                              ),
-                            ),
-                          );
-                        },
-                      ),
-                    ),
-                    Padding(
-                      padding: const EdgeInsets.all(16.0),
-                      child: SizedBox(
-                        width: double.infinity,
-                        height: 50,
-                        child: ElevatedButton(
-                          onPressed: _submitAttendance,
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: Colors.blueAccent,
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(8),
-                            ),
-                          ),
-                          child: const Text(
-                            'حفظ وإرسال كشف الحضور',
-                            style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.white),
-                          ),
+                        
+                        // زر الخروج (يظهر دائماً إذا كان مسجل حضور)
+                        TextButton.icon(
+                          onPressed: () => _handleAction('/attendance/checkout', workerId),
+                          icon: const Icon(Icons.exit_to_app, color: Colors.red),
+                          label: const Text('إنهاء'),
                         ),
-                      ),
+                      ],
                     ),
-                  ],
+            ],
+          ),
+        ),
+      );
+    },
+  ),
+),
+
+                // --- زر الإرسال النهائي ---
+                Padding(
+                  padding: const EdgeInsets.all(16.0),
+                  child: ElevatedButton(
+                    onPressed: _submitDay,
+                    style: ElevatedButton.styleFrom(minimumSize: const Size(double.infinity, 50)),
+                    child: const Text('حفظ وإرسال نهائي للمراجعة'),
+                  ),
                 ),
+              ],
+            ),
     );
   }
 }
