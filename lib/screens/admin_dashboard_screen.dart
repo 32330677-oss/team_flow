@@ -5,7 +5,7 @@ import 'project_management_screen.dart'; // استيراد صفحة المشار
 import 'workers_screen.dart'; // تم إضافة استيراد صفحة العمال الجديدة هنا
 import 'worker_assignment_screen.dart'; // استيراد شاشة التعيينات الجديدة
 import 'hr_management_screen.dart'; // 👈 أضف هذا السطر هنا
-
+import 'attendance_payroll_hub.dart';
 class AdminDashboardScreen extends StatelessWidget {
   const AdminDashboardScreen({super.key});
 
@@ -69,8 +69,10 @@ await ApiConfig.storage.delete(key: 'user_name');
         'icon': Icons.analytics,
         'color': Colors.green.shade700,
         'onTap': () {
-          // سنبرمجها في المرحلة القادمة
-        },
+Navigator.push(
+      context,
+      MaterialPageRoute(builder: (context) => const AttendancePayrollHub()),
+    );        },
       },
     ];
 
