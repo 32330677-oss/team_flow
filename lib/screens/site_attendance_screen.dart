@@ -1,15 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:team_flow/constants.dart';
 import 'package:dio/dio.dart';
+import 'rejected_records_screen.dart';
+import 'package:intl/intl.dart';
 class SiteAttendanceScreen extends StatefulWidget {
   final int siteId;
   final String siteName;
 
-  const SiteAttendanceScreen({
-    super.key,
-    required this.siteId,
-    required this.siteName,
-  });
+  const SiteAttendanceScreen({super.key, required this.siteId, required this.siteName});
 
   @override
   _SiteAttendanceScreenState createState() => _SiteAttendanceScreenState();
@@ -18,181 +16,126 @@ class SiteAttendanceScreen extends StatefulWidget {
 class _SiteAttendanceScreenState extends State<SiteAttendanceScreen> {
   bool _isLoading = true;
   List<dynamic> _workers = [];
-  List<dynamic> _rejectedRecords = [];
 
   @override
   void initState() {
     super.initState();
-    _fetchData();
+    _fetchWorkers();
   }
 
-  Future<void> _fetchData() async {
+  Future<void> _fetchWorkers() async {
     setState(() => _isLoading = true);
     try {
-      // 1. جلب العمال
-      final workersRes = await ApiConfig.dio.get('/attendance/sites/${widget.siteId}/workers');
-      // 2. جلب المرفوضات لكل المشرف
-      final rejectedRes = await ApiConfig.dio.get('/attendance/rejected');
-
+      final response = await ApiConfig.dio.get('/attendance/sites/${widget.siteId}/workers');
       if (!mounted) return;
       setState(() {
-        _workers = workersRes.data['data'];
-        // فلترة المرفوضات الخاصة بهذا الموقع فقط
-        _rejectedRecords = (rejectedRes.data['data'] as List)
-            .where((r) => r['site_id'] == widget.siteId)
-            .toList();
+        _workers = response.data['data'];
         _isLoading = false;
       });
     } catch (e) {
       if (!mounted) return;
       setState(() => _isLoading = false);
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('خطأ في تحميل البيانات')));
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('خطأ في تحميل العمال')));
     }
   }
 
-Future<void> _handleAction(String endpoint, int workerId) async {
+  Future<void> _handleAction(String endpoint, int workerId) async {
     setState(() => _isLoading = true);
     try {
-      print("Sending request to: $endpoint with workerId: $workerId");
-      await ApiConfig.dio.post(endpoint, data: {
-        'worker_id': workerId,
-        'site_id': widget.siteId
-      });
-      
-      await _fetchData();
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-        content: Text('تم التنفيذ!'), 
-        backgroundColor: Colors.green
-      ));
+      await ApiConfig.dio.post(endpoint, data: {'worker_id': workerId, 'site_id': widget.siteId});
+      await _fetchWorkers();
     } catch (e) {
-      // هذه هي النسخة التي ستكشف لنا السبب الحقيقي للخطأ
-      String errorMessage = 'خطأ غير معروف';
-      
-      if (e is DioException) {
-        if (e.response != null && e.response!.data != null) {
-          // هنا نصل لرسالة الخطأ التي يرسلها السيرفر فعلياً
-          errorMessage = e.response!.data['message'] ?? e.response!.data.toString();
-        } else {
-          errorMessage = e.message ?? 'خطأ في الاتصال';
-        }
-      } else {
-        errorMessage = e.toString();
-      }
-
-      print("ERROR DETAILS: $errorMessage");
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-        content: Text(errorMessage),
-        backgroundColor: Colors.red,
-      ));
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('خطأ في الاتصال'), backgroundColor: Colors.red));
     } finally {
       setState(() => _isLoading = false);
     }
   }
 
-  Future<void> _submitDay() async {
-    setState(() => _isLoading = true);
-    try {
-      await ApiConfig.dio.post('/attendance/submit', data: {'siteId': widget.siteId});
-      Navigator.pop(context);
-    } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('فشل الإرسال النهائي')));
-    } finally {
-      setState(() => _isLoading = false);
+ Future<void> _submitDay() async {
+  // 1. إضافة تأكيد قبل الإرسال النهائي
+  bool? confirm = await showDialog<bool>(
+    context: context,
+    builder: (context) => AlertDialog(
+      title: const Text('تأكيد الإرسال'),
+      content: const Text('هل أنت متأكد من إنهاء اليوم وإرسال السجلات للمراجعة؟ لا يمكن التراجع عن هذا الإجراء.'),
+      actions: [
+        TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('إلغاء')),
+        ElevatedButton(onPressed: () => Navigator.pop(context, true), child: const Text('إرسال')),
+      ],
+    ),
+  );
+
+  if (confirm != true) return;
+
+  setState(() => _isLoading = true);
+  try {
+    // إرسال الطلب للسيرفر
+    final response = await ApiConfig.dio.post('/attendance/submit', data: {'siteId': widget.siteId});
+    
+    // إذا نجح، نقوم بتحديث القائمة بدلاً من إغلاق الشاشة فوراً
+    // (بفضل تعديل السيرفر، العمال الذين تم إرسالهم سيختفون تلقائياً)
+    await _fetchWorkers();
+    
+    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('تم إرسال اليوم بنجاح'), backgroundColor: Colors.green));
+    
+    // إذا أصبحت القائمة فارغة، نخرج من الشاشة
+    if (_workers.isEmpty) Navigator.pop(context);
+    
+  } catch (e) {
+    // معالجة رسالة الخطأ القادمة من السيرفر (مثل: لم يسجل الجميع خروجهم)
+    String errorMsg = 'فشل الإرسال النهائي';
+    if (e is DioException && e.response?.data['message'] != null) {
+      errorMsg = e.response!.data['message'];
     }
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(errorMsg), backgroundColor: Colors.red));
+  } finally {
+    setState(() => _isLoading = false);
   }
+}
 
   @override
   Widget build(BuildContext context) {
+    String formattedDate = DateFormat('yyyy/MM/dd', 'ar').format(DateTime.now());
     return Scaffold(
-      appBar: AppBar(title: Text(widget.siteName)),
-      body: _isLoading
-          ? const Center(child: CircularProgressIndicator())
-          : Column(
-              children: [
-                // --- منطقة المرفوضات (تظهر فقط إذا وُجد شيء) ---
-                if (_rejectedRecords.isNotEmpty)
-                  ExpansionTile(
-                    backgroundColor: Colors.red.withOpacity(0.1),
-                    title: Text("${_rejectedRecords.length} سجل مرفوض يحتاج تصحيح", 
-                                style: const TextStyle(color: Colors.red, fontWeight: FontWeight.bold)),
-                    children: _rejectedRecords.map((record) => ListTile(
-                      title: Text(record['full_name']),
-                      subtitle: Text("ملاحظة الأدمن: ${record['admin_rejection_notes'] ?? 'لا يوجد'}"),
-                      trailing: const Icon(Icons.edit, color: Colors.blue),
-                      onTap: () { /* هنا تفتح شاشة التعديل الخاصة بك */ },
-                    )).toList(),
-                  ),
-
-                // --- قائمة العمال ---
-                Expanded(
-                  child: ListView.builder(
-                    itemCount: _workers.length,
-                    itemBuilder: (context, index) {
-                      final worker = _workers[index];
-                      final workerId = worker['worker_id'];
-                      final attendanceId = worker['attendance_id'];
-                    final bool isInBreak = worker['current_leave_id'] != null;
-                 return Card(
-        margin: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-        child: ListTile(
-          title: Text(worker['full_name'], style: const TextStyle(fontWeight: FontWeight.bold)),
-          subtitle: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(worker['job_position'] ?? 'عامل'),
-              const SizedBox(height: 10),
-              
-              // المنطق الذكي للأزرار
-              attendanceId == null
-                  ? ElevatedButton.icon(
-                      onPressed: () => _handleAction('/attendance/checkin', workerId),
-                      icon: const Icon(Icons.check_circle),
-                      label: const Text('تسجيل حضور'),
-                      style: ElevatedButton.styleFrom(backgroundColor: Colors.green),
-                    )
-                  : Wrap(
-                      spacing: 5,
-                      children: [
-                        // [هنا الجزء المعدل] نتحقق من حالة الاستراحة
-                        isInBreak
-                            ? TextButton.icon(
-                                onPressed: () => _handleAction('/attendance/leave/end', workerId),
-                                icon: const Icon(Icons.play_arrow, color: Colors.green),
-                                label: const Text('إنهاء الاستراحة'),
-                              )
-                            : TextButton.icon(
-                                onPressed: () => _handleAction('/attendance/leave/start', workerId),
-                                icon: const Icon(Icons.timer_off, color: Colors.orange),
-                                label: const Text('استراحة'),
-                              ),
-                        
-                        // زر الخروج (يظهر دائماً إذا كان مسجل حضور)
-                        TextButton.icon(
-                          onPressed: () => _handleAction('/attendance/checkout', workerId),
-                          icon: const Icon(Icons.exit_to_app, color: Colors.red),
-                          label: const Text('إنهاء'),
-                        ),
-                      ],
-                    ),
-            ],
-          ),
-        ),
-      );
-    },
-  ),
-),
-
-                // --- زر الإرسال النهائي ---
-                Padding(
-                  padding: const EdgeInsets.all(16.0),
-                  child: ElevatedButton(
-                    onPressed: _submitDay,
-                    style: ElevatedButton.styleFrom(minimumSize: const Size(double.infinity, 50)),
-                    child: const Text('حفظ وإرسال نهائي للمراجعة'),
-                  ),
-                ),
-              ],
+      appBar: AppBar(
+        // العنوان هنا مباشرة
+        title: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(widget.siteName, style: const TextStyle(fontSize: 18)),
+            Text(
+              'تاريخ اليوم: $formattedDate',
+              style: const TextStyle(fontSize: 12, fontWeight: FontWeight.normal),
             ),
+          ],
+        ), actions: [
+        IconButton(icon: const Icon(Icons.warning_amber_rounded), onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const RejectedRecordsScreen()))),
+      ]),
+      body: _isLoading ? const Center(child: CircularProgressIndicator()) : Column(
+        children: [
+          Expanded(child: ListView.builder(
+            itemCount: _workers.length,
+            itemBuilder: (context, index) {
+              final worker = _workers[index];
+              return Card(
+                child: ListTile(
+                  title: Text(worker['full_name'], style: const TextStyle(fontWeight: FontWeight.bold)),
+                  subtitle: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                    Text(worker['job_position'] ?? 'عامل'),
+                    worker['attendance_id'] == null 
+                      ? ElevatedButton.icon(onPressed: () => _handleAction('/attendance/checkin', worker['worker_id']), icon: const Icon(Icons.check_circle), label: const Text('تسجيل حضور'))
+                      : Wrap(spacing: 5, children: [
+                          TextButton.icon(onPressed: () => _handleAction(worker['current_leave_id'] != null ? '/attendance/leave/end' : '/attendance/leave/start', worker['worker_id']), icon: Icon(worker['current_leave_id'] != null ? Icons.play_arrow : Icons.timer_off), label: Text(worker['current_leave_id'] != null ? 'إنهاء الاستراحة' : 'استراحة')),
+                          TextButton.icon(onPressed: () => _handleAction('/attendance/checkout', worker['worker_id']), icon: const Icon(Icons.exit_to_app), label: const Text('إنهاء')),
+                        ]),
+                  ]),
+                ),
+              );
+            },
+          )),
+          Padding(padding: const EdgeInsets.all(16.0), child: ElevatedButton(onPressed: _submitDay, style: ElevatedButton.styleFrom(minimumSize: const Size(double.infinity, 50)), child: const Text('حفظ وإرسال نهائي للمراجعة'))),
+        ],
+      ),
     );
   }
 }

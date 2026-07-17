@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:dio/dio.dart';
-import 'package:intl/intl.dart'; // لتنسيق التاريخ
+import 'package:intl/intl.dart'; 
 import 'package:team_flow/constants.dart';
 
 class AdminAttendanceScreen extends StatefulWidget {
@@ -10,7 +10,7 @@ class AdminAttendanceScreen extends StatefulWidget {
 }
 
 class _AdminAttendanceScreenState extends State<AdminAttendanceScreen> {
-  Map<String, List<dynamic>> groupedAttendance = {}; // تجميع البيانات حسب التاريخ
+  Map<String, List<dynamic>> groupedAttendance = {}; 
   bool isLoading = true;
 
   @override
@@ -19,39 +19,80 @@ class _AdminAttendanceScreenState extends State<AdminAttendanceScreen> {
     _fetchData();
   }
 
-Future<void> _fetchData() async {
-  setState(() {
-    isLoading = true;
-    groupedAttendance.clear();
-  });
-  
-  try {
-    final response = await ApiConfig.dio.get('/admin/attendance/pending');
-    
-    Map<String, List<dynamic>> tempGrouped = {};
-    for (var item in response.data['data']) {
-      // التاريخ القادم من السيرفر هو "2026-07-16"
-      String rawDate = item['record_date']?.toString() ?? "1970-01-01";
-      
-      // نقوم بقص أول 10 أحرف (YYYY-MM-DD) فقط. 
-      // هذا لن يلمس التوقيت نهائياً ولن يتأثر بتوقيت لبنان أو UTC.
-      String date = rawDate.substring(0, 10); 
-      print("Debug: record_date=${item['record_date']}, formatted=$date");
-      if (!tempGrouped.containsKey(date)) {
-        tempGrouped[date] = [];
-      }
-      tempGrouped[date]!.add(item);
-    }
-
+  Future<void> _fetchData() async {
     setState(() {
-      groupedAttendance = tempGrouped;
-      isLoading = false;
+      isLoading = true;
+      groupedAttendance.clear();
     });
-  } catch (e) {
-    print("Error fetching data: $e");
-    setState(() => isLoading = false);
+    
+    try {
+      final response = await ApiConfig.dio.get('/admin/attendance/pending');
+      
+      Map<String, List<dynamic>> tempGrouped = {};
+      for (var item in response.data['data']) {
+        String rawDate = item['record_date']?.toString() ?? "1970-01-01";
+        String date = rawDate.substring(0, 10); 
+        
+        if (!tempGrouped.containsKey(date)) {
+          tempGrouped[date] = [];
+        }
+        tempGrouped[date]!.add(item);
+      }
+
+      setState(() {
+        groupedAttendance = tempGrouped;
+        isLoading = false;
+      });
+    } catch (e) {
+      print("Error fetching data: $e");
+      setState(() => isLoading = false);
+    }
   }
-}
+
+  // الدالة المحدثة لحل مشكلة تعليق الزر وإظهار الرسالة
+  Future<void> _review(int id, String status, {String? note}) async {
+    // 1. تفعيل وضع التحميل لمنع الضغط المتكرر وتنبيه المستخدم
+    setState(() => isLoading = true);
+    
+    try {
+      print("Attempting to review ID: $id with status: $status"); 
+      
+      final response = await ApiConfig.dio.post('/admin/attendance/review', data: {
+        'attendance_id': id,
+        'status': status,
+        'admin_note': note
+      });
+      
+      print("Response data: ${response.data}"); 
+      
+      if (response.data['status'] == 'success') {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('تمت العملية بنجاح'), backgroundColor: Colors.green),
+        );
+        // إعادة جلب البيانات لتحديث الشاشة واختفاء الكرت المستهدف
+        await _fetchData(); 
+      }
+    } on DioException catch (e) {
+      // 2. التقاط خطأ الـ 400 القادم من السيرفر وعرض الرسالة المناسبة
+      String errorMessage = 'حدث خطأ غير متوقع';
+      if (e.response != null && e.response!.data['message'] != null) {
+        errorMessage = e.response!.data['message']; // سيعرض: "لا يمكن قبول السجل لأنه مرفوض..."
+      }
+      
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(errorMessage), backgroundColor: Colors.red),
+      );
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('خطأ في الاتصال بالسيرفر'), backgroundColor: Colors.red),
+      );
+    } finally {
+      // 3. إلغاء وضع التحميل بأي حال من الأحوال لفك تعليق الأزرار
+      if (mounted) {
+        setState(() => isLoading = false);
+      }
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -72,13 +113,19 @@ Future<void> _fetchData() async {
                         trailing: Row(
                           mainAxisSize: MainAxisSize.min,
                           children: [
-                            IconButton(icon: const Icon(Icons.check, color: Colors.green), 
-                                onPressed: () => _review(item['attendance_id'], 'Approved')),
-                            IconButton(icon: const Icon(Icons.close, color: Colors.red), 
-                                onPressed: () async {
-                                  String? note = await _showRejectDialog(context);
-                                  if (note != null) _review(item['attendance_id'], 'Rejected', note: note);
-                                }),
+                            IconButton(
+                              icon: const Icon(Icons.check, color: Colors.green), 
+                              onPressed: () => _review(item['attendance_id'], 'Approved')
+                            ),
+                            IconButton(
+                              icon: const Icon(Icons.close, color: Colors.red), 
+                              onPressed: () async {
+                                String? note = await _showRejectDialog(context);
+                                if (note != null && note.trim().isNotEmpty) {
+                                  _review(item['attendance_id'], 'Rejected', note: note);
+                                }
+                              }
+                            ),
                           ],
                         ),
                       ),
@@ -90,35 +137,18 @@ Future<void> _fetchData() async {
     );
   }
 
-Future<void> _review(int id, String status, {String? note}) async {
-  try {
-    print("Attempting to review ID: $id with status: $status"); // سجل العملية
-    
-    final response = await ApiConfig.dio.post('/admin/attendance/review', data: {
-      'attendance_id': id,
-      'status': status,
-      'admin_note': note
-    });
-    
-    print("Response data: ${response.data}"); // سجل رد السيرفر
-    
-    if (response.data['status'] == 'success') {
-      _fetchData(); // تحديث القائمة فقط إذا نجح السيرفر
-    }
-  } catch (e) {
-    // هنا سنعرف السبب الحقيقي (هل هو 401 Unauthorized؟ أم 500 Server Error؟)
-    if (e is DioException) {
-      print("Dio Error: ${e.response?.data}"); 
-    }
-    print("Error reviewing record: $e");
+  Future<String?> _showRejectDialog(BuildContext context) {
+    TextEditingController controller = TextEditingController();
+    return showDialog<String>(
+      context: context, 
+      builder: (ctx) => AlertDialog(
+        title: const Text("سبب الرفض"),
+        content: TextField(controller: controller, decoration: const InputDecoration(hintText: "اكتب السبب...")),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text("إلغاء")),
+          TextButton(onPressed: () => Navigator.pop(ctx, controller.text), child: const Text("تأكيد"))
+        ],
+      )
+    );
   }
 }
-
-Future<String?> _showRejectDialog(BuildContext context) {
-    TextEditingController controller = TextEditingController();
-    return showDialog<String>(context: context, builder: (ctx) => AlertDialog(
-      title: const Text("سبب الرفض"),
-      content: TextField(controller: controller, decoration: const InputDecoration(hintText: "اكتب السبب...")),
-      actions: [TextButton(onPressed: () => Navigator.pop(ctx, controller.text), child: const Text("تأكيد"))],
-    ));
-  }}
