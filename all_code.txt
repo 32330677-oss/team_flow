@@ -1,0 +1,3352 @@
+﻿// Flutter web plugin registrant file.
+//
+// Generated file. Do not edit.
+//
+
+// @dart = 2.13
+// ignore_for_file: type=lint
+
+import 'package:flutter_secure_storage_web/flutter_secure_storage_web.dart';
+import 'package:shared_preferences_web/shared_preferences_web.dart';
+import 'package:flutter_web_plugins/flutter_web_plugins.dart';
+
+void registerPlugins([final Registrar? pluginRegistrar]) {
+  final Registrar registrar = pluginRegistrar ?? webPluginRegistrar;
+  FlutterSecureStorageWeb.registerWith(registrar);
+  SharedPreferencesPlugin.registerWith(registrar);
+  registrar.registerMessageHandler();
+}
+//
+// Generated file. Do not edit.
+// This file is generated from template in file `flutter_tools/lib/src/flutter_plugins.dart`.
+//
+
+// @dart = 3.12
+
+import 'dart:io'; // flutter_ignore: dart_io_import.
+import 'package:path_provider_android/path_provider_android.dart' as path_provider_android;
+import 'package:shared_preferences_android/shared_preferences_android.dart' as shared_preferences_android;
+import 'package:path_provider_foundation/path_provider_foundation.dart' as path_provider_foundation;
+import 'package:shared_preferences_foundation/shared_preferences_foundation.dart' as shared_preferences_foundation;
+import 'package:path_provider_linux/path_provider_linux.dart' as path_provider_linux;
+import 'package:shared_preferences_linux/shared_preferences_linux.dart' as shared_preferences_linux;
+import 'package:path_provider_foundation/path_provider_foundation.dart' as path_provider_foundation;
+import 'package:shared_preferences_foundation/shared_preferences_foundation.dart' as shared_preferences_foundation;
+import 'package:flutter_secure_storage_windows/flutter_secure_storage_windows.dart' as flutter_secure_storage_windows;
+import 'package:path_provider_windows/path_provider_windows.dart' as path_provider_windows;
+import 'package:shared_preferences_windows/shared_preferences_windows.dart' as shared_preferences_windows;
+
+@pragma('vm:entry-point')
+class _PluginRegistrant {
+
+  @pragma('vm:entry-point')
+  static void register() {
+    if (Platform.isAndroid) {
+      try {
+        path_provider_android.PathProviderAndroid.registerWith();
+      } catch (err) {
+        print(
+          '`path_provider_android` threw an error: $err. '
+          'The app may not function as expected until you remove this plugin from pubspec.yaml'
+        );
+      }
+
+      try {
+        shared_preferences_android.SharedPreferencesAndroid.registerWith();
+      } catch (err) {
+        print(
+          '`shared_preferences_android` threw an error: $err. '
+          'The app may not function as expected until you remove this plugin from pubspec.yaml'
+        );
+      }
+
+    } else if (Platform.isIOS) {
+      try {
+        path_provider_foundation.PathProviderFoundation.registerWith();
+      } catch (err) {
+        print(
+          '`path_provider_foundation` threw an error: $err. '
+          'The app may not function as expected until you remove this plugin from pubspec.yaml'
+        );
+      }
+
+      try {
+        shared_preferences_foundation.SharedPreferencesFoundation.registerWith();
+      } catch (err) {
+        print(
+          '`shared_preferences_foundation` threw an error: $err. '
+          'The app may not function as expected until you remove this plugin from pubspec.yaml'
+        );
+      }
+
+    } else if (Platform.isLinux) {
+      try {
+        path_provider_linux.PathProviderLinux.registerWith();
+      } catch (err) {
+        print(
+          '`path_provider_linux` threw an error: $err. '
+          'The app may not function as expected until you remove this plugin from pubspec.yaml'
+        );
+      }
+
+      try {
+        shared_preferences_linux.SharedPreferencesLinux.registerWith();
+      } catch (err) {
+        print(
+          '`shared_preferences_linux` threw an error: $err. '
+          'The app may not function as expected until you remove this plugin from pubspec.yaml'
+        );
+      }
+
+    } else if (Platform.isMacOS) {
+      try {
+        path_provider_foundation.PathProviderFoundation.registerWith();
+      } catch (err) {
+        print(
+          '`path_provider_foundation` threw an error: $err. '
+          'The app may not function as expected until you remove this plugin from pubspec.yaml'
+        );
+      }
+
+      try {
+        shared_preferences_foundation.SharedPreferencesFoundation.registerWith();
+      } catch (err) {
+        print(
+          '`shared_preferences_foundation` threw an error: $err. '
+          'The app may not function as expected until you remove this plugin from pubspec.yaml'
+        );
+      }
+
+    } else if (Platform.isWindows) {
+      try {
+        flutter_secure_storage_windows.FlutterSecureStorageWindows.registerWith();
+      } catch (err) {
+        print(
+          '`flutter_secure_storage_windows` threw an error: $err. '
+          'The app may not function as expected until you remove this plugin from pubspec.yaml'
+        );
+      }
+
+      try {
+        path_provider_windows.PathProviderWindows.registerWith();
+      } catch (err) {
+        print(
+          '`path_provider_windows` threw an error: $err. '
+          'The app may not function as expected until you remove this plugin from pubspec.yaml'
+        );
+      }
+
+      try {
+        shared_preferences_windows.SharedPreferencesWindows.registerWith();
+      } catch (err) {
+        print(
+          '`shared_preferences_windows` threw an error: $err. '
+          'The app may not function as expected until you remove this plugin from pubspec.yaml'
+        );
+      }
+
+    }
+  }
+}
+import 'package:dio/dio.dart';
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+
+class ApiConfig {
+static const String baseUrl = 'http://localhost:5000/api';
+  // 1. Ù‡Ù†Ø§ Ø¹Ø±ÙÙ†Ø§ Ø§Ù„Ù…ØªØºÙŠØ± Ø¨Ø§Ø³Ù… 'storage' (Ø¨Ø¯ÙˆÙ† _)
+  static const FlutterSecureStorage storage = FlutterSecureStorage();
+
+  static final Dio dio = Dio(
+    BaseOptions(
+      baseUrl: baseUrl,
+      connectTimeout: const Duration(seconds: 10),
+      receiveTimeout: const Duration(seconds: 10),
+    ),
+  )..interceptors.add(
+      InterceptorsWrapper(
+        onRequest: (options, handler) async {
+          // 2. ÙˆÙ‡Ù†Ø§ Ø§Ø³ØªØ¯Ø¹ÙŠÙ†Ø§Ù‡ Ø¨Ø§Ø³Ù… 'storage' (Ø¨Ø¯ÙˆÙ† _)
+          String? token = await storage.read(key: 'jwt_token');
+          
+          if (token != null && token.isNotEmpty) {
+            options.headers['Authorization'] = 'Bearer $token';
+          }
+          return handler.next(options);
+        },
+      ),
+    );
+}
+import 'package:flutter/material.dart';
+import 'package:flutter_localizations/flutter_localizations.dart';
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+
+// Ø§Ø³ØªÙŠØ±Ø§Ø¯ Ø§Ù„Ø´Ø§Ø´Ø§Øª Ø§Ù„Ø®Ø§ØµØ© Ø¨Ùƒ
+import 'screens/login_screen.dart';
+import 'screens/admin_dashboard_screen.dart';
+import 'screens/supervisor_dashboard.dart'; // âœ… Ø§Ø³ØªÙŠØ±Ø§Ø¯ Ø´Ø§Ø´Ø© Ø§Ù„Ù…Ø´Ø±Ù Ù‡Ù†Ø§
+
+void main() {
+  runApp(const MyApp());
+}
+
+class MyApp extends StatelessWidget {
+  const MyApp({super.key});
+
+  // Ø¯Ø§Ù„Ø© Ù„ÙØ­Øµ Ø­Ø§Ù„Ø© ØªØ³Ø¬ÙŠÙ„ Ø§Ù„Ø¯Ø®ÙˆÙ„ ÙˆØªØ­Ø¯ÙŠØ¯ Ø§Ù„Ø´Ø§Ø´Ø© Ø§Ù„Ø§ÙØªØªØ§Ø­ÙŠØ©
+  Future<Widget> _checkLoginStatus() async {
+    const storage = FlutterSecureStorage();
+    
+    // Ù‚Ø±Ø§Ø¡Ø© Ø§Ù„ØªÙˆÙƒÙ† ÙˆØ§Ù„Ù€ Role Ù…Ù† Ø§Ù„Ø°Ø§ÙƒØ±Ø© Ø§Ù„Ø¢Ù…Ù†Ø©
+    String? token = await storage.read(key: 'jwt_token');
+    String? role = await storage.read(key: 'user_role');
+
+    // Ø¥Ø°Ø§ ÙƒØ§Ù† Ø§Ù„ØªÙˆÙƒÙ† Ù…ÙˆØ¬ÙˆØ¯Ø§Ù‹
+    if (token != null && token.isNotEmpty) {
+      if (role == 'Admin') {
+        // 1ï¸âƒ£ ØªÙˆØ¬ÙŠÙ‡ Ø§Ù„Ø£Ø¯Ù…Ù† Ù…Ø¨Ø§Ø´Ø±Ø©
+        return const AdminDashboardScreen();
+      } else if (role == 'Supervisor') {
+        // 2ï¸âƒ£ ØªÙˆØ¬ÙŠÙ‡ Ø§Ù„Ù…Ø´Ø±Ù Ù…Ø¨Ø§Ø´Ø±Ø© Ù…Ø¹ Ø¬Ù„Ø¨ Ø¨ÙŠØ§Ù†Ø§ØªÙ‡ Ø§Ù„Ù…Ø®Ø²Ù†Ø©
+        String? userIdRaw = await storage.read(key: 'user_id') ?? '0';
+        String? userName = await storage.read(key: 'user_name') ?? 'Ù…Ø´Ø±Ù';
+        
+        return SupervisorDashboard(
+          supervisorId: int.parse(userIdRaw),
+          supervisorName: userName,
+        );
+      }
+    }
+    
+    // ÙÙŠ Ø­Ø§Ù„ Ø¹Ø¯Ù… ÙˆØ¬ÙˆØ¯ ØªÙˆÙƒÙ† Ø£Ùˆ Ø£ÙŠ Ø­Ø§Ù„Ø© Ø£Ø®Ø±Ù‰ØŒ Ù†Ø°Ù‡Ø¨ Ù„ØµÙØ­Ø© Ø§Ù„Ù„ÙˆØ¬Ù†
+    return const LoginScreen();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return MaterialApp(
+      title: 'Team Flow',
+      debugShowCheckedModeBanner: false,
+      
+      // Ø¥Ø¬Ø¨Ø§Ø± Ø§Ù„ØªØ·Ø¨ÙŠÙ‚ Ø¹Ù„Ù‰ Ø¯Ø¹Ù… Ø§Ù„Ø§ØªØ¬Ø§Ù‡ Ø§Ù„Ø¹Ø±Ø¨ÙŠ RTL
+      locale: const Locale('ar', 'AE'), 
+      supportedLocales: const [
+        Locale('ar', 'AE'),
+      ],
+      localizationsDelegates: const [
+        GlobalMaterialLocalizations.delegate,
+        GlobalWidgetsLocalizations.delegate,
+        GlobalCupertinoLocalizations.delegate,
+      ],
+      
+      theme: ThemeData(
+        primarySwatch: Colors.blue,
+        fontFamily: 'Roboto', 
+      ),
+      routes: {
+        '/login': (context) => const LoginScreen(),
+      },
+      // Ø§Ø³ØªØ®Ø¯Ø§Ù… FutureBuilder Ù„Ø¹Ø±Ø¶ Ø´Ø§Ø´Ø© Ø§Ù†ØªØ¸Ø§Ø± Ø¨ÙŠØ¶Ø§Ø¡ ØµØºÙŠØ±Ø© Ø£Ø«Ù†Ø§Ø¡ ÙØ­Øµ Ø§Ù„Ø°Ø§ÙƒØ±Ø©
+      home: FutureBuilder<Widget>(
+        future: _checkLoginStatus(),
+        builder: (context, snapshot) {
+          if (snapshot.connectionState == ConnectionState.waiting) {
+            return const Scaffold(
+              body: Center(
+                child: CircularProgressIndicator(color: Color(0xff1a2a6c)),
+              ),
+            );
+          }
+          return snapshot.data ?? const LoginScreen();
+        },
+      ),
+    );
+  }
+}
+import 'package:flutter/material.dart';
+import 'package:dio/dio.dart';
+import 'package:intl/intl.dart'; 
+import 'package:team_flow/constants.dart';
+
+class AdminAttendanceScreen extends StatefulWidget {
+  const AdminAttendanceScreen({super.key});
+  @override
+  State<AdminAttendanceScreen> createState() => _AdminAttendanceScreenState();
+}
+
+class _AdminAttendanceScreenState extends State<AdminAttendanceScreen> {
+  Map<String, List<dynamic>> groupedAttendance = {}; 
+  bool isLoading = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _fetchData();
+  }
+
+  Future<void> _fetchData() async {
+    setState(() {
+      isLoading = true;
+      groupedAttendance.clear();
+    });
+    
+    try {
+      final response = await ApiConfig.dio.get('/admin/attendance/pending');
+      
+      Map<String, List<dynamic>> tempGrouped = {};
+      for (var item in response.data['data']) {
+        String rawDate = item['record_date']?.toString() ?? "1970-01-01";
+        String date = rawDate.substring(0, 10); 
+        
+        if (!tempGrouped.containsKey(date)) {
+          tempGrouped[date] = [];
+        }
+        tempGrouped[date]!.add(item);
+      }
+
+      setState(() {
+        groupedAttendance = tempGrouped;
+        isLoading = false;
+      });
+    } catch (e) {
+      print("Error fetching data: $e");
+      setState(() => isLoading = false);
+    }
+  }
+
+  // Ø§Ù„Ø¯Ø§Ù„Ø© Ø§Ù„Ù…Ø­Ø¯Ø«Ø© Ù„Ø­Ù„ Ù…Ø´ÙƒÙ„Ø© ØªØ¹Ù„ÙŠÙ‚ Ø§Ù„Ø²Ø± ÙˆØ¥Ø¸Ù‡Ø§Ø± Ø§Ù„Ø±Ø³Ø§Ù„Ø©
+  Future<void> _review(int id, String status, {String? note}) async {
+    // 1. ØªÙØ¹ÙŠÙ„ ÙˆØ¶Ø¹ Ø§Ù„ØªØ­Ù…ÙŠÙ„ Ù„Ù…Ù†Ø¹ Ø§Ù„Ø¶ØºØ· Ø§Ù„Ù…ØªÙƒØ±Ø± ÙˆØªÙ†Ø¨ÙŠÙ‡ Ø§Ù„Ù…Ø³ØªØ®Ø¯Ù…
+    setState(() => isLoading = true);
+    
+    try {
+      print("Attempting to review ID: $id with status: $status"); 
+      
+      final response = await ApiConfig.dio.post('/admin/attendance/review', data: {
+        'attendance_id': id,
+        'status': status,
+        'admin_note': note
+      });
+      
+      print("Response data: ${response.data}"); 
+      
+      if (response.data['status'] == 'success') {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('ØªÙ…Øª Ø§Ù„Ø¹Ù…Ù„ÙŠØ© Ø¨Ù†Ø¬Ø§Ø­'), backgroundColor: Colors.green),
+        );
+        // Ø¥Ø¹Ø§Ø¯Ø© Ø¬Ù„Ø¨ Ø§Ù„Ø¨ÙŠØ§Ù†Ø§Øª Ù„ØªØ­Ø¯ÙŠØ« Ø§Ù„Ø´Ø§Ø´Ø© ÙˆØ§Ø®ØªÙØ§Ø¡ Ø§Ù„ÙƒØ±Øª Ø§Ù„Ù…Ø³ØªÙ‡Ø¯Ù
+        await _fetchData(); 
+      }
+    } on DioException catch (e) {
+      // 2. Ø§Ù„ØªÙ‚Ø§Ø· Ø®Ø·Ø£ Ø§Ù„Ù€ 400 Ø§Ù„Ù‚Ø§Ø¯Ù… Ù…Ù† Ø§Ù„Ø³ÙŠØ±ÙØ± ÙˆØ¹Ø±Ø¶ Ø§Ù„Ø±Ø³Ø§Ù„Ø© Ø§Ù„Ù…Ù†Ø§Ø³Ø¨Ø©
+      String errorMessage = 'Ø­Ø¯Ø« Ø®Ø·Ø£ ØºÙŠØ± Ù…ØªÙˆÙ‚Ø¹';
+      if (e.response != null && e.response!.data['message'] != null) {
+        errorMessage = e.response!.data['message']; // Ø³ÙŠØ¹Ø±Ø¶: "Ù„Ø§ ÙŠÙ…ÙƒÙ† Ù‚Ø¨ÙˆÙ„ Ø§Ù„Ø³Ø¬Ù„ Ù„Ø£Ù†Ù‡ Ù…Ø±ÙÙˆØ¶..."
+      }
+      
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(errorMessage), backgroundColor: Colors.red),
+      );
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Ø®Ø·Ø£ ÙÙŠ Ø§Ù„Ø§ØªØµØ§Ù„ Ø¨Ø§Ù„Ø³ÙŠØ±ÙØ±'), backgroundColor: Colors.red),
+      );
+    } finally {
+      // 3. Ø¥Ù„ØºØ§Ø¡ ÙˆØ¶Ø¹ Ø§Ù„ØªØ­Ù…ÙŠÙ„ Ø¨Ø£ÙŠ Ø­Ø§Ù„ Ù…Ù† Ø§Ù„Ø£Ø­ÙˆØ§Ù„ Ù„ÙÙƒ ØªØ¹Ù„ÙŠÙ‚ Ø§Ù„Ø£Ø²Ø±Ø§Ø±
+      if (mounted) {
+        setState(() => isLoading = false);
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(title: const Text("Ù…Ø±Ø§Ø¬Ø¹Ø© Ø§Ù„Ø­Ø¶ÙˆØ± Ø§Ù„Ù…Ø¬Ù…Ø¹Ø©")),
+      body: isLoading 
+          ? const Center(child: CircularProgressIndicator()) 
+          : ListView(
+              children: groupedAttendance.keys.map((date) {
+                return ExpansionTile(
+                  title: Text("ØªØ§Ø±ÙŠØ®: $date", style: const TextStyle(fontWeight: FontWeight.bold)),
+                  children: groupedAttendance[date]!.map((item) {
+                    return Card(
+                      margin: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                      child: ListTile(
+                        title: Text(item['full_name']),
+                        subtitle: Text("Ø§Ù„Ù…ÙˆÙ‚Ø¹: ${item['site_name']} | Ø§Ù„Ø­Ø§Ù„Ø©: ${item['status']}"),
+                        trailing: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            IconButton(
+                              icon: const Icon(Icons.check, color: Colors.green), 
+                              onPressed: () => _review(item['attendance_id'], 'Approved')
+                            ),
+                            IconButton(
+                              icon: const Icon(Icons.close, color: Colors.red), 
+                              onPressed: () async {
+                                String? note = await _showRejectDialog(context);
+                                if (note != null && note.trim().isNotEmpty) {
+                                  _review(item['attendance_id'], 'Rejected', note: note);
+                                }
+                              }
+                            ),
+                          ],
+                        ),
+                      ),
+                    );
+                  }).toList(),
+                );
+              }).toList(),
+            ),
+    );
+  }
+
+  Future<String?> _showRejectDialog(BuildContext context) {
+    TextEditingController controller = TextEditingController();
+    return showDialog<String>(
+      context: context, 
+      builder: (ctx) => AlertDialog(
+        title: const Text("Ø³Ø¨Ø¨ Ø§Ù„Ø±ÙØ¶"),
+        content: TextField(controller: controller, decoration: const InputDecoration(hintText: "Ø§ÙƒØªØ¨ Ø§Ù„Ø³Ø¨Ø¨...")),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text("Ø¥Ù„ØºØ§Ø¡")),
+          TextButton(onPressed: () => Navigator.pop(ctx, controller.text), child: const Text("ØªØ£ÙƒÙŠØ¯"))
+        ],
+      )
+    );
+  }
+}
+import 'package:flutter/material.dart';
+import 'package:team_flow/constants.dart'; // âœ… Ø§Ø³ØªÙŠØ±Ø§Ø¯ Ù…Ù„Ù Ø§Ù„Ø¥Ø¹Ø¯Ø§Ø¯Ø§Øª Ø§Ù„Ù…ÙˆØ­Ø¯ Ø¨Ø¯Ù„Ø§Ù‹ Ù…Ù† SecureStorage
+import 'login_screen.dart';
+import 'project_management_screen.dart'; // Ø§Ø³ØªÙŠØ±Ø§Ø¯ ØµÙØ­Ø© Ø§Ù„Ù…Ø´Ø§Ø±ÙŠØ¹ Ø§Ù„Ø¬Ø¯ÙŠØ¯Ø©
+import 'workers_screen.dart'; // ØªÙ… Ø¥Ø¶Ø§ÙØ© Ø§Ø³ØªÙŠØ±Ø§Ø¯ ØµÙØ­Ø© Ø§Ù„Ø¹Ù…Ø§Ù„ Ø§Ù„Ø¬Ø¯ÙŠØ¯Ø© Ù‡Ù†Ø§
+import 'worker_assignment_screen.dart'; // Ø§Ø³ØªÙŠØ±Ø§Ø¯ Ø´Ø§Ø´Ø© Ø§Ù„ØªØ¹ÙŠÙŠÙ†Ø§Øª Ø§Ù„Ø¬Ø¯ÙŠØ¯Ø©
+import 'hr_management_screen.dart'; // ðŸ‘ˆ Ø£Ø¶Ù Ù‡Ø°Ø§ Ø§Ù„Ø³Ø·Ø± Ù‡Ù†Ø§
+import 'attendance_payroll_hub.dart';
+class AdminDashboardScreen extends StatelessWidget {
+  const AdminDashboardScreen({super.key});
+
+  // Ø¯Ø§Ù„Ø© ØªØ³Ø¬ÙŠÙ„ Ø§Ù„Ø®Ø±ÙˆØ¬ ÙˆÙ…Ø³Ø­ Ø§Ù„Ø°Ø§ÙƒØ±Ø© Ø§Ù„Ø¢Ù…Ù†Ø© Ø§Ù„Ù…ÙˆØ­Ø¯Ø©
+  Future<void> _handleLogout(BuildContext context) async {
+    // âœ… Ø§Ø³ØªØ®Ø¯Ø§Ù… Ø§Ù„Ù€ Storage Ø§Ù„Ù…Ø´ØªØ±Ùƒ Ø§Ù„Ù…Ø¹Ø±Ù Ø¯Ø§Ø®Ù„ ApiConfig Ø¨Ø¯Ù„Ø§Ù‹ Ù…Ù† Ø¥Ù†Ø´Ø§Ø¡ ÙˆØ§Ø­Ø¯ Ø¬Ø¯ÙŠØ¯
+await ApiConfig.storage.delete(key: 'jwt_token');
+await ApiConfig.storage.delete(key: 'user_role');
+await ApiConfig.storage.delete(key: 'user_id');
+await ApiConfig.storage.delete(key: 'user_name');
+
+    if (context.mounted) {
+      Navigator.pushAndRemoveUntil(
+        context,
+        MaterialPageRoute(builder: (context) => const LoginScreen()),
+        (route) => false,
+      );
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    // Ù…ØµÙÙˆÙØ© ØªØ­ØªÙˆÙŠ Ø¹Ù„Ù‰ Ø§Ù„ÙƒØ§Ø±Ø¯Ø§Øª Ø§Ù„Ø£Ø±Ø¨Ø¹Ø© Ø§Ù„Ø£Ø³Ø§Ø³ÙŠØ© Ù„Ù„Ù†Ø¸Ø§Ù… Ù„ØªØ³Ù‡ÙŠÙ„ Ø¨Ù†Ø§Ø¦Ù‡Ø§
+    final List<Map<String, dynamic>> dashboardItems = [
+      {
+        'title': 'Ø¥Ø¯Ø§Ø±Ø© Ø§Ù„Ù…Ø´Ø§Ø±ÙŠØ¹',
+        'icon': Icons.business,
+        'color': const Color(0xff1a2a6c),
+        'onTap': () {
+          Navigator.push(
+            context,
+            MaterialPageRoute(builder: (context) => const ProjectManagementScreen()),
+          );
+        },
+      },
+      {
+        'title': 'ØªÙˆØ²ÙŠØ¹ ÙˆØ­Ø±ÙƒØ© Ø§Ù„Ø¹Ù…Ø§Ù„', // ðŸ‘ˆ ØªÙ… ØªØºÙŠÙŠØ± Ø§Ù„Ø§Ø³Ù… Ù‡Ù†Ø§
+        'icon': Icons.alt_route,       // ðŸ‘ˆ ØªÙ… ØªØºÙŠÙŠØ± Ø§Ù„Ø£ÙŠÙ‚ÙˆÙ†Ø© Ù„ØªÙ†Ø§Ø³Ø¨ Ø§Ù„Ø­Ø±ÙƒØ© ÙˆØ§Ù„ØªÙˆØ²ÙŠØ¹
+        'color': const Color(0xffb21f1f),
+        'onTap': () {
+          // ðŸ‘ˆ ØªÙ… Ø§Ù„Ø±Ø¨Ø· Ø§Ù„ÙØ¹Ù„ÙŠ Ù‡Ù†Ø§ Ø¨Ø´Ø§Ø´Ø© Ø§Ù„ØªØ¹ÙŠÙŠÙ†Ø§Øª Ø§Ù„Ø¬Ø¯ÙŠØ¯Ø© Ø¨Ø¯Ù„Ø§Ù‹ Ù…Ù† ØªØ±ÙƒÙ‡ ÙØ§Ø±ØºØ§Ù‹
+          Navigator.push(
+            context,
+            MaterialPageRoute(builder: (context) => const WorkerAssignmentScreen()),
+          );
+        },
+      },
+      {
+        'title': 'Ø¥Ø¯Ø§Ø±Ø© Ø§Ù„Ø¹Ù…Ø§Ù„ ÙˆØ§Ù„Ù…Ø´Ø±ÙÙŠÙ†', // ÙŠÙ…ÙƒÙ†Ùƒ ØªØºÙŠÙŠØ± Ø§Ù„Ø¹Ù†ÙˆØ§Ù† Ù„ÙŠØµØ¨Ø­ Ø£Ø´Ù…Ù„
+        'icon': Icons.people,
+        'color': const Color(0xfffdbb2d),
+        'onTap': () {
+          Navigator.push(
+            context,
+            MaterialPageRoute(builder: (context) => const HRManagementScreen()), // ðŸ‘ˆ Ø§Ù„ØªÙˆØ¬ÙŠÙ‡ Ù„Ù„Ø´Ø§Ø´Ø© Ø§Ù„ÙˆØ³ÙŠØ·Ø©
+          );
+        },
+      },
+      {
+        'title': 'Ø§Ù„Ø­Ø¶ÙˆØ± ÙˆØ§Ù„Ø±ÙˆØ§ØªØ¨',
+        'icon': Icons.analytics,
+        'color': Colors.green.shade700,
+        'onTap': () {
+Navigator.push(
+      context,
+      MaterialPageRoute(builder: (context) => const AttendancePayrollHub()),
+    );        },
+      },
+    ];
+
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('Ù„ÙˆØ­Ø© ØªØ­ÙƒÙ… Ø§Ù„Ù…Ø¯ÙŠØ±', style: TextStyle(fontWeight: FontWeight.bold, color: Colors.white)),
+        centerTitle: true,
+        backgroundColor: const Color(0xff1a2a6c),
+        elevation: 4,
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.logout, color: Colors.white),
+            onPressed: () {
+              showDialog(
+                context: context,
+                builder: (context) => AlertDialog(
+                  title: const Text('ØªØ³Ø¬ÙŠÙ„ Ø§Ù„Ø®Ø±ÙˆØ¬'),
+                  content: const Text('Ù‡Ù„ Ø£Ù†Øª Ù…ØªØ£ÙƒØ¯ Ù…Ù† Ø±ØºØ¨ØªÙƒ ÙÙŠ ØªØ³Ø¬ÙŠÙ„ Ø§Ù„Ø®Ø±ÙˆØ¬ØŸ'),
+                  actions: [
+                    TextButton(
+                      onPressed: () => Navigator.pop(context),
+                      child: const Text('Ø¥Ù„ØºØ§Ø¡'),
+                    ),
+                    TextButton(
+                      onPressed: () {
+                        Navigator.pop(context);
+                        _handleLogout(context);
+                      },
+                      child: const Text('Ø®Ø±ÙˆØ¬', style: TextStyle(color: Colors.red)),
+                    ),
+                  ],
+                ),
+              );
+            },
+          ),
+        ],
+      ),
+      body: Padding(
+        padding: const EdgeInsets.all(16.0),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              'Ø£Ù‡Ù„Ø§Ù‹ Ø¨Ùƒ Ù…Ø¬Ø¯Ø¯Ø§Ù‹ØŒ Ø§Ù„Ù…Ø¯ÙŠØ±',
+              style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: Color(0xff1a2a6c)),
+            ),
+            const SizedBox(height: 5),
+            const Text(
+              'Ø§Ø®ØªØ± Ø£Ø­Ø¯ Ø§Ù„Ø£Ù‚Ø³Ø§Ù… Ù„Ø¥Ø¯Ø§Ø±ØªÙ‡Ø§ ÙˆÙ…ØªØ§Ø¨Ø¹Ø© Ø³ÙŠØ± Ø§Ù„Ø¹Ù…Ù„:',
+              style: TextStyle(fontSize: 14, color: Colors.grey),
+            ),
+            const SizedBox(height: 20),
+            Expanded(
+              child: GridView.builder(
+                itemCount: dashboardItems.length,
+                gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                  crossAxisCount: 2,
+                  crossAxisSpacing: 16,
+                  mainAxisSpacing: 16,
+                  childAspectRatio: 1.1,
+                ),
+                itemBuilder: (context, index) {
+                  final item = dashboardItems[index];
+                  return InkWell(
+                    onTap: item['onTap'],
+                    borderRadius: BorderRadius.circular(15),
+                    child: Card(
+                      elevation: 4,
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15)),
+                      child: Container(
+                        decoration: BoxDecoration(
+                          borderRadius: BorderRadius.circular(15),
+                          gradient: LinearGradient(
+                            colors: [item['color'], item['color'].withOpacity(0.8)],
+                            begin: Alignment.topLeft,
+                            end: Alignment.bottomRight,
+                          ),
+                        ),
+                        child: Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Icon(item['icon'], size: 45, color: Colors.white),
+                            const SizedBox(height: 12),
+                            Text(
+                              item['title'],
+                              style: const TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold),
+                              textAlign: TextAlign.center,
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  );
+                },
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+import 'package:flutter/material.dart';
+import 'admin_attendance_screen.dart'; // ØªØ£ÙƒØ¯ Ø£Ù† Ù‡Ø°Ø§ Ø§Ù„Ù…Ù„Ù Ù…ÙˆØ¬ÙˆØ¯ ÙÙŠ Ù†ÙØ³ Ø§Ù„Ù…Ø¬Ù„Ø¯
+
+class AttendancePayrollHub extends StatelessWidget {
+  const AttendancePayrollHub({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return DefaultTabController(
+      length: 2, 
+      child: Scaffold(
+        appBar: AppBar(
+          title: const Text('Ø¥Ø¯Ø§Ø±Ø© Ø§Ù„Ø­Ø¶ÙˆØ± ÙˆØ§Ù„Ø±ÙˆØ§ØªØ¨'),
+          backgroundColor: const Color(0xff1a2a6c),
+          bottom: const TabBar(
+            tabs: [
+              Tab(icon: Icon(Icons.assignment_turned_in), text: 'Ø§Ù„Ø­Ø¶ÙˆØ±'),
+              Tab(icon: Icon(Icons.attach_money), text: 'Ø§Ù„Ø±ÙˆØ§ØªØ¨'),
+            ],
+          ),
+        ),
+        body: const TabBarView(
+          children: [
+            // âœ… ØªÙ… Ø§Ø³ØªØ¨Ø¯Ø§Ù„ Ø§Ù„Ù€ Text Ø§Ù„Ù‚Ø¯ÙŠÙ… Ø¨Ø§Ù„Ø´Ø§Ø´Ø© Ø§Ù„Ø¬Ø¯ÙŠØ¯Ø© Ø§Ù„ØªÙŠ Ø¨Ø±Ù…Ø¬Ù†Ø§Ù‡Ø§
+            AdminAttendanceScreen(), 
+            
+            // Ø´Ø§Ø´Ø© Ø§Ù„Ø±ÙˆØ§ØªØ¨ (Ø³Ù†Ø¹Ù…Ù„ Ø¹Ù„ÙŠÙ‡Ø§ Ù„Ø§Ø­Ù‚Ø§Ù‹)
+            Center(child: Text("Ø´Ø§Ø´Ø© Ø§Ù„Ø±ÙˆØ§ØªØ¨ Ø³ØªØ¸Ù‡Ø± Ù‡Ù†Ø§")),
+          ],
+        ),
+      ),
+    );
+  }
+}
+import 'package:flutter/material.dart';
+import 'package:team_flow/constants.dart'; // âœ… Ø§Ø³ØªÙŠØ±Ø§Ø¯ Ù…Ù„Ù Ø§Ù„Ø¥Ø¹Ø¯Ø§Ø¯Ø§Øª Ø§Ù„Ù…ÙˆØ­Ø¯
+
+class ContractSitesScreen extends StatefulWidget {
+  final int contractId;
+  final String contractName;
+
+  const ContractSitesScreen({
+    super.key,
+    required this.contractId,
+    required this.contractName,
+  });
+
+  @override
+  State<ContractSitesScreen> createState() => _ContractSitesScreenState();
+}
+
+class _ContractSitesScreenState extends State<ContractSitesScreen> {
+  // âœ… Ø§Ø³ØªØ®Ø¯Ø§Ù… Ø§Ù„Ø±ÙˆØ§Ø¨Ø· Ø§Ù„ÙØ±Ø¹ÙŠØ© ÙÙ‚Ø· Ù„Ø£Ù† Ø§Ù„Ø±Ø§Ø¨Ø· Ø§Ù„Ø£Ø³Ø§Ø³ÙŠ Ù…Ø¹Ø±Ù‘Ù Ø¯Ø§Ø®Ù„ Ø§Ù„Ù€ ApiConfig
+  late final String _apiUrl;
+  late final String _supervisorsUrl; 
+  
+  List _sites = [];
+  List _supervisors = []; 
+  int? _selectedSupervisorId; 
+  
+  bool _isLoading = true;
+  bool _isLoadingSupervisors = false; 
+
+  final _formKey = GlobalKey<FormState>();
+  final TextEditingController _nameController = TextEditingController();
+  final TextEditingController _detailsController = TextEditingController();
+
+  @override
+  void initState() {
+    super.initState();
+    _apiUrl = '/sites'; // âœ… Ù…Ø³Ø§Ø± ÙØ±Ø¹ÙŠ Ù…Ø¨Ø³Ø·
+    _supervisorsUrl = '/users/supervisors'; // âœ… Ù…Ø³Ø§Ø± ÙØ±Ø¹ÙŠ Ù…Ø¨Ø³Ø·
+    _fetchSites();
+  }
+
+  // 1. Ø¬Ù„Ø¨ Ø§Ù„Ù…ÙˆØ§Ù‚Ø¹ Ø§Ù„ØªØ§Ø¨Ø¹Ø© Ù„Ù„Ø¹Ù‚Ø¯ Ø§Ù„Ø­Ø§Ù„ÙŠ
+  Future<void> _fetchSites() async {
+    setState(() => _isLoading = true);
+    try {
+      // âœ… Ø§Ø³ØªØ®Ø¯Ø§Ù… ApiConfig.dio Ù„Ù„Ø·Ù„Ø¨ ØªÙ„Ù‚Ø§Ø¦ÙŠØ§Ù‹ Ù…Ø¹ Ø§Ù„ØªÙˆÙƒÙ†
+      final response = await ApiConfig.dio.get('$_apiUrl/contract/${widget.contractId}');
+      if (response.data['status'] == 'success') {
+        setState(() {
+          _sites = response.data['data'];
+          _isLoading = false;
+        });
+      }
+    } catch (e) {
+      setState(() => _isLoading = false);
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('ÙØ´Ù„ Ø¬Ù„Ø¨ Ù…ÙˆØ§Ù‚Ø¹ Ø§Ù„Ø¹Ù‚Ø¯'), backgroundColor: Colors.red),
+      );
+    }
+  }
+
+  // âš¡ Ø¬Ù„Ø¨ Ù‚Ø§Ø¦Ù…Ø© Ø§Ù„Ù…Ø´Ø±ÙÙŠÙ† Ø§Ù„Ù†Ø´Ø·ÙŠÙ† ÙÙ‚Ø· Ù„Ø¹Ø±Ø¶Ù‡Ù… ÙÙŠ Ø§Ù„Ù€ Dropdown
+  Future<void> _fetchActiveSupervisors() async {
+    setState(() => _isLoadingSupervisors = true);
+    try {
+      // âœ… Ø§Ø³ØªØ®Ø¯Ø§Ù… ApiConfig.dio Ù„Ù„Ø·Ù„Ø¨ ØªÙ„Ù‚Ø§Ø¦ÙŠØ§Ù‹ Ù…Ø¹ Ø§Ù„ØªÙˆÙƒÙ†
+      final response = await ApiConfig.dio.get(_supervisorsUrl);
+      if (response.data['status'] == 'success') {
+        setState(() {
+          _supervisors = (response.data['data'] as List)
+              .where((supervisor) => supervisor['status'] == 'Active')
+              .toList();
+          _isLoadingSupervisors = false;
+        });
+      }
+    } catch (e) {
+      setState(() => _isLoadingSupervisors = false);
+      print("ðŸš¨ Error fetching supervisors: $e");
+    }
+  }
+
+  // 2. Ø¥Ø¶Ø§ÙØ© Ù…ÙˆÙ‚Ø¹ Ø¬Ø¯ÙŠØ¯ Ù…Ø±Ø¨ÙˆØ· Ø¨Ø§Ù„Ø¹Ù‚Ø¯ Ø§Ù„Ø­Ø§Ù„ÙŠ ÙˆØ¨Ø§Ù„Ù…Ø´Ø±Ù Ø§Ù„Ù…Ø®ØªØ§Ø±
+  Future<void> _addSite() async {
+    if (!_formKey.currentState!.validate()) return;
+
+    try {
+      // âœ… Ø§Ø³ØªØ®Ø¯Ø§Ù… ApiConfig.dio Ù„Ø¥Ø±Ø³Ø§Ù„ Ø·Ù„Ø¨ Ø§Ù„Ù€ POST ÙˆØ§Ù„ØªÙˆÙƒÙ† ÙŠØ¶Ø§Ù ØªÙ„Ù‚Ø§Ø¦ÙŠØ§Ù‹ Ø¨Ø§Ù„Ø®Ù„ÙÙŠØ©
+      final response = await ApiConfig.dio.post(_apiUrl, data: {
+        'site_name': _nameController.text.trim(),
+        'location': _detailsController.text.trim(),
+        'contract_id': widget.contractId, 
+        'supervisor_id': _selectedSupervisorId 
+      });
+
+      if (response.data['status'] == 'success') {
+        Navigator.pop(context);
+        _nameController.clear();
+        _detailsController.clear();
+        setState(() => _selectedSupervisorId = null); 
+        _fetchSites(); 
+        
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('ØªÙ… Ø¥Ù†Ø´Ø§Ø¡ Ø§Ù„Ù…ÙˆÙ‚Ø¹ Ø¨Ù†Ø¬Ø§Ø­!'), backgroundColor: Colors.green),
+        );
+      }
+    } catch (e) {
+      print("ðŸš¨ DIO ERROR DETAILS: $e");
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('ÙØ´Ù„ Ø¥Ù†Ø´Ø§Ø¡ Ø§Ù„Ù…ÙˆÙ‚Ø¹ Ø§Ù„Ø¬Ø¯ÙŠØ¯'), backgroundColor: Colors.red),
+      );
+    }
+  }
+
+  // 3. Ù†Ø§ÙØ°Ø© Ø¥Ø¶Ø§ÙØ© Ù…ÙˆÙ‚Ø¹ Ø¬Ø¯ÙŠØ¯ (Dialog)
+  void _showAddSiteDialog() async {
+    await _fetchActiveSupervisors();
+
+    if (!mounted) return;
+
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
+      builder: (context) => StatefulBuilder( 
+        builder: (context, setModalState) => Padding(
+          padding: EdgeInsets.only(
+            bottom: MediaQuery.of(context).viewInsets.bottom,
+            top: 20, left: 20, right: 20,
+          ),
+          child: Form(
+            key: _formKey,
+            child: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Text('Ø¥Ø¶Ø§ÙØ© Ù…ÙˆÙ‚Ø¹ Ù„Ù€ ${widget.contractName}', style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold), textAlign: TextAlign.center),
+                  const SizedBox(height: 15),
+                  TextFormField(
+                    controller: _nameController,
+                    decoration: const InputDecoration(labelText: 'Ø§Ø³Ù… Ø§Ù„Ù…ÙˆÙ‚Ø¹ / Ø§Ù„Ù‚Ø·Ø§Ø¹ *', border: OutlineInputBorder()),
+                    validator: (value) => value == null || value.isEmpty ? 'Ø§Ù„Ø±Ø¬Ø§Ø¡ Ø¥Ø¯Ø®Ø§Ù„ Ø§Ø³Ù… Ø§Ù„Ù…ÙˆÙ‚Ø¹' : null,
+                  ),
+                  const SizedBox(height: 12),
+                  TextFormField(
+                    controller: _detailsController,
+                    decoration: const InputDecoration(labelText: 'ØªÙØ§ØµÙŠÙ„ Ø§Ù„Ù…ÙˆÙ‚Ø¹ Ø§Ù„Ø¬ØºØ±Ø§ÙÙŠ Ø£Ùˆ Ø§Ù„Ø¹Ù†ÙˆØ§Ù†', border: OutlineInputBorder()),
+                    maxLines: 2,
+                  ),
+                  const SizedBox(height: 12),
+                  
+                  _isLoadingSupervisors
+                      ? const Center(child: Padding(
+                          padding: EdgeInsets.all(8.0),
+                          child: CircularProgressIndicator(),
+                        ))
+                      : DropdownButtonFormField<int>(
+                          decoration: const InputDecoration(
+                            labelText: 'ØªØ¹ÙŠÙŠÙ† Ù…Ø´Ø±Ù Ù„Ù„Ù…ÙˆÙ‚Ø¹',
+                            border: OutlineInputBorder(),
+                            prefixIcon: Icon(Icons.person, color: Colors.orange),
+                          ),
+                          value: _selectedSupervisorId,
+                          hint: const Text('Ø§Ø®ØªØ± Ù…Ø´Ø±ÙØ§Ù‹ Ù„Ù‡Ø°Ø§ Ø§Ù„Ù…ÙˆÙ‚Ø¹ (Ø§Ø®ØªÙŠØ§Ø±ÙŠ)'),
+                          items: _supervisors.map((supervisor) {
+                            return DropdownMenuItem<int>(
+                              value: supervisor['user_id'], 
+                              child: Text(supervisor['full_name'] ?? supervisor['username']),
+                            );
+                          }).toList(),
+                          onChanged: (value) {
+                            setModalState(() { 
+                              _selectedSupervisorId = value;
+                            });
+                          },
+                        ),
+                  
+                  const SizedBox(height: 20),
+                  ElevatedButton(
+                    onPressed: () => _addSite(), 
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: const Color(0xffb21f1f), 
+                      padding: const EdgeInsets.symmetric(vertical: 12)
+                    ),
+                    child: const Text('Ø­ÙØ¸ Ø§Ù„Ù…ÙˆÙ‚Ø¹', style: TextStyle(color: Colors.white, fontSize: 16)),
+                  ),
+                  const SizedBox(height: 20),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: Text('Ù…ÙˆØ§Ù‚Ø¹: ${widget.contractName}'),
+        backgroundColor: const Color(0xffb21f1f), 
+      ),
+      floatingActionButton: FloatingActionButton(
+        onPressed: _showAddSiteDialog,
+        backgroundColor: const Color(0xffb21f1f),
+        child: const Icon(Icons.add, color: Colors.white),
+      ),
+      body: _isLoading
+          ? const Center(child: CircularProgressIndicator())
+          : _sites.isEmpty
+              ? const Center(child: Text('Ù„Ø§ ÙŠÙˆØ¬Ø¯ Ù…ÙˆØ§Ù‚Ø¹ Ù…Ø³Ø¬Ù„Ø© Ù„Ù‡Ø°Ø§ Ø§Ù„Ø¹Ù‚Ø¯ Ø­Ø§Ù„ÙŠØ§Ù‹', style: TextStyle(fontSize: 15)))
+              : ListView.builder(
+                  padding: const EdgeInsets.all(10),
+                  itemCount: _sites.length,
+                  itemBuilder: (context, index) {
+                    final site = _sites[index];
+                    return Card(
+                      elevation: 2,
+                      margin: const EdgeInsets.symmetric(vertical: 6),
+                      child: ListTile(
+                        leading: const CircleAvatar(
+                          backgroundColor: Colors.orange,
+                          child: Icon(Icons.location_on, color: Colors.white, size: 20),
+                        ),
+                        title: Text(site['site_name'], style: const TextStyle(fontWeight: FontWeight.bold)),
+                        subtitle: Text('Ø§Ù„Ø¹Ù†ÙˆØ§Ù†: ${site['location_details'] ?? 'ØºÙŠØ± Ù…Ø­Ø¯Ø¯'}\nØ§Ù„Ù…Ø´Ø±Ù: ${site['supervisor_name'] ?? 'Ù„Ù… ÙŠØªÙ… ØªØ¹ÙŠÙŠÙ† Ù…Ø´Ø±Ù Ø¨Ø¹Ø¯'}'),
+                        trailing: Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                          decoration: BoxDecoration(
+                            color: site['site_status'] == 'Active' ? Colors.green.shade100 : Colors.grey.shade300,
+                            borderRadius: BorderRadius.circular(5),
+                          ),
+                          child: Text(
+                            site['site_status'] == 'Active' ? 'Ù†Ø´Ø·' : 'Ù…ØªÙˆÙ‚Ù', 
+                            style: TextStyle(
+                              color: site['site_status'] == 'Active' ? Colors.green.shade900 : Colors.grey.shade700, 
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                        ),
+                        isThreeLine: true,
+                      ),
+                    );
+                  },
+                ),
+    );
+  }
+}
+import 'package:flutter/material.dart';
+import 'workers_screen.dart'; // Ø´Ø§Ø´Ø© Ø§Ù„Ø¹Ù…Ø§Ù„ Ø§Ù„Ø­Ø§Ù„ÙŠØ© Ù„Ø¯ÙŠÙƒ
+import 'supervisor_management_screen.dart'; // Ø´Ø§Ø´Ø© Ø§Ù„Ù…Ø´Ø±ÙÙŠÙ† Ø§Ù„ØªÙŠ Ø³Ù†Ø¨Ù†ÙŠÙ‡Ø§
+
+class HRManagementScreen extends StatelessWidget {
+  const HRManagementScreen({Key? key}) : super(key: key);
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: Colors.grey[100],
+      appBar: AppBar(
+        title: const Text(
+          'Ø¥Ø¯Ø§Ø±Ø© Ø§Ù„Ù…ÙˆØ§Ø±Ø¯ Ø§Ù„Ø¨Ø´Ø±ÙŠØ©',
+          style: TextStyle(fontWeight: FontWeight.bold, color: Colors.white),
+        ),
+        backgroundColor: const Color(0xff1a2a6c),
+        centerTitle: true,
+        elevation: 0,
+      ),
+      body: Padding(
+        padding: const EdgeInsets.all(20.0),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            // 1. Ø¨Ø·Ø§Ù‚Ø© Ø¥Ø¯Ø§Ø±Ø© Ø§Ù„Ø¹Ù…Ø§Ù„
+            _buildCategoryCard(
+              context,
+              title: 'Ø¥Ø¯Ø§Ø±Ø© Ø§Ù„Ø¹Ù…Ø§Ù„',
+              subtitle: 'Ø¹Ø±Ø¶ Ø§Ù„Ø¹Ù…Ø§Ù„ØŒ Ø¥Ø¶Ø§ÙØ© Ø¹Ø§Ù…Ù„ Ø¬Ø¯ÙŠØ¯ØŒ ÙˆØªØ¹Ø¯ÙŠÙ„ Ø¨ÙŠØ§Ù†Ø§ØªÙ‡Ù…',
+              icon: Icons.engineering_outlined,
+              gradientColors: [const Color(0xff1a2a6c), const Color(0xff2753a7)],
+              onTap: () {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (context) => const WorkersScreen()),
+                );
+              },
+            ),
+            const SizedBox(height: 20),
+
+            // 2. Ø¨Ø·Ø§Ù‚Ø© Ø¥Ø¯Ø§Ø±Ø© Ø§Ù„Ù…Ø´Ø±ÙÙŠÙ†
+            _buildCategoryCard(
+              context,
+              title: 'Ø¥Ø¯Ø§Ø±Ø© Ø§Ù„Ù…Ø´Ø±ÙÙŠÙ† (Supervisors)',
+              subtitle: 'Ø¥Ù†Ø´Ø§Ø¡ Ø­Ø³Ø§Ø¨Ø§Øª Ø§Ù„Ù…Ø´Ø±ÙÙŠÙ†ØŒ ØªÙØ¹ÙŠÙ„/ØªØ¹Ø·ÙŠÙ„ØŒ ÙˆØ¥Ø¹Ø§Ø¯Ø© ØªØ¹ÙŠÙŠÙ† ÙƒÙ„Ù…Ø§Øª Ø§Ù„Ù…Ø±ÙˆØ±',
+              icon: Icons.manage_accounts_outlined,
+              gradientColors: [const Color(0xffb21f1f), const Color(0xfff12711)],
+              onTap: () {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (context) => const SupervisorManagementScreen()),
+                );
+              },
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildCategoryCard(
+    BuildContext context, {
+    required String title,
+    required String subtitle,
+    required IconData icon,
+    required List<Color> gradientColors,
+    required VoidCallback onTap,
+  }) {
+    return Container(
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(15),
+        gradient: LinearGradient(
+          colors: gradientColors,
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: gradientColors[0].withOpacity(0.3),
+            blurRadius: 8,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          onTap: onTap,
+          borderRadius: BorderRadius.circular(15),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(vertical: 24.0, horizontal: 20.0),
+            child: Row(
+              children: [
+                Icon(icon, size: 45, color: Colors.white),
+                const SizedBox(width: 20),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        title,
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 18,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                      const SizedBox(height: 5),
+                      Text(
+                        subtitle,
+                        style: TextStyle(
+                          color: Colors.white.withOpacity(0.85),
+                          fontSize: 13,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const Icon(Icons.arrow_forward_ios, color: Colors.white, size: 18),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+import 'package:flutter/material.dart';
+import 'package:dio/dio.dart';
+import '../services/auth_service.dart'; // ØªØ£ÙƒØ¯ Ù…Ù† ØµØ­Ø© Ù…Ø³Ø§Ø± Ù…Ù„Ù Ø§Ù„Ø®Ø¯Ù…Ø© Ø¹Ù†Ø¯Ùƒ
+import 'admin_dashboard_screen.dart';
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+import 'supervisor_dashboard.dart';
+
+class LoginScreen extends StatefulWidget {
+  const LoginScreen({super.key});
+
+  @override
+  State<LoginScreen> createState() => _LoginScreenState();
+}
+
+class _LoginScreenState extends State<LoginScreen> {
+  final TextEditingController _emailController = TextEditingController();
+  final TextEditingController _passwordController = TextEditingController();
+  final AuthService _authService = AuthService();
+  
+  bool _isLoading = false;
+  bool _isPasswordHidden = true;
+  final _storage = const FlutterSecureStorage();
+
+  void _handleLogin() async {
+    final email = _emailController.text.trim();
+    final password = _passwordController.text.trim();
+
+    if (email.isEmpty || password.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text("Ø§Ù„Ø±Ø¬Ø§Ø¡ Ù…Ù„Ø¡ Ø¬Ù…ÙŠØ¹ Ø§Ù„Ø­Ù‚ÙˆÙ„"),
+          backgroundColor: Colors.orange,
+        ),
+      );
+      return;
+    }
+
+    setState(() {
+      _isLoading = true;
+    });
+
+    final result = await _authService.login(email, password);
+
+    setState(() {
+      _isLoading = false;
+    });
+
+    if (result != null && result['status'] == 'success') {
+      String token = result['token'];
+      String role = result['user']['role']; // Ø³Ø­Ø¨ Ø§Ù„Ù€ role (Admin Ø£Ùˆ Supervisor)
+      String fullName = result['user']['full_name'] ?? 'Ø§Ù„Ù…Ø³ØªØ®Ø¯Ù…';
+
+      // ðŸ‘ˆ Ø­ÙØ¸ Ø§Ù„Ø¨ÙŠØ§Ù†Ø§Øª ÙÙŠ Ø°Ø§ÙƒØ±Ø© Ø§Ù„Ù‡Ø§ØªÙ Ø§Ù„Ù…Ø´ÙØ±Ø©
+final userIdRaw = result['user']['user_id'] ?? result['user']['id'];
+final int supervisorId = (userIdRaw != null) ? int.parse(userIdRaw.toString()) : 0;
+
+await _storage.write(key: 'jwt_token', value: token);
+await _storage.write(key: 'user_role', value: role);
+await _storage.write(key: 'user_id', value: supervisorId.toString()); // âœ… Ø­ÙØ¸ Ø§Ù„Ø¢ÙŠ Ø¯ÙŠ
+await _storage.write(key: 'user_name', value: fullName); // âœ… Ø­ÙØ¸ Ø§Ù„Ø§Ø³Ù… Ø§Ù„ÙƒØ§Ù…Ù„
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text("Ø£Ù‡Ù„Ø§Ù‹ Ø¨Ùƒ ÙŠØ§ $fullNameØŒ ØªÙ… ØªØ³Ø¬ÙŠÙ„ Ø§Ù„Ø¯Ø®ÙˆÙ„ Ø¨Ù†Ø¬Ø§Ø­!"), backgroundColor: Colors.green),
+      );
+
+      // Ø§Ù„ØªÙˆØ¬ÙŠÙ‡ Ø§Ù„Ø°ÙƒÙŠ Ø¨Ù†Ø§Ø¡Ù‹ Ø¹Ù„Ù‰ Ø§Ù„Ù€ Role
+      Future.delayed(const Duration(seconds: 1), () {
+        if (role == 'Admin') {
+          Navigator.pushReplacement(
+            context,
+            MaterialPageRoute(builder: (context) => const AdminDashboardScreen()),
+          );
+        } else {
+          // Ø¬Ù„Ø¨ Ø§Ù„Ù€ ID Ø¨Ø£Ù…Ø§Ù† Ù…Ø¹ Ø§Ù„ØªØ­Ù‚Ù‚ Ù…Ù† ÙƒÙ„Ø§ Ø§Ù„Ø§Ø³Ù…ÙŠÙ† (user_id Ø£Ùˆ id) ÙˆØªØ­ÙˆÙŠÙ„Ù‡ Ù„Ù€ int
+          final userIdRaw = result['user']['user_id'] ?? result['user']['id'];
+          final int supervisorId = (userIdRaw != null) ? int.parse(userIdRaw.toString()) : 0; 
+
+          Navigator.pushReplacement(
+            context,
+            MaterialPageRoute(
+              builder: (context) => SupervisorDashboard(
+                supervisorId: supervisorId, // Ù…Ø±Ø±Ù†Ø§ Ø§Ù„Ù…ØªØºÙŠØ± Ø§Ù„Ø¢Ù…Ù†
+                supervisorName: result['user']['full_name'] ?? result['user']['username'] ?? 'Ù…Ø´Ø±Ù Ø¬Ø¯ÙŠØ¯',
+              ),
+            ),
+          );
+        }
+      });
+    } else {
+      String errorMsg = result?['message'] ?? "ÙØ´Ù„ Ø§Ù„Ø§ØªØµØ§Ù„ Ø¨Ø§Ù„Ø³ÙŠØ±ÙØ±";
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(errorMsg),
+          backgroundColor: Colors.red,
+        ),
+      );
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      body: Container(
+        // 1ï¸âƒ£ ØªØ¯Ø±Ø¬ Ù„ÙˆÙ†ÙŠ Ø£Ù†ÙŠÙ‚ Ù„Ù„Ø®Ù„ÙÙŠØ© ÙŠÙ†Ø§Ø³Ø¨ Ù‡ÙˆÙŠÙ‘Ø© Ø§Ù„ØªØ·Ø¨ÙŠÙ‚
+        width: double.infinity,
+        height: double.infinity,
+        decoration: const BoxDecoration(
+          gradient: LinearGradient(
+            colors: [Color(0xff1a2a6c), Color(0xff275d8c)],
+            begin: Alignment.topCenter,
+            end: Alignment.bottomCenter,
+          ),
+        ),
+        child: Center(
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.all(24.0),
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                // 2ï¸âƒ£ Ø´Ø¹Ø§Ø± Ø§Ù„ØªØ·Ø¨ÙŠÙ‚ Ø£Ùˆ Ø£ÙŠÙ‚ÙˆÙ†Ø© ØªØ¹Ø¨ÙŠØ±ÙŠØ©
+                const Icon(
+                  Icons.group_work_rounded,
+                  size: 80,
+                  color: Colors.white,
+                ),
+                const SizedBox(height: 12),
+                const Text(
+                  "TEAM FLOW",
+                  style: TextStyle(
+                    fontSize: 28,
+                    fontWeight: FontWeight.bold,
+                    color: Colors.white,
+                    letterSpacing: 2,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  "Ø¥Ø¯Ø§Ø±Ø© Ø§Ù„Ù…Ù‡Ø§Ù… ÙˆØ§Ù„Ø¹Ù…Ù„ Ø§Ù„Ø¬Ù…Ø§Ø¹ÙŠ Ø¨ÙƒÙ„ Ø³Ù„Ø§Ø³Ø©",
+                  style: TextStyle(
+                    fontSize: 14,
+                    color: Colors.white.withOpacity(0.8),
+                  ),
+                ),
+                const SizedBox(height: 40),
+
+                // 3ï¸âƒ£ ÙƒØ§Ø±Ø¯ Ø£Ø¨ÙŠØ¶ ÙŠØ­ØªÙˆÙŠ Ø¹Ù„Ù‰ Ø­Ù‚ÙˆÙ„ Ø§Ù„Ø¥Ø¯Ø®Ø§Ù„
+                Container(
+                  padding: const EdgeInsets.all(24.0),
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(20),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black.withOpacity(0.2),
+                        blurRadius: 15,
+                        offset: const Offset(0, 8),
+                      )
+                    ],
+                  ),
+                  child: Column(
+                    children: [
+                      const Text(
+                        "ØªØ³Ø¬ÙŠÙ„ Ø§Ù„Ø¯Ø®ÙˆÙ„",
+                        style: TextStyle(
+                          fontSize: 20,
+                          fontWeight: FontWeight.bold,
+                          color: Color(0xff1a2a6c),
+                        ),
+                      ),
+                      const SizedBox(height: 24),
+
+                      // Ø­Ù‚Ù„ Ø§Ù„Ø¨Ø±ÙŠØ¯ Ø§Ù„Ø¥Ù„ÙƒØªØ±ÙˆÙ†ÙŠ
+                      TextField(
+                        controller: _emailController,
+                        keyboardType: TextInputType.emailAddress,
+                        decoration: InputDecoration(
+                          labelText: "Ø§Ù„Ø¨Ø±ÙŠØ¯ Ø§Ù„Ø¥Ù„ÙƒØªØ±ÙˆÙ†ÙŠ",
+                          prefixIcon: const Icon(Icons.email_outlined, color: Color(0xff275d8c)),
+                          border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          enabledBorder: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(12),
+                            borderSide: BorderSide(color: Colors.grey.shade300),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 16),
+
+                      // Ø­Ù‚Ù„ ÙƒÙ„Ù…Ø© Ø§Ù„Ù…Ø±ÙˆØ±
+                      TextField(
+                        controller: _passwordController,
+                        obscureText: _isPasswordHidden,
+                        decoration: InputDecoration(
+                          labelText: "ÙƒÙ„Ù…Ø© Ø§Ù„Ù…Ø±ÙˆØ±",
+                          prefixIcon: const Icon(Icons.lock_outline_rounded, color: Color(0xff275d8c)),
+                          suffixIcon: IconButton(
+                            icon: Icon(
+                              _isPasswordHidden ? Icons.visibility_off_outlined : Icons.visibility_outlined,
+                              color: Colors.grey,
+                            ),
+                            onPressed: () {
+                              setState(() {
+                                _isPasswordHidden = !_isPasswordHidden;
+                              });
+                            },
+                          ),
+                          border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          enabledBorder: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(12),
+                            borderSide: BorderSide(color: Colors.grey.shade300),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 24),
+
+                      // 4ï¸âƒ£ Ø²Ø± ØªØ³Ø¬ÙŠÙ„ Ø§Ù„Ø¯Ø®ÙˆÙ„ Ø§Ù„ØªÙØ§Ø¹Ù„ÙŠ Ù…Ø¹ Ù…Ø¤Ø´Ø± Ø§Ù„ØªØ­Ù…ÙŠÙ„
+                      SizedBox(
+                        width: double.infinity,
+                        height: 50,
+                        child: ElevatedButton(
+                          onPressed: _isLoading ? null : _handleLogin,
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: const Color(0xff1a2a6c),
+                            foregroundColor: Colors.white,
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                            elevation: 2,
+                          ),
+                          child: _isLoading
+                              ? const SizedBox(
+                                  width: 24,
+                                  height: 24,
+                                  child: CircularProgressIndicator(
+                                    color: Colors.white,
+                                    strokeWidth: 2.5,
+                                  ),
+                                )
+                              : const Text(
+                                  "Ø¯Ø®ÙˆÙ„",
+                                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                                ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+import 'contract_sites_screen.dart';
+import 'package:flutter/material.dart';
+import 'package:team_flow/constants.dart'; // âœ… Ø§Ø³ØªÙŠØ±Ø§Ø¯ Ù…Ù„Ù Ø§Ù„Ø¥Ø¹Ø¯Ø§Ø¯Ø§Øª Ø§Ù„Ù…ÙˆØ­Ø¯
+
+class ProjectContractsScreen extends StatefulWidget {
+  final int projectId;
+  final String projectName;
+
+  const ProjectContractsScreen({
+    super.key,
+    required this.projectId,
+    required this.projectName,
+  });
+
+  @override
+  State<ProjectContractsScreen> createState() => _ProjectContractsScreenState();
+}
+
+class _ProjectContractsScreenState extends State<ProjectContractsScreen> {
+  // âœ… Ø§Ø³ØªØ®Ø¯Ø§Ù… Ø§Ù„Ù…Ø³Ø§Ø± Ø§Ù„ÙØ±Ø¹ÙŠ Ø§Ù„Ù…ÙˆØ­Ø¯
+  late final String _apiUrl;
+  
+  List _contracts = [];
+  bool _isLoading = true;
+
+  final _formKey = GlobalKey<FormState>();
+  final TextEditingController _nameController = TextEditingController();
+  final TextEditingController _descController = TextEditingController();
+  final TextEditingController _rateController = TextEditingController();
+  final TextEditingController _overtimeRateController = TextEditingController();
+
+  @override
+  void initState() {
+    super.initState();
+    // âœ… ØªÙ‡ÙŠØ¦Ø© Ø§Ù„Ù…Ø³Ø§Ø± Ø§Ù„ÙØ±Ø¹ÙŠ Ø§Ù„Ù…ÙˆØ­Ø¯
+    _apiUrl = '/contracts';
+    _fetchContracts();
+  }
+
+  // 1. Ø¬Ù„Ø¨ Ø¹Ù‚ÙˆØ¯ Ø§Ù„Ù…Ø´Ø±ÙˆØ¹
+  Future<void> _fetchContracts() async {
+    setState(() => _isLoading = true);
+    try {
+      // âœ… Ø§Ø³ØªØ®Ø¯Ø§Ù… ApiConfig.dio Ù„Ø¥Ø±Ø³Ø§Ù„ Ø§Ù„Ø·Ù„Ø¨ Ù…Ø¹ Ø§Ù„ØªÙˆÙƒÙ† ØªÙ„Ù‚Ø§Ø¦ÙŠØ§Ù‹
+      final response = await ApiConfig.dio.get('$_apiUrl/project/${widget.projectId}');
+      if (response.data['status'] == 'success') {
+        setState(() {
+          _contracts = response.data['data'];
+          _isLoading = false;
+        });
+      }
+    } catch (e) {
+      setState(() => _isLoading = false);
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('ÙØ´Ù„ Ø¬Ù„Ø¨ Ø¹Ù‚ÙˆØ¯ Ø§Ù„Ù…Ø´Ø±ÙˆØ¹'), backgroundColor: Colors.red),
+      );
+    }
+  }
+
+  // 2. Ø¥Ø¶Ø§ÙØ© Ø¹Ù‚Ø¯ Ø¬Ø¯ÙŠØ¯ Ù…Ø±Ø¨ÙˆØ· Ø¨Ø§Ù„Ù…Ø´Ø±ÙˆØ¹ Ø§Ù„Ø­Ø§Ù„ÙŠ
+  Future<void> _addContract() async {
+    if (!_formKey.currentState!.validate()) return;
+
+    try {
+      // âœ… Ø§Ø³ØªØ®Ø¯Ø§Ù… ApiConfig.dio Ù„Ø¥Ø±Ø³Ø§Ù„ Ø§Ù„Ù€ POST Ù…Ø¹ Ø§Ù„ØªÙˆÙƒÙ† Ø§Ù„Ù…Ø±ÙÙ‚ ØªÙ„Ù‚Ø§Ø¦ÙŠØ§Ù‹ Ø¨Ø§Ù„Ù‡ÙŠØ¯Ø±Ø²
+    // Ø¹Ø¯Ù„ Ù‡Ø°Ø§ Ø§Ù„Ø¬Ø²Ø¡ ÙÙ‚Ø· Ø¯Ø§Ø®Ù„ Ø¯Ø§Ù„Ø© _addContract
+final response = await ApiConfig.dio.post(_apiUrl, data: {
+  'contract_name': _nameController.text.trim(),
+  'description': _descController.text.trim(),
+  'project_id': widget.projectId,
+  'hourly_rate': double.parse(_rateController.text.trim()),
+  'overtime_hourly_rate': double.parse(_overtimeRateController.text.trim()),
+  // Ù„Ø§ ØªØ±Ø³Ù„ admin_idØŒ Ø§Ù„Ø³ÙŠØ±ÙØ± Ø³ÙŠØ£Ø®Ø°Ù‡ Ù…Ù† Ø§Ù„ØªÙˆÙƒÙ† ØªÙ„Ù‚Ø§Ø¦ÙŠØ§Ù‹
+});
+
+      if (response.data['status'] == 'success') {
+        Navigator.pop(context);
+        _nameController.clear();
+        _descController.clear();
+        _rateController.clear();
+        _overtimeRateController.clear();
+        _fetchContracts(); // ØªØ­Ø¯ÙŠØ« Ø§Ù„Ù‚Ø§Ø¦Ù…Ø©
+        
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('ØªÙ… Ø¥Ø¶Ø§ÙØ© Ø§Ù„Ø¹Ù‚Ø¯ Ø¨Ù†Ø¬Ø§Ø­!'), backgroundColor: Colors.green),
+        );
+      }
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('ÙØ´Ù„ Ø¥Ù†Ø´Ø§Ø¡ Ø§Ù„Ø¹Ù‚Ø¯ Ø§Ù„Ø¬Ø¯ÙŠØ¯'), backgroundColor: Colors.red),
+      );
+    }
+  }
+
+  void _showAddContractDialog() {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
+      builder: (context) => Padding(
+        padding: EdgeInsets.only(
+          bottom: MediaQuery.of(context).viewInsets.bottom,
+          top: 20, left: 20, right: 20,
+        ),
+        child: Form(
+          key: _formKey,
+          child: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Text('Ø¥Ø¶Ø§ÙØ© Ø¹Ù‚Ø¯ Ù„Ù€ ${widget.projectName}', style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold), textAlign: TextAlign.center),
+                const SizedBox(height: 15),
+                TextFormField(
+                  controller: _nameController,
+                  decoration: const InputDecoration(labelText: 'Ø§Ø³Ù… Ø§Ù„Ø¹Ù‚Ø¯ *', border: OutlineInputBorder()),
+                  validator: (value) => value == null || value.isEmpty ? 'Ø§Ù„Ø±Ø¬Ø§Ø¡ Ø¥Ø¯Ø®Ø§Ù„ Ø§Ø³Ù… Ø§Ù„Ø¹Ù‚Ø¯' : null,
+                ),
+                const SizedBox(height: 12),
+                TextFormField(
+                  controller: _descController,
+                  decoration: const InputDecoration(labelText: 'Ø§Ù„ÙˆØµÙ Ø£Ùˆ Ø§Ù„ØªÙØ§ØµÙŠÙ„', border: OutlineInputBorder()),
+                  maxLines: 2,
+                ),
+                const SizedBox(height: 12),
+                TextFormField(
+                  controller: _rateController,
+                  keyboardType: TextInputType.number,
+                  decoration: const InputDecoration(labelText: 'Ø£Ø¬Ø± Ø§Ù„Ø³Ø§Ø¹Ø© Ø§Ù„Ø¹Ø§Ø¯ÙŠ *', border: OutlineInputBorder(), prefixText: '\$ '),
+                  validator: (value) => value == null || value.isEmpty ? 'Ø§Ù„Ø±Ø¬Ø§Ø¡ ØªØ­Ø¯ÙŠØ¯ Ø£Ø¬Ø± Ø§Ù„Ø³Ø§Ø¹Ø©' : null,
+                ),
+                const SizedBox(height: 12),
+                TextFormField(
+                  controller: _overtimeRateController,
+                  keyboardType: TextInputType.number,
+                  decoration: const InputDecoration(labelText: 'Ø£Ø¬Ø± Ø³Ø§Ø¹Ø© Ø§Ù„Ø¥Ø¶Ø§ÙÙŠ (Overtime) *', border: OutlineInputBorder(), prefixText: '\$ '),
+                  validator: (value) => value == null || value.isEmpty ? 'Ø§Ù„Ø±Ø¬Ø§Ø¡ ØªØ­Ø¯ÙŠØ¯ Ø£Ø¬Ø± Ø§Ù„Ø¥Ø¶Ø§ÙÙŠ' : null,
+                ),
+                const SizedBox(height: 20),
+                ElevatedButton(
+                  onPressed: _addContract,
+                  style: ElevatedButton.styleFrom(backgroundColor: const Color(0xffb21f1f), padding: const EdgeInsets.symmetric(vertical: 12)),
+                  child: const Text('Ø­ÙØ¸ Ø§Ù„Ø¹Ù‚Ø¯', style: TextStyle(color: Colors.white, fontSize: 16)),
+                ),
+                const SizedBox(height: 20),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: Text('Ø¹Ù‚ÙˆØ¯: ${widget.projectName}'),
+        backgroundColor: const Color(0xffb21f1f), // Ø§Ù„Ù„ÙˆÙ† Ø§Ù„Ø£Ø­Ù…Ø± Ø§Ù„Ù…Ø®ØµØµ Ù„Ù„Ø¹Ù‚ÙˆØ¯ Ø­Ø³Ø¨ Ø§Ù„Ù€ Dashboard
+      ),
+      floatingActionButton: FloatingActionButton(
+        onPressed: _showAddContractDialog,
+        backgroundColor: const Color(0xffb21f1f),
+        child: const Icon(Icons.add, color: Colors.white),
+      ),
+      body: _isLoading
+          ? const Center(child: CircularProgressIndicator())
+          : _contracts.isEmpty
+              ? const Center(child: Text('Ù„Ø§ ÙŠÙˆØ¬Ø¯ Ø¹Ù‚ÙˆØ¯ Ù…Ø³Ø¬Ù„Ø© Ù„Ù‡Ø°Ø§ Ø§Ù„Ù…Ø´Ø±ÙˆØ¹ Ø­Ø§Ù„ÙŠØ§Ù‹', style: TextStyle(fontSize: 15)))
+              : ListView.builder(
+                  padding: const EdgeInsets.all(10),
+                  itemCount: _contracts.length,
+                  itemBuilder: (context, index) {
+                    final contract = _contracts[index];
+                    return Card(
+                      elevation: 2,
+                      margin: const EdgeInsets.symmetric(vertical: 6),
+                      child: ListTile(
+                        onTap: () {
+                          // ðŸ‘ˆ Ø§Ù„Ø§Ù†ØªÙ‚Ø§Ù„ Ù„Ø´Ø§Ø´Ø© Ø§Ù„Ù…ÙˆØ§Ù‚Ø¹ Ø§Ù„Ø®Ø§ØµØ© Ø¨Ø§Ù„Ø¹Ù‚Ø¯ Ø§Ù„Ù…Ø®ØªØ§Ø±
+                          Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (context) => ContractSitesScreen(
+                                contractId: contract['contract_id'],
+                                contractName: contract['contract_name'],
+                              ),
+                            ),
+                          );
+                        },
+                        leading: const CircleAvatar(
+                          backgroundColor: Color(0xffb21f1f),
+                          child: Icon(Icons.gavel, color: Colors.white, size: 20),
+                        ),
+                        title: Text(contract['contract_name'], style: const TextStyle(fontWeight: FontWeight.bold)),
+                        subtitle: Text('${contract['description'] ?? 'Ù„Ø§ ÙŠÙˆØ¬Ø¯ ÙˆØµÙ'}\nØ§Ù„Ø³Ø§Ø¹Ø©: \$${contract['hourly_rate']} | Ø§Ù„Ø¥Ø¶Ø§ÙÙŠ: \$${contract['overtime_hourly_rate']}'),
+                        isThreeLine: true,
+                      ),
+                    );
+                  },
+                ),
+    );
+  }
+}
+import 'package:flutter/material.dart';
+import 'package:dio/dio.dart';
+import 'project_contracts_screen.dart'; // ðŸ‘ˆ Ø§Ø³ØªÙŠØ±Ø§Ø¯ Ø´Ø§Ø´Ø© Ø§Ù„Ø¹Ù‚ÙˆØ¯ Ø§Ù„Ù…Ø®ØµØµØ© Ù„Ù„Ù…Ø´Ø±ÙˆØ¹
+import 'package:team_flow/constants.dart';
+class ProjectManagementScreen extends StatefulWidget {
+  const ProjectManagementScreen({super.key});
+
+  @override
+  State<ProjectManagementScreen> createState() => _ProjectManagementScreenState();
+}
+
+class _ProjectManagementScreenState extends State<ProjectManagementScreen> {
+ final Dio _dio = ApiConfig.dio;
+final String _apiUrl = '/projects';  
+  List _projects = [];
+  bool _isLoading = true;
+
+  final _formKey = GlobalKey<FormState>();
+  final TextEditingController _nameController = TextEditingController();
+  final TextEditingController _clientController = TextEditingController();
+  final TextEditingController _locationController = TextEditingController();
+
+  @override
+  void initState() {
+    super.initState();
+    _fetchProjects(); 
+  }
+
+  Future<void> _fetchProjects() async {
+    setState(() => _isLoading = true);
+    try {
+      final response = await _dio.get(_apiUrl);
+      if (response.data['status'] == 'success') {
+        setState(() {
+          _projects = response.data['data'];
+          _isLoading = false;
+        });
+      }
+    } catch (e) {
+      setState(() => _isLoading = false);
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('ÙØ´Ù„ Ø¬Ù„Ø¨ Ø§Ù„Ù…Ø´Ø§Ø±ÙŠØ¹ Ù…Ù† Ø§Ù„Ø³ÙŠØ±ÙØ±'), backgroundColor: Colors.red),
+      );
+    }
+  }
+
+  Future<void> _addProject() async {
+    if (!_formKey.currentState!.validate()) return;
+
+    try {
+      final response = await _dio.post(_apiUrl, data: {
+        'project_name': _nameController.text.trim(),
+        'client_name': _clientController.text.trim(),
+        'location': _locationController.text.trim(),
+      });
+
+      if (response.data['status'] == 'success') {
+        Navigator.pop(context); 
+        _nameController.clear();
+        _clientController.clear();
+        _locationController.clear();
+        _fetchProjects(); 
+        
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('ØªÙ… Ø¥Ø¶Ø§ÙØ© Ø§Ù„Ù…Ø´Ø±ÙˆØ¹ Ø¨Ù†Ø¬Ø§Ø­!'), backgroundColor: Colors.green),
+        );
+      }
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('ÙØ´Ù„ Ø¥Ù†Ø´Ø§Ø¡ Ø§Ù„Ù…Ø´Ø±ÙˆØ¹ Ø§Ù„Ø¬Ø¯ÙŠØ¯'), backgroundColor: Colors.red),
+      );
+    }
+  }
+
+  void _showAddProjectDialog() {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (context) => Padding(
+        padding: EdgeInsets.only(
+          bottom: MediaQuery.of(context).viewInsets.bottom, 
+          top: 20, left: 20, right: 20,
+        ),
+        child: Form(
+          key: _formKey,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              const Text('Ø¥Ø¶Ø§ÙØ© Ù…Ø´Ø±ÙˆØ¹ Ø¬Ø¯ÙŠØ¯', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold), textAlign: TextAlign.center),
+              const SizedBox(height: 15),
+              TextFormField(
+                controller: _nameController,
+                decoration: const InputDecoration(labelText: 'Ø§Ø³Ù… Ø§Ù„Ù…Ø´Ø±ÙˆØ¹ *', border: OutlineInputBorder()),
+                validator: (value) => value == null || value.isEmpty ? 'Ø§Ù„Ø±Ø¬Ø§Ø¡ Ø¥Ø¯Ø®Ø§Ù„ Ø§Ø³Ù… Ø§Ù„Ù…Ø´Ø±ÙˆØ¹' : null,
+              ),
+              const SizedBox(height: 12),
+              TextFormField(
+                controller: _clientController,
+                decoration: const InputDecoration(labelText: 'Ø§Ø³Ù… Ø§Ù„Ø¹Ù…ÙŠÙ„', border: OutlineInputBorder()),
+              ),
+              const SizedBox(height: 12),
+              TextFormField(
+                controller: _locationController,
+                decoration: const InputDecoration(labelText: 'Ø§Ù„Ù…ÙˆÙ‚Ø¹ Ø§Ù„Ø¬ØºØ±Ø§ÙÙŠ', border: OutlineInputBorder()),
+              ),
+              const SizedBox(height: 20),
+              ElevatedButton(
+                onPressed: _addProject,
+                style: ElevatedButton.styleFrom(backgroundColor: const Color(0xff1a2a6c), padding: const EdgeInsets.symmetric(vertical: 12)),
+                child: const Text('Ø­ÙØ¸ Ø§Ù„Ù…Ø´Ø±ÙˆØ¹', style: TextStyle(color: Colors.white, fontSize: 16)),
+              ),
+              const SizedBox(height: 20),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('Ø¥Ø¯Ø§Ø±Ø© Ø§Ù„Ù…Ø´Ø§Ø±ÙŠØ¹'),
+        backgroundColor: const Color(0xff1a2a6c),
+        centerTitle: true,
+      ),
+      floatingActionButton: FloatingActionButton(
+        onPressed: _showAddProjectDialog,
+        backgroundColor: const Color(0xff1a2a6c),
+        child: const Icon(Icons.add, color: Colors.white),
+      ),
+      body: _isLoading
+          ? const Center(child: CircularProgressIndicator())
+          : _projects.isEmpty
+              ? const Center(child: Text('Ù„Ø§ ÙŠÙˆØ¬Ø¯ Ù…Ø´Ø§Ø±ÙŠØ¹ Ù…Ø¶Ø§ÙØ© Ø­Ø§Ù„ÙŠØ§Ù‹', style: TextStyle(fontSize: 16)))
+              : ListView.builder(
+                  padding: const EdgeInsets.all(10),
+                  itemCount: _projects.length,
+                  itemBuilder: (context, index) {
+                    final project = _projects[index];
+                    return Card(
+                      elevation: 3,
+                      margin: const EdgeInsets.symmetric(vertical: 8),
+                      child: ListTile(
+                        // ðŸ‘ˆ ØªÙØ¹ÙŠÙ„ Ø§Ù„Ø¶ØºØ· Ø¹Ù„Ù‰ ÙƒØ§Ø±Ø¯ Ø§Ù„Ù…Ø´Ø±ÙˆØ¹ Ù„Ù„Ø§Ù†ØªÙ‚Ø§Ù„ Ø§Ù„ØªÙ„Ù‚Ø§Ø¦ÙŠ Ù„Ø´Ø§Ø´Ø© Ø¹Ù‚ÙˆØ¯Ù‡
+                        onTap: () {
+                          Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (context) => ProjectContractsScreen(
+                                projectId: project['project_id'],
+                                projectName: project['project_name'],
+                              ),
+                            ),
+                          );
+                        },
+                        leading: const CircleAvatar(
+                          backgroundColor: Color(0xfff4a742),
+                          child: Icon(Icons.business, color: Colors.white),
+                        ),
+                        title: Text(project['project_name'], style: const TextStyle(fontWeight: FontWeight.bold)),
+                        subtitle: Text('Ø§Ù„Ø¹Ù…ÙŠÙ„: ${project['client_name'] ?? 'ØºÙŠØ± Ù…Ø­Ø¯Ø¯'} \nØ§Ù„Ù…ÙˆÙ‚Ø¹: ${project['location'] ?? 'ØºÙŠØ± Ù…Ø­Ø¯Ø¯'}'),
+                        trailing: Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                          decoration: BoxDecoration(
+                            color: project['status'] == 'Active' ? Colors.green.shade100 : Colors.grey.shade300,
+                            borderRadius: BorderRadius.circular(5),
+                          ),
+                          child: Text(
+                            project['status'] == 'Active' ? 'Ù†Ø´Ø·' : project['status'],
+                            style: TextStyle(color: project['status'] == 'Active' ? Colors.green.shade800 : Colors.black),
+                          ),
+                        ),
+                        isThreeLine: true,
+                      ),
+                    );
+                  },
+                ),
+    );
+  }
+}
+import 'package:flutter/material.dart';
+import 'package:intl/intl.dart';
+import 'package:team_flow/constants.dart';
+import 'package:dio/dio.dart';
+
+class RejectedRecordsScreen extends StatefulWidget {
+  const RejectedRecordsScreen({super.key});
+
+  @override
+  _RejectedRecordsScreenState createState() => _RejectedRecordsScreenState();
+}
+
+class _RejectedRecordsScreenState extends State<RejectedRecordsScreen> {
+  List<dynamic> _records = [];
+  List<dynamic> _filteredRecords = [];
+  bool _isLoading = true;
+  final TextEditingController _searchController = TextEditingController();
+
+  @override
+  void initState() {
+    super.initState();
+    _fetchRejected();
+    _searchController.addListener(_applySearch);
+  }
+
+  @override
+  void dispose() {
+    _searchController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _fetchRejected() async {
+    setState(() => _isLoading = true);
+    try {
+      final response = await ApiConfig.dio.get('/attendance/rejected');
+      setState(() {
+        _records = response.data['data'];
+        _isLoading = false;
+      });
+      _applySearch();
+    } catch (e) {
+      setState(() => _isLoading = false);
+    }
+  }
+
+  void _applySearch() {
+    final query = _searchController.text.trim();
+    setState(() {
+      if (query.isEmpty) {
+        _filteredRecords = List.from(_records);
+      } else {
+        _filteredRecords = _records.where((r) {
+          final name = (r['full_name'] ?? '').toString().toLowerCase();
+          final site = (r['site_name'] ?? '').toString().toLowerCase();
+          return name.contains(query.toLowerCase()) ||
+              site.contains(query.toLowerCase());
+        }).toList();
+      }
+    });
+  }
+
+  // ØªØ¬Ù…ÙŠØ¹ Ø§Ù„Ø³Ø¬Ù„Ø§Øª: Ø£ÙˆÙ„Ø§Ù‹ Ø­Ø³Ø¨ Ø§Ù„Ù…ÙˆÙ‚Ø¹ØŒ ÙˆØ¯Ø§Ø®Ù„ ÙƒÙ„ Ù…ÙˆÙ‚Ø¹ Ø­Ø³Ø¨ Ø§Ù„ØªØ§Ø±ÙŠØ® (Ø§Ù„Ø£Ø­Ø¯Ø« Ø£ÙˆÙ„Ø§Ù‹)
+  Map<String, Map<String, List<dynamic>>> _groupRecords() {
+    final Map<String, Map<String, List<dynamic>>> grouped = {};
+
+    for (var r in _filteredRecords) {
+      final site = r['site_name'] ?? 'Ø¨Ø¯ÙˆÙ† Ù…ÙˆÙ‚Ø¹';
+      final date = (r['record_date'] ?? '').toString().split('T').first;
+
+      grouped.putIfAbsent(site, () => {});
+      grouped[site]!.putIfAbsent(date, () => []);
+      grouped[site]![date]!.add(r);
+    }
+
+    // ØªØ±ØªÙŠØ¨ Ø§Ù„ØªÙˆØ§Ø±ÙŠØ® Ø¯Ø§Ø®Ù„ ÙƒÙ„ Ù…ÙˆÙ‚Ø¹ ØªÙ†Ø§Ø²Ù„ÙŠØ§Ù‹ (Ø§Ù„Ø£Ø­Ø¯Ø« Ø£ÙˆÙ„Ø§Ù‹)
+    final Map<String, Map<String, List<dynamic>>> sortedGrouped = {};
+    for (var site in grouped.keys) {
+      final dates = grouped[site]!.keys.toList()
+        ..sort((a, b) => b.compareTo(a));
+      final Map<String, List<dynamic>> orderedDates = {};
+      for (var d in dates) {
+        orderedDates[d] = grouped[site]![d]!;
+      }
+      sortedGrouped[site] = orderedDates;
+    }
+
+    return sortedGrouped;
+  }
+
+  String _formatDate(String isoDate) {
+    try {
+      final date = DateTime.parse(isoDate);
+      return DateFormat('dd/MM/yyyy').format(date);
+    } catch (_) {
+      return isoDate;
+    }
+  }
+
+  String _formatTime(String? isoTime) {
+    if (isoTime == null) return '--:--';
+    try {
+      final time = DateTime.parse(isoTime).toLocal();
+      return DateFormat('HH:mm').format(time);
+    } catch (_) {
+      return '--:--';
+    }
+  }
+
+  Future<void> _resubmit(
+      int id, String? newInIso, String? newOutIso, String remarks) async {
+    try {
+      await ApiConfig.dio.patch('/attendance/$id/resubmit', data: {
+        'check_in_time': newInIso,
+        'check_out_time': newOutIso,
+        'remarks': remarks,
+      });
+      _fetchRejected();
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('ØªÙ…Øª Ø¥Ø¹Ø§Ø¯Ø© Ø§Ù„Ø¥Ø±Ø³Ø§Ù„')),
+        );
+      }
+    } catch (e) {
+      if (e is DioException) {
+        print("STATUS CODE: ${e.response?.statusCode}");
+        print("RESPONSE: ${e.response?.data}");
+      } else {
+        print(e);
+      }
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              e is DioException ? "${e.response?.data}" : e.toString(),
+            ),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    }
+  }
+
+  Future<void> _openEditDialog(Map<String, dynamic> r) async {
+    DateTime? checkIn =
+        r['check_in_time'] != null ? DateTime.parse(r['check_in_time']).toLocal() : null;
+    DateTime? checkOut =
+        r['check_out_time'] != null ? DateTime.parse(r['check_out_time']).toLocal() : null;
+    final remarksController =
+        TextEditingController(text: r['remarks']?.toString() ?? '');
+
+    await showDialog(
+      context: context,
+      builder: (context) {
+        return StatefulBuilder(
+          builder: (context, setDialogState) {
+            Future<void> pickTime(bool isCheckIn) async {
+              final initial = isCheckIn
+                  ? (checkIn != null
+                      ? TimeOfDay.fromDateTime(checkIn!)
+                      : TimeOfDay.now())
+                  : (checkOut != null
+                      ? TimeOfDay.fromDateTime(checkOut!)
+                      : TimeOfDay.now());
+
+              final picked = await showTimePicker(
+                context: context,
+                initialTime: initial,
+              );
+
+              if (picked != null) {
+                final baseDate = checkIn ?? checkOut ?? DateTime.now();
+                final newDateTime = DateTime(
+                  baseDate.year,
+                  baseDate.month,
+                  baseDate.day,
+                  picked.hour,
+                  picked.minute,
+                );
+                setDialogState(() {
+                  if (isCheckIn) {
+                    checkIn = newDateTime;
+                  } else {
+                    checkOut = newDateTime;
+                  }
+                });
+              }
+            }
+
+            return AlertDialog(
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(16),
+              ),
+              title: Row(
+                children: [
+                  const Icon(Icons.person, color: Colors.blue),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      r['full_name'] ?? '',
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                ],
+              ),
+              content: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    if ((r['admin_rejection_notes'] ?? r['remarks']) != null)
+                      Container(
+                        width: double.infinity,
+                        padding: const EdgeInsets.all(10),
+                        margin: const EdgeInsets.only(bottom: 14),
+                        decoration: BoxDecoration(
+                          color: Colors.red.shade50,
+                          borderRadius: BorderRadius.circular(10),
+                          border: Border.all(color: Colors.red.shade200),
+                        ),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              'Ø³Ø¨Ø¨ Ø§Ù„Ø±ÙØ¶',
+                              style: TextStyle(
+                                color: Colors.red.shade700,
+                                fontWeight: FontWeight.bold,
+                                fontSize: 12,
+                              ),
+                            ),
+                            const SizedBox(height: 4),
+                            Text(
+                              (r['admin_rejection_notes'] ??
+                                      r['remarks'] ??
+                                      'Ù„Ø§ ÙŠÙˆØ¬Ø¯')
+                                  .toString(),
+                              style: TextStyle(color: Colors.red.shade900),
+                            ),
+                          ],
+                        ),
+                      ),
+                    const Divider(),
+                    const SizedBox(height: 8),
+                    _timeRow('ÙˆÙ‚Øª Ø§Ù„Ø¯Ø®ÙˆÙ„', checkIn, () => pickTime(true)),
+                    const SizedBox(height: 12),
+                    _timeRow('ÙˆÙ‚Øª Ø§Ù„Ø®Ø±ÙˆØ¬', checkOut, () => pickTime(false)),
+                    const SizedBox(height: 16),
+                    TextField(
+                      controller: remarksController,
+                      maxLines: 3,
+                      decoration: InputDecoration(
+                        labelText: 'Ø§Ù„Ù…Ù„Ø§Ø­Ø¸Ø§Øª',
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(context),
+                  child: const Text('Ø¥Ù„ØºØ§Ø¡'),
+                ),
+                ElevatedButton.icon(
+                  onPressed: () {
+                    Navigator.pop(context);
+                    _resubmit(
+                      r['attendance_id'],
+                      checkIn?.toUtc().toIso8601String(),
+                      checkOut?.toUtc().toIso8601String(),
+                      remarksController.text,
+                    );
+                  },
+                  icon: const Icon(Icons.send, size: 18),
+                  label: const Text('Ø¥Ø¹Ø§Ø¯Ø© Ø¥Ø±Ø³Ø§Ù„'),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+  }
+
+  Widget _timeRow(String label, DateTime? value, VoidCallback onTap) {
+    return Row(
+      children: [
+        Expanded(
+          child: Text(label, style: const TextStyle(fontWeight: FontWeight.w600)),
+        ),
+        OutlinedButton.icon(
+          onPressed: onTap,
+          icon: const Icon(Icons.access_time, size: 16),
+          label: Text(
+            value != null ? DateFormat('HH:mm').format(value) : '--:--',
+          ),
+        ),
+      ],
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final grouped = _groupRecords();
+
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text("Ø³Ø¬Ù„Ø§Øª Ù…Ø±ÙÙˆØ¶Ø©"),
+      ),
+      body: Column(
+        children: [
+          Padding(
+            padding: const EdgeInsets.all(12.0),
+            child: TextField(
+              controller: _searchController,
+              decoration: InputDecoration(
+                hintText: 'Ø¨Ø­Ø« Ø¨Ø§Ø³Ù… Ø§Ù„Ø¹Ø§Ù…Ù„ Ø£Ùˆ Ø§Ù„Ù…ÙˆÙ‚Ø¹...',
+                prefixIcon: const Icon(Icons.search),
+                filled: true,
+                fillColor: Colors.grey.shade100,
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(12),
+                  borderSide: BorderSide.none,
+                ),
+              ),
+            ),
+          ),
+          Expanded(
+            child: _isLoading
+                ? const Center(child: CircularProgressIndicator())
+                : grouped.isEmpty
+                    ? Center(
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(Icons.check_circle_outline,
+                                size: 60, color: Colors.grey.shade400),
+                            const SizedBox(height: 12),
+                            Text(
+                              'Ù„Ø§ ÙŠÙˆØ¬Ø¯ Ø³Ø¬Ù„Ø§Øª Ù…Ø±ÙÙˆØ¶Ø©',
+                              style: TextStyle(color: Colors.grey.shade600),
+                            ),
+                          ],
+                        ),
+                      )
+                    : RefreshIndicator(
+                        onRefresh: _fetchRejected,
+                        child: ListView(
+                          padding: const EdgeInsets.symmetric(horizontal: 12),
+                          children: grouped.entries.map((siteEntry) {
+                            return Padding(
+                              padding: const EdgeInsets.only(bottom: 16),
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Padding(
+                                    padding:
+                                        const EdgeInsets.symmetric(vertical: 8),
+                                    child: Row(
+                                      children: [
+                                        const Icon(Icons.location_on,
+                                            color: Colors.indigo, size: 20),
+                                        const SizedBox(width: 6),
+                                        Text(
+                                          siteEntry.key,
+                                          style: const TextStyle(
+                                            fontSize: 16,
+                                            fontWeight: FontWeight.bold,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                  ...siteEntry.value.entries.map((dateEntry) {
+                                    return Column(
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.start,
+                                      children: [
+                                        Padding(
+                                          padding: const EdgeInsets.symmetric(
+                                              vertical: 6),
+                                          child: Text(
+                                            _formatDate(dateEntry.key),
+                                            style: TextStyle(
+                                              color: Colors.grey.shade600,
+                                              fontWeight: FontWeight.w600,
+                                              fontSize: 13,
+                                            ),
+                                          ),
+                                        ),
+                                        ...dateEntry.value.map((r) {
+                                          return Card(
+                                            elevation: 1.5,
+                                            margin:
+                                                const EdgeInsets.only(bottom: 8),
+                                            shape: RoundedRectangleBorder(
+                                              borderRadius:
+                                                  BorderRadius.circular(14),
+                                            ),
+                                            child: Padding(
+                                              padding: const EdgeInsets.all(12),
+                                              child: Column(
+                                                crossAxisAlignment:
+                                                    CrossAxisAlignment.start,
+                                                children: [
+                                                  Row(
+                                                    children: [
+                                                      const CircleAvatar(
+                                                        backgroundColor:
+                                                            Colors.blueGrey,
+                                                        child: Icon(
+                                                            Icons.person,
+                                                            color:
+                                                                Colors.white),
+                                                      ),
+                                                      const SizedBox(width: 10),
+                                                      Expanded(
+                                                        child: Column(
+                                                          crossAxisAlignment:
+                                                              CrossAxisAlignment
+                                                                  .start,
+                                                          children: [
+                                                            Text(
+                                                              r['full_name'] ??
+                                                                  '',
+                                                              style: const TextStyle(
+                                                                  fontWeight:
+                                                                      FontWeight
+                                                                          .bold),
+                                                            ),
+                                                            Row(
+                                                              children: [
+                                                                Icon(
+                                                                    Icons
+                                                                        .login,
+                                                                    size: 14,
+                                                                    color: Colors
+                                                                        .grey
+                                                                        .shade600),
+                                                                const SizedBox(
+                                                                    width: 4),
+                                                                Text(_formatTime(
+                                                                    r['check_in_time'])),
+                                                                const SizedBox(
+                                                                    width: 10),
+                                                                Icon(
+                                                                    Icons
+                                                                        .logout,
+                                                                    size: 14,
+                                                                    color: Colors
+                                                                        .grey
+                                                                        .shade600),
+                                                                const SizedBox(
+                                                                    width: 4),
+                                                                Text(_formatTime(
+                                                                    r['check_out_time'])),
+                                                              ],
+                                                            ),
+                                                          ],
+                                                        ),
+                                                      ),
+                                                      Container(
+                                                        padding: const EdgeInsets
+                                                            .symmetric(
+                                                            horizontal: 8,
+                                                            vertical: 4),
+                                                        decoration: BoxDecoration(
+                                                          color: Colors
+                                                              .red.shade50,
+                                                          borderRadius:
+                                                              BorderRadius
+                                                                  .circular(20),
+                                                        ),
+                                                        child: Text(
+                                                          'Rejected',
+                                                          style: TextStyle(
+                                                            color: Colors
+                                                                .red.shade700,
+                                                            fontSize: 11,
+                                                            fontWeight:
+                                                                FontWeight.w600,
+                                                          ),
+                                                        ),
+                                                      ),
+                                                    ],
+                                                  ),
+                                                  if ((r['admin_rejection_notes'] ??
+                                                          r['remarks']) !=
+                                                      null)
+                                                    Container(
+                                                      width: double.infinity,
+                                                      margin:
+                                                          const EdgeInsets.only(
+                                                              top: 10),
+                                                      padding:
+                                                          const EdgeInsets.all(
+                                                              8),
+                                                      decoration: BoxDecoration(
+                                                        color:
+                                                            Colors.red.shade50,
+                                                        borderRadius:
+                                                            BorderRadius
+                                                                .circular(8),
+                                                      ),
+                                                      child: Text(
+                                                        'Ø³Ø¨Ø¨ Ø§Ù„Ø±ÙØ¶: ${r['admin_rejection_notes'] ?? r['remarks'] ?? 'Ù„Ø§ ÙŠÙˆØ¬Ø¯'}',
+                                                        style: TextStyle(
+                                                          color: Colors
+                                                              .red.shade900,
+                                                          fontSize: 12,
+                                                        ),
+                                                      ),
+                                                    ),
+                                                  Align(
+                                                    alignment:
+                                                        Alignment.centerLeft,
+                                                    child: TextButton.icon(
+                                                      onPressed: () =>
+                                                          _openEditDialog(
+                                                              Map<String,
+                                                                  dynamic>.from(
+                                                                  r)),
+                                                      icon: const Icon(
+                                                          Icons.edit,
+                                                          size: 16),
+                                                      label: const Text(
+                                                          'ØªØ¹Ø¯ÙŠÙ„ ÙˆØ¥Ø¹Ø§Ø¯Ø© Ø¥Ø±Ø³Ø§Ù„'),
+                                                    ),
+                                                  ),
+                                                ],
+                                              ),
+                                            ),
+                                          );
+                                        }),
+                                      ],
+                                    );
+                                  }),
+                                  const Divider(thickness: 1),
+                                ],
+                              ),
+                            );
+                          }).toList(),
+                        ),
+                      ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+import 'package:flutter/material.dart';
+import 'package:team_flow/constants.dart';
+import 'package:dio/dio.dart';
+import 'rejected_records_screen.dart';
+import 'package:intl/intl.dart';
+class SiteAttendanceScreen extends StatefulWidget {
+  final int siteId;
+  final String siteName;
+
+  const SiteAttendanceScreen({super.key, required this.siteId, required this.siteName});
+
+  @override
+  _SiteAttendanceScreenState createState() => _SiteAttendanceScreenState();
+}
+
+class _SiteAttendanceScreenState extends State<SiteAttendanceScreen> {
+  bool _isLoading = true;
+  List<dynamic> _workers = [];
+
+  @override
+  void initState() {
+    super.initState();
+    _fetchWorkers();
+  }
+
+  Future<void> _fetchWorkers() async {
+    setState(() => _isLoading = true);
+    try {
+      final response = await ApiConfig.dio.get('/attendance/sites/${widget.siteId}/workers');
+      if (!mounted) return;
+      setState(() {
+        _workers = response.data['data'];
+        _isLoading = false;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _isLoading = false);
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Ø®Ø·Ø£ ÙÙŠ ØªØ­Ù…ÙŠÙ„ Ø§Ù„Ø¹Ù…Ø§Ù„')));
+    }
+  }
+
+  Future<void> _handleAction(String endpoint, int workerId) async {
+    setState(() => _isLoading = true);
+    try {
+      await ApiConfig.dio.post(endpoint, data: {'worker_id': workerId, 'site_id': widget.siteId});
+      await _fetchWorkers();
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Ø®Ø·Ø£ ÙÙŠ Ø§Ù„Ø§ØªØµØ§Ù„'), backgroundColor: Colors.red));
+    } finally {
+      setState(() => _isLoading = false);
+    }
+  }
+
+ Future<void> _submitDay() async {
+  // 1. Ø¥Ø¶Ø§ÙØ© ØªØ£ÙƒÙŠØ¯ Ù‚Ø¨Ù„ Ø§Ù„Ø¥Ø±Ø³Ø§Ù„ Ø§Ù„Ù†Ù‡Ø§Ø¦ÙŠ
+  bool? confirm = await showDialog<bool>(
+    context: context,
+    builder: (context) => AlertDialog(
+      title: const Text('ØªØ£ÙƒÙŠØ¯ Ø§Ù„Ø¥Ø±Ø³Ø§Ù„'),
+      content: const Text('Ù‡Ù„ Ø£Ù†Øª Ù…ØªØ£ÙƒØ¯ Ù…Ù† Ø¥Ù†Ù‡Ø§Ø¡ Ø§Ù„ÙŠÙˆÙ… ÙˆØ¥Ø±Ø³Ø§Ù„ Ø§Ù„Ø³Ø¬Ù„Ø§Øª Ù„Ù„Ù…Ø±Ø§Ø¬Ø¹Ø©ØŸ Ù„Ø§ ÙŠÙ…ÙƒÙ† Ø§Ù„ØªØ±Ø§Ø¬Ø¹ Ø¹Ù† Ù‡Ø°Ø§ Ø§Ù„Ø¥Ø¬Ø±Ø§Ø¡.'),
+      actions: [
+        TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Ø¥Ù„ØºØ§Ø¡')),
+        ElevatedButton(onPressed: () => Navigator.pop(context, true), child: const Text('Ø¥Ø±Ø³Ø§Ù„')),
+      ],
+    ),
+  );
+
+  if (confirm != true) return;
+
+  setState(() => _isLoading = true);
+  try {
+    // Ø¥Ø±Ø³Ø§Ù„ Ø§Ù„Ø·Ù„Ø¨ Ù„Ù„Ø³ÙŠØ±ÙØ±
+    final response = await ApiConfig.dio.post('/attendance/submit', data: {'siteId': widget.siteId});
+    
+    // Ø¥Ø°Ø§ Ù†Ø¬Ø­ØŒ Ù†Ù‚ÙˆÙ… Ø¨ØªØ­Ø¯ÙŠØ« Ø§Ù„Ù‚Ø§Ø¦Ù…Ø© Ø¨Ø¯Ù„Ø§Ù‹ Ù…Ù† Ø¥ØºÙ„Ø§Ù‚ Ø§Ù„Ø´Ø§Ø´Ø© ÙÙˆØ±Ø§Ù‹
+    // (Ø¨ÙØ¶Ù„ ØªØ¹Ø¯ÙŠÙ„ Ø§Ù„Ø³ÙŠØ±ÙØ±ØŒ Ø§Ù„Ø¹Ù…Ø§Ù„ Ø§Ù„Ø°ÙŠÙ† ØªÙ… Ø¥Ø±Ø³Ø§Ù„Ù‡Ù… Ø³ÙŠØ®ØªÙÙˆÙ† ØªÙ„Ù‚Ø§Ø¦ÙŠØ§Ù‹)
+    await _fetchWorkers();
+    
+    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('ØªÙ… Ø¥Ø±Ø³Ø§Ù„ Ø§Ù„ÙŠÙˆÙ… Ø¨Ù†Ø¬Ø§Ø­'), backgroundColor: Colors.green));
+    
+    // Ø¥Ø°Ø§ Ø£ØµØ¨Ø­Øª Ø§Ù„Ù‚Ø§Ø¦Ù…Ø© ÙØ§Ø±ØºØ©ØŒ Ù†Ø®Ø±Ø¬ Ù…Ù† Ø§Ù„Ø´Ø§Ø´Ø©
+    if (_workers.isEmpty) Navigator.pop(context);
+    
+  } catch (e) {
+    // Ù…Ø¹Ø§Ù„Ø¬Ø© Ø±Ø³Ø§Ù„Ø© Ø§Ù„Ø®Ø·Ø£ Ø§Ù„Ù‚Ø§Ø¯Ù…Ø© Ù…Ù† Ø§Ù„Ø³ÙŠØ±ÙØ± (Ù…Ø«Ù„: Ù„Ù… ÙŠØ³Ø¬Ù„ Ø§Ù„Ø¬Ù…ÙŠØ¹ Ø®Ø±ÙˆØ¬Ù‡Ù…)
+    String errorMsg = 'ÙØ´Ù„ Ø§Ù„Ø¥Ø±Ø³Ø§Ù„ Ø§Ù„Ù†Ù‡Ø§Ø¦ÙŠ';
+    if (e is DioException && e.response?.data['message'] != null) {
+      errorMsg = e.response!.data['message'];
+    }
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(errorMsg), backgroundColor: Colors.red));
+  } finally {
+    setState(() => _isLoading = false);
+  }
+}
+
+  @override
+  Widget build(BuildContext context) {
+    String formattedDate = DateFormat('yyyy/MM/dd', 'ar').format(DateTime.now());
+    return Scaffold(
+      appBar: AppBar(
+        // Ø§Ù„Ø¹Ù†ÙˆØ§Ù† Ù‡Ù†Ø§ Ù…Ø¨Ø§Ø´Ø±Ø©
+        title: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(widget.siteName, style: const TextStyle(fontSize: 18)),
+            Text(
+              'ØªØ§Ø±ÙŠØ® Ø§Ù„ÙŠÙˆÙ…: $formattedDate',
+              style: const TextStyle(fontSize: 12, fontWeight: FontWeight.normal),
+            ),
+          ],
+        ), actions: [
+        IconButton(icon: const Icon(Icons.warning_amber_rounded), onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const RejectedRecordsScreen()))),
+      ]),
+      body: _isLoading ? const Center(child: CircularProgressIndicator()) : Column(
+        children: [
+          Expanded(child: ListView.builder(
+            itemCount: _workers.length,
+            itemBuilder: (context, index) {
+              final worker = _workers[index];
+              return Card(
+                child: ListTile(
+                  title: Text(worker['full_name'], style: const TextStyle(fontWeight: FontWeight.bold)),
+                  subtitle: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                    Text(worker['job_position'] ?? 'Ø¹Ø§Ù…Ù„'),
+                    worker['attendance_id'] == null 
+                      ? ElevatedButton.icon(onPressed: () => _handleAction('/attendance/checkin', worker['worker_id']), icon: const Icon(Icons.check_circle), label: const Text('ØªØ³Ø¬ÙŠÙ„ Ø­Ø¶ÙˆØ±'))
+                      : Wrap(spacing: 5, children: [
+                          TextButton.icon(onPressed: () => _handleAction(worker['current_leave_id'] != null ? '/attendance/leave/end' : '/attendance/leave/start', worker['worker_id']), icon: Icon(worker['current_leave_id'] != null ? Icons.play_arrow : Icons.timer_off), label: Text(worker['current_leave_id'] != null ? 'Ø¥Ù†Ù‡Ø§Ø¡ Ø§Ù„Ø§Ø³ØªØ±Ø§Ø­Ø©' : 'Ø§Ø³ØªØ±Ø§Ø­Ø©')),
+                          TextButton.icon(onPressed: () => _handleAction('/attendance/checkout', worker['worker_id']), icon: const Icon(Icons.exit_to_app), label: const Text('Ø¥Ù†Ù‡Ø§Ø¡')),
+                        ]),
+                  ]),
+                ),
+              );
+            },
+          )),
+          Padding(padding: const EdgeInsets.all(16.0), child: ElevatedButton(onPressed: _submitDay, style: ElevatedButton.styleFrom(minimumSize: const Size(double.infinity, 50)), child: const Text('Ø­ÙØ¸ ÙˆØ¥Ø±Ø³Ø§Ù„ Ù†Ù‡Ø§Ø¦ÙŠ Ù„Ù„Ù…Ø±Ø§Ø¬Ø¹Ø©'))),
+        ],
+      ),
+    );
+  }
+}
+import 'package:flutter/material.dart';
+import 'package:dio/dio.dart';
+import 'package:team_flow/screens/site_attendance_screen.dart';
+import 'package:team_flow/constants.dart';
+class SupervisorDashboard extends StatefulWidget {
+  final int supervisorId;
+  final String supervisorName;
+
+  const SupervisorDashboard({
+    super.key,
+    required this.supervisorId,
+    required this.supervisorName,
+  });
+
+  @override
+  State<SupervisorDashboard> createState() => _SupervisorDashboardState();
+}
+
+class _SupervisorDashboardState extends State<SupervisorDashboard> {
+  final Dio _dio = ApiConfig.dio;
+  final String _apiUrl = 'http://192.168.1.3:5000/api/sites/supervisor';
+  
+  List _mySites = [];
+  bool _isLoading = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _fetchMySites();
+  }
+
+  // Ø¬Ù„Ø¨ Ø§Ù„Ù…ÙˆØ§Ù‚Ø¹ Ø§Ù„Ù…Ø³Ø¤ÙˆÙ„Ø© Ø¹Ù†Ù‡Ø§ Ù‡Ø°Ø§ Ø§Ù„Ù…Ø´Ø±Ù ØªÙ„Ù‚Ø§Ø¦ÙŠØ§Ù‹
+  Future<void> _fetchMySites() async {
+  setState(() => _isLoading = true);
+  try {
+    // Ù†Ø·Ù„Ø¨ Ø§Ù„Ù…Ø³Ø§Ø± Ø¨Ø¯ÙˆÙ† Ø§Ù„Ù€ ID (Ø§Ù„Ø³ÙŠØ±ÙØ± Ø³ÙŠÙ‚Ø±Ø£ Ø§Ù„Ù€ ID Ù…Ù† Ø§Ù„ØªÙˆÙƒÙ†)
+    final response = await _dio.get('/sites/my-sites'); 
+    if (response.data['status'] == 'success') {
+      setState(() {
+        _mySites = response.data['data'];
+        _isLoading = false;
+      });
+    }
+  } catch (e) {
+      setState(() => _isLoading = false);
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('ÙØ´Ù„ Ø¬Ù„Ø¨ Ø§Ù„Ù…ÙˆØ§Ù‚Ø¹ Ø§Ù„Ù…Ø³Ø¤ÙˆÙ„Ø© Ø¹Ù†Ù‡Ø§'), backgroundColor: Colors.red),
+      );
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('Ù„ÙˆØ­Ø© ØªØ­ÙƒÙ… Ø§Ù„Ù…Ø´Ø±Ù'),
+        backgroundColor: const Color(0xffb21f1f),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.logout),
+            onPressed: () {
+              // Ù‡Ù†Ø§ ØªØ¶Ø¹ Ù…Ù†Ø·Ù‚ ØªØ³Ø¬ÙŠÙ„ Ø§Ù„Ø®Ø±ÙˆØ¬ ÙˆØ§Ù„Ø¹ÙˆØ¯Ø© Ù„Ø´Ø§Ø´Ø© Ø§Ù„Ù€ Login
+              Navigator.pushReplacementNamed(context, '/login'); 
+            },
+          )
+        ],
+      ),
+      body: Padding(
+        padding: const EdgeInsets.all(16.0),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // ØªØ±Ø­ÙŠØ¨ Ø¨Ø§Ù„Ù…Ø´Ø±Ù
+            Text(
+              'Ù…Ø±Ø­Ø¨Ø§Ù‹ Ø¨ÙƒØŒ ${widget.supervisorName} ðŸ‘‹',
+              style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: Colors.black87),
+            ),
+            const SizedBox(height: 5),
+            const Text(
+              'Ø§Ù„Ù…ÙˆØ§Ù‚Ø¹ Ø§Ù„Ø¬ØºØ±Ø§ÙÙŠØ© Ø§Ù„Ù…Ø³Ø¤ÙˆÙ„Ø© Ø¹Ù† Ù…ØªØ§Ø¨Ø¹ØªÙ‡Ø§ ÙˆØªØ«Ø¨ÙŠØª Ø¹Ù…Ø§Ù„Ù‡Ø§ Ø§Ù„ÙŠÙˆÙ…:',
+              style: TextStyle(fontSize: 14, color: Colors.grey),
+            ),
+            const SizedBox(height: 20),
+
+            // Ù‚Ø§Ø¦Ù…Ø© Ø§Ù„Ù…ÙˆØ§Ù‚Ø¹ Ø§Ù„Ù…Ø±Ø¨ÙˆØ·Ø© Ø¨Ø§Ù„Ù…Ø´Ø±Ù
+            Expanded(
+              child: _isLoading
+                  ? const Center(child: CircularProgressIndicator())
+                  : _mySites.isEmpty
+                      ? const Center(
+                          child: Text(
+                            'Ù„Ù… ÙŠØªÙ… ØªØ¹ÙŠÙŠÙ† Ø£ÙŠ Ù…ÙˆØ§Ù‚Ø¹ Ù„Ùƒ Ø¨Ø¹Ø¯.\nÙŠØ±Ø¬Ù‰ Ù…Ø±Ø§Ø¬Ø¹Ø© Ø§Ù„Ø¥Ø¯Ø§Ø±Ø©.',
+                            textAlign: TextAlign.center,
+                            style: TextStyle(fontSize: 16, color: Colors.grey),
+                          ),
+                        )
+                      : ListView.builder(
+                          itemCount: _mySites.length,
+                          itemBuilder: (context, index) {
+                            final site = _mySites[index];
+                            return Card(
+                              elevation: 3,
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                              margin: const EdgeInsets.symmetric(vertical: 8),
+                              child: InkWell(
+                                borderRadius: BorderRadius.circular(12),
+                                onTap: () {
+  Navigator.push(
+    context,
+    MaterialPageRoute(
+      builder: (context) => SiteAttendanceScreen(
+        siteId: site['site_id'],   // Ù…Ø±Ø± Ø§Ù„Ù€ site_id Ø§Ù„Ø¯ÙŠÙ†Ø§Ù…ÙŠÙƒÙŠ Ù…Ù† Ø§Ù„ÙƒØ±Øª
+        siteName: site['site_name'], // Ù…Ø±Ø± Ø§Ø³Ù… Ø§Ù„Ù…ÙˆÙ‚Ø¹ Ù„Ø¹Ø±Ø¶Ù‡ Ø¨Ø§Ù„Ù€ AppBar
+      ),
+    ),
+  ); // <--- ØªØ£ÙƒØ¯ Ù…Ù† ÙˆØ¬ÙˆØ¯ Ø§Ù„ÙØ§ØµÙ„Ø© Ø§Ù„Ù…Ù†Ù‚ÙˆØ·Ø© Ù‡Ù†Ø§ Ù„Ù‚ÙÙ„ Ø§Ù„Ù€ push
+},
+                                child: Padding(
+                                  padding: const EdgeInsets.all(16.0),
+                                  child: Row(
+                                    children: [
+                                      const CircleAvatar(
+                                        radius: 25,
+                                        backgroundColor: Colors.orange,
+                                        child: Icon(Icons.location_on, color: Colors.white, size: 28),
+                                      ),
+                                      const SizedBox(width: 15),
+                                      Expanded(
+                                        child: Column(
+                                          crossAxisAlignment: CrossAxisAlignment.start,
+                                          children: [
+                                            Text(
+                                              site['site_name'],
+                                              style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                                            ),
+                                            const SizedBox(height: 4),
+                                            Text(
+                                              'Ø§Ù„Ø¹Ù‚Ø¯: ${site['contract_name'] ?? 'ØºÙŠØ± Ù…Ø­Ø¯Ø¯'} (${site['project_name'] ?? ''})',
+                                              style: const TextStyle(fontSize: 12, color: Colors.grey),
+                                            ),
+                                            const SizedBox(height: 4),
+                                            Row(
+                                              children: [
+                                                const Icon(Icons.map, size: 14, color: Colors.grey),
+                                                const SizedBox(width: 4),
+                                                Text(
+                                                  site['location'] ?? 'Ù…ÙˆÙ‚Ø¹ ØºÙŠØ± Ù…Ø­Ø¯Ø¯ Ø¬ØºØ±Ø§ÙÙŠØ§Ù‹',
+                                                  style: const TextStyle(fontSize: 12, color: Colors.blueGrey),
+                                                ),
+                                              ],
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                                      const Icon(Icons.arrow_forward_ios, size: 16, color: Colors.grey),
+                                    ],
+                                  ),
+                                ),
+                              ),
+                            );
+                          },
+                        ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+import 'package:flutter/material.dart';
+import 'package:team_flow/constants.dart'; // âœ… Ø§Ù„Ø§Ø³ØªÙŠØ±Ø§Ø¯ Ø§Ù„Ù…ÙˆØ­Ø¯
+
+class SupervisorManagementScreen extends StatefulWidget {
+  const SupervisorManagementScreen({Key? key}) : super(key: key);
+
+  @override
+  State<SupervisorManagementScreen> createState() => _SupervisorManagementScreenState();
+}
+
+class _SupervisorManagementScreenState extends State<SupervisorManagementScreen> {
+  // âœ… Ù„Ù… Ù†Ø¹Ø¯ Ø¨Ø­Ø§Ø¬Ø© Ù„ØªØ¹Ø±ÙŠÙ Dio Ù…Ø­Ù„ÙŠ Ù‡Ù†Ø§
+  
+  final String _apiUrl = '/users/supervisors'; // âœ… Ù…Ø³Ø§Ø± Ù†Ø³Ø¨ÙŠ
+
+  List<dynamic> _supervisors = [];
+  bool _isLoading = true;
+
+  final _formKey = GlobalKey<FormState>();
+  final _nameController = TextEditingController();
+  final _usernameController = TextEditingController();
+  final _passwordController = TextEditingController();
+
+  @override
+  void initState() {
+    super.initState();
+    _fetchSupervisors();
+  }
+
+  int get _totalSupervisors => _supervisors.length;
+  int get _activeSupervisors => _supervisors.where((s) => s['status'] == 'Active').length;
+  int get _inactiveSupervisors => _totalSupervisors - _activeSupervisors;
+
+  Future<void> _fetchSupervisors() async {
+    setState(() => _isLoading = true);
+    try {
+      // âœ… Ø§Ø³ØªØ®Ø¯Ø§Ù… ApiConfig.dio Ø§Ù„Ù…ÙˆØ­Ø¯
+      final response = await ApiConfig.dio.get(_apiUrl);
+      if (response.statusCode == 200 && response.data['status'] == 'success') {
+        setState(() {
+          _supervisors = response.data['data'];
+          _isLoading = false;
+        });
+      }
+    } catch (e) {
+      setState(() => _isLoading = false);
+      _showSnackBar('Ø­Ø¯Ø« Ø®Ø·Ø£ Ø£Ø«Ù†Ø§Ø¡ Ø¬Ù„Ø¨ Ù‚Ø§Ø¦Ù…Ø© Ø§Ù„Ù…Ø´Ø±ÙÙŠÙ†', Colors.red);
+    }
+  }
+
+  Future<void> _addSupervisor() async {
+    if (!_formKey.currentState!.validate()) return;
+
+    try {
+      // âœ… Ø§Ù„ØªÙˆÙƒÙ† ÙŠØªÙ… Ø¥Ø±Ø³Ø§Ù„Ù‡ ØªÙ„Ù‚Ø§Ø¦ÙŠØ§Ù‹ Ù…Ù† Ø®Ù„Ø§Ù„ Ø§Ù„Ù€ Interceptor ÙÙŠ ApiConfig
+      final response = await ApiConfig.dio.post(_apiUrl, data: {
+        'full_name': _nameController.text.trim(),
+        'username': _usernameController.text.trim(),
+        'password': _passwordController.text.trim(),
+      });
+
+      if (response.statusCode == 201 && response.data['status'] == 'success') {
+        Navigator.pop(context);
+        _clearControllers();
+        _fetchSupervisors();
+        _showSnackBar('ØªÙ… Ø¥Ø¶Ø§ÙØ© Ø§Ù„Ù…Ø´Ø±Ù Ø¨Ù†Ø¬Ø§Ø­ ÙˆØªÙØ¹ÙŠÙ„ Ø­Ø³Ø§Ø¨Ù‡', Colors.green);
+      }
+    } catch (e) {
+      _showSnackBar('ÙØ´Ù„ Ø­ÙØ¸ Ø§Ù„Ù…Ø´Ø±ÙØŒ ØªØ£ÙƒØ¯ Ù…Ù† Ø§Ù„Ø¨ÙŠØ§Ù†Ø§Øª.', Colors.red);
+    }
+  }
+
+  Future<void> _toggleStatus(int userId, String currentStatus) async {
+    final newStatus = currentStatus == 'Active' ? 'Inactive' : 'Active';
+    try {
+      // âœ… Ø§Ø³ØªØ®Ø¯Ø§Ù… Ø§Ù„Ù€ Patch Ù…Ø¹ ApiConfig.dio
+      final response = await ApiConfig.dio.patch('$_apiUrl/$userId/status', data: {
+        'status': newStatus,
+      });
+
+      if (response.statusCode == 200 && response.data['status'] == 'success') {
+        _fetchSupervisors();
+        _showSnackBar(
+          newStatus == 'Active' ? 'ØªÙ… ØªÙØ¹ÙŠÙ„ Ø­Ø³Ø§Ø¨ Ø§Ù„Ù…Ø´Ø±Ù' : 'ØªÙ… ØªØ¹Ø·ÙŠÙ„ Ø­Ø³Ø§Ø¨ Ø§Ù„Ù…Ø´Ø±Ù Ø¨Ù†Ø¬Ø§Ø­',
+          Colors.orange,
+        );
+      }
+    } catch (e) {
+      _showSnackBar('ÙØ´Ù„ ØªØ¹Ø¯ÙŠÙ„ Ø­Ø§Ù„Ø© Ø§Ù„Ù…Ø´Ø±Ù', Colors.red);
+    }
+  }
+
+  void _clearControllers() {
+    _nameController.clear();
+    _usernameController.clear();
+    _passwordController.clear();
+  }
+
+  void _showSnackBar(String message, Color bgColor) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(message), backgroundColor: bgColor),
+    );
+  }
+
+  void _openAddSupervisorSheet() {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
+      builder: (context) => Padding(
+        padding: EdgeInsets.only(
+          bottom: MediaQuery.of(context).viewInsets.bottom,
+          top: 20, left: 20, right: 20,
+        ),
+        child: Form(
+          key: _formKey,
+          child: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Container(width: 50, height: 5, decoration: BoxDecoration(color: Colors.grey[300], borderRadius: BorderRadius.circular(10))),
+                const SizedBox(height: 15),
+                const Text('Ø¥Ù†Ø´Ø§Ø¡ Ø­Ø³Ø§Ø¨ Ù…Ø´Ø±Ù Ø¬Ø¯ÙŠØ¯', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Color(0xffb21f1f))),
+                const SizedBox(height: 15),
+                TextFormField(
+                  controller: _nameController,
+                  decoration: const InputDecoration(labelText: 'Ø§Ù„Ø§Ø³Ù… Ø§Ù„ÙƒØ§Ù…Ù„ Ù„Ù„Ù…Ø´Ø±Ù *', prefixIcon: Icon(Icons.person)),
+                  validator: (val) => val == null || val.isEmpty ? 'ÙŠØ±Ø¬Ù‰ Ø¥Ø¯Ø®Ø§Ù„ Ø§Ù„Ø§Ø³Ù… Ø§Ù„ÙƒØ§Ù…Ù„' : null,
+                ),
+                const SizedBox(height: 12),
+                TextFormField(
+                  controller: _usernameController,
+                  decoration: const InputDecoration(labelText: 'Ø§Ø³Ù… Ø§Ù„Ù…Ø³ØªØ®Ø¯Ù… Ù„Ù„Ù€ Login *', prefixIcon: Icon(Icons.alternate_email)),
+                  validator: (val) => val == null || val.isEmpty ? 'ÙŠØ±Ø¬Ù‰ Ø¥Ø¯Ø®Ø§Ù„ Ø§Ø³Ù… Ù…Ø³ØªØ®Ø¯Ù… ÙØ±ÙŠØ¯' : null,
+                ),
+                const SizedBox(height: 12),
+                TextFormField(
+                  controller: _passwordController,
+                  obscureText: true,
+                  decoration: const InputDecoration(labelText: 'ÙƒÙ„Ù…Ø© Ø§Ù„Ù…Ø±ÙˆØ± Ø§Ù„Ø­Ø³Ø§Ø¨ *', prefixIcon: Icon(Icons.lock)),
+                  validator: (val) => val == null || val.length < 6 ? 'ÙƒÙ„Ù…Ø© Ø§Ù„Ù…Ø±ÙˆØ± ÙŠØ¬Ø¨ Ø£Ù† Ù„Ø§ ØªÙ‚Ù„ Ø¹Ù† 6 Ø®Ø§Ù†Ø§Øª' : null,
+                ),
+                const SizedBox(height: 25),
+                ElevatedButton(
+                  onPressed: _addSupervisor,
+                  style: ElevatedButton.styleFrom(
+                    minimumSize: const Size.fromHeight(50),
+                    backgroundColor: const Color(0xffb21f1f),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                  ),
+                  child: const Text('Ø­ÙØ¸ Ø­Ø³Ø§Ø¨ Ø§Ù„Ù…Ø´Ø±Ù ÙˆØªÙØ¹ÙŠÙ„Ù‡', style: TextStyle(color: Colors.white, fontSize: 16)),
+                ),
+                const SizedBox(height: 20),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildKPICard(String title, String value, Color color) {
+    return Expanded(
+      child: Card(
+        elevation: 2,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 8),
+          child: Column(
+            children: [
+              Text(title, style: const TextStyle(fontSize: 13, color: Colors.grey, fontWeight: FontWeight.bold)),
+              const SizedBox(height: 5),
+              Text(value, style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: color)),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: Colors.grey[100],
+      appBar: AppBar(
+        title: const Text('Ø¥Ø¯Ø§Ø±Ø© Ø§Ù„Ù…Ø´Ø±ÙÙŠÙ† (Supervisors)', style: TextStyle(fontWeight: FontWeight.bold, color: Colors.white)),
+        backgroundColor: const Color(0xffb21f1f),
+        centerTitle: true,
+      ),
+      floatingActionButton: FloatingActionButton(
+        onPressed: _openAddSupervisorSheet,
+        backgroundColor: const Color(0xfffdbb2d),
+        child: const Icon(Icons.add, color: Colors.black, size: 30),
+      ),
+      body: _isLoading
+          ? const Center(child: CircularProgressIndicator())
+          : Column(
+              children: [
+                Padding(
+                  padding: const EdgeInsets.all(12.0),
+                  child: Row(
+                    children: [
+                      _buildKPICard('Ø¥Ø¬Ù…Ø§Ù„ÙŠ Ø§Ù„Ù…Ø´Ø±ÙÙŠÙ†', '$_totalSupervisors', const Color(0xffb21f1f)),
+                      _buildKPICard('Ø§Ù„Ù†Ø´Ø·ÙŠÙ† Ø­Ø§Ù„ÙŠØ§Ù‹', '$_activeSupervisors', Colors.green),
+                      _buildKPICard('Ø§Ù„Ù…Ø¹Ø·Ù„ÙŠÙ†', '$_inactiveSupervisors', Colors.red),
+                    ],
+                  ),
+                ),
+                Expanded(
+                  child: _supervisors.isEmpty
+                      ? const Center(child: Text('Ù„Ø§ ÙŠÙˆØ¬Ø¯ Ù…Ø´Ø±ÙÙŠÙ† Ù…Ø³Ø¬Ù„ÙŠÙ† ÙÙŠ Ø§Ù„Ù†Ø¸Ø§Ù… Ø­Ø§Ù„ÙŠØ§Ù‹'))
+                      : ListView.builder(
+                          itemCount: _supervisors.length,
+                          itemBuilder: (context, index) {
+                            final supervisor = _supervisors[index];
+                            final isUserActive = supervisor['status'] == 'Active';
+                            return Card(
+                              margin: const EdgeInsets.symmetric(horizontal: 15, vertical: 6),
+                              elevation: 2,
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                              child: ListTile(
+                                leading: CircleAvatar(backgroundColor: const Color(0xffb21f1f).withOpacity(0.1), child: const Icon(Icons.person, color: Color(0xffb21f1f))),
+                                title: Text(supervisor['full_name'] ?? 'Ù…Ø³ØªØ®Ø¯Ù… Ø¨Ø¯ÙˆÙ† Ø§Ø³Ù…', style: const TextStyle(fontWeight: FontWeight.bold)),
+                                subtitle: Text('Ø§Ø³Ù… Ø§Ù„Ù…Ø³ØªØ®Ø¯Ù…: @${supervisor['username'] ?? 'ØºÙŠØ± Ù…Ø­Ø¯Ø¯'}'),
+                                trailing: Switch(
+                                  value: isUserActive,
+                                  activeColor: Colors.green,
+                                  onChanged: (val) => _toggleStatus(supervisor['user_id'], supervisor['status']),
+                                ),
+                              ),
+                            );
+                          },
+                        ),
+                ),
+              ],
+            ),
+    );
+  }
+}
+import 'package:flutter/material.dart';
+import '../constants.dart'; // âœ… Ø§Ù„Ø§Ø³ØªÙŠØ±Ø§Ø¯ Ø§Ù„Ù…ÙˆØ­Ø¯
+
+class WorkersScreen extends StatefulWidget {
+  const WorkersScreen({Key? key}) : super(key: key);
+
+  @override
+  State<WorkersScreen> createState() => _WorkersScreenState();
+}
+
+class _WorkersScreenState extends State<WorkersScreen> {
+  // âœ… Ù„Ø§ Ø¯Ø§Ø¹ÙŠ Ù„ØªØ¹Ø±ÙŠÙ Dio Ù‡Ù†Ø§ØŒ Ø³Ù†Ø³ØªØ®Ø¯Ù… ApiConfig.dio
+
+  List<dynamic> _workers = [];
+  bool _isLoading = true;
+
+  final _codeController = TextEditingController();
+  final _nameController = TextEditingController();
+  final _phoneController = TextEditingController();
+  final _nationalityController = TextEditingController();
+  final _positionController = TextEditingController();
+  final _notesController = TextEditingController();
+
+  @override
+  void initState() {
+    super.initState();
+    _fetchWorkers();
+  }
+
+  int get _totalWorkers => _workers.length;
+  int get _activeWorkers => _workers.where((w) => w['status'] == 'Active').length;
+
+  Future<void> _fetchWorkers() async {
+    setState(() => _isLoading = true);
+    try {
+      // âœ… Ø§Ø³ØªØ®Ø¯Ø§Ù… ApiConfig.dio Ø§Ù„Ù…ÙˆØ­Ø¯
+      final response = await ApiConfig.dio.get('/workers');
+      if (response.statusCode == 200 && response.data['status'] == 'success') {
+        setState(() {
+          _workers = response.data['data'];
+          _isLoading = false;
+        });
+      }
+    } catch (e) {
+      setState(() => _isLoading = false);
+      _showSnackBar('Ø­Ø¯Ø« Ø®Ø·Ø£ Ø£Ø«Ù†Ø§Ø¡ Ø¬Ù„Ø¨ Ø§Ù„Ø¹Ù…Ø§Ù„', Colors.red);
+    }
+  }
+
+  Future<void> _addWorker() async {
+    final code = _codeController.text.trim();
+    final name = _nameController.text.trim();
+
+    if (code.isEmpty || name.isEmpty) {
+      _showSnackBar('ÙŠØ±Ø¬Ù‰ Ù…Ù„Ø¡ Ø§Ù„Ø­Ù‚ÙˆÙ„ Ø§Ù„Ø£Ø³Ø§Ø³ÙŠØ©', Colors.orange);
+      return;
+    }
+
+    try {
+      // âœ… Ø§Ù„ØªÙˆÙƒÙ† ÙŠØ±Ø³Ù„ ØªÙ„Ù‚Ø§Ø¦ÙŠØ§Ù‹ Ø¨ÙˆØ§Ø³Ø·Ø© Ø§Ù„Ù€ Interceptor
+      final response = await ApiConfig.dio.post('/workers', data: {
+        'worker_unique_id': code,
+        'full_name': name,
+        'phone_number': _phoneController.text.trim(),
+        'nationality': _nationalityController.text.trim(),
+        'job_position': _positionController.text.trim(),
+        'notes': _notesController.text.trim(),
+      });
+
+      if (response.statusCode == 201) {
+        Navigator.pop(context);
+        _clearControllers();
+        _fetchWorkers();
+        _showSnackBar('ØªÙ… Ø¥Ø¶Ø§ÙØ© Ø§Ù„Ø¹Ø§Ù…Ù„ Ø¨Ù†Ø¬Ø§Ø­', Colors.green);
+      }
+    } catch (e) {
+      _showSnackBar('ÙØ´Ù„ Ø§Ù„Ø­ÙØ¸: ØªØ£ÙƒØ¯ Ù…Ù† Ø¹Ø¯Ù… ØªÙƒØ±Ø§Ø± ÙƒÙˆØ¯ Ø§Ù„Ø¹Ø§Ù…Ù„', Colors.red);
+    }
+  }
+ // Ø¯Ø§Ù„Ø© ÙØªØ­ Ø§Ù„Ù†Ø§ÙØ°Ø©
+void _openAddWorkerSheet() {
+  showModalBottomSheet(
+    context: context,
+    isScrollControlled: true,
+    shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
+    builder: (context) => Padding(
+      padding: EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom, top: 20, left: 20, right: 20),
+      child: SingleChildScrollView(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(width: 50, height: 5, decoration: BoxDecoration(color: Colors.grey[300], borderRadius: BorderRadius.circular(10))),
+            const SizedBox(height: 15),
+            const Text('Ø¥Ø¶Ø§ÙØ© Ø¹Ø§Ù…Ù„ Ø¬Ø¯ÙŠØ¯ Ù„Ù„Ù†Ø¸Ø§Ù…', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Color(0xff1a2a6c))),
+            const SizedBox(height: 15),
+            TextField(controller: _codeController, decoration: const InputDecoration(labelText: 'ÙƒÙˆØ¯ Ø§Ù„Ø¹Ø§Ù…Ù„ (ID) *', prefixIcon: Icon(Icons.badge))),
+            TextField(controller: _nameController, decoration: const InputDecoration(labelText: 'Ø§Ù„Ø§Ø³Ù… Ø§Ù„ÙƒØ§Ù…Ù„ *', prefixIcon: Icon(Icons.person))),
+            TextField(controller: _phoneController, decoration: const InputDecoration(labelText: 'Ø±Ù‚Ù… Ø§Ù„Ù‡Ø§ØªÙ', prefixIcon: Icon(Icons.phone))),
+            TextField(controller: _nationalityController, decoration: const InputDecoration(labelText: 'Ø§Ù„Ø¬Ù†Ø³ÙŠØ©', prefixIcon: Icon(Icons.flag))),
+            TextField(controller: _positionController, decoration: const InputDecoration(labelText: 'Ø§Ù„Ù…Ø³Ù…Ù‰ Ø§Ù„ÙˆØ¸ÙŠÙÙŠ', prefixIcon: Icon(Icons.work))),
+            TextField(controller: _notesController, decoration: const InputDecoration(labelText: 'Ù…Ù„Ø§Ø­Ø¸Ø§Øª', prefixIcon: Icon(Icons.note))),
+            const SizedBox(height: 25),
+            ElevatedButton(
+              onPressed: _addWorker,
+              style: ElevatedButton.styleFrom(minimumSize: const Size.fromHeight(50), backgroundColor: const Color(0xff1a2a6c)),
+              child: const Text('Ø­ÙØ¸ Ø§Ù„Ø¹Ø§Ù…Ù„', style: TextStyle(color: Colors.white, fontSize: 16)),
+            ),
+            const SizedBox(height: 20),
+          ],
+        ),
+      ),
+    ),
+  );
+}
+
+// Ø¯Ø§Ù„Ø© Ø§Ù„ÙƒØ§Ø±Ø¯
+Widget _buildKPICard(String title, String value, Color color) {
+  return Expanded(
+    child: Card(
+      elevation: 2,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 8),
+        child: Column(
+          children: [
+            Text(title, style: const TextStyle(fontSize: 13, color: Colors.grey, fontWeight: FontWeight.bold)),
+            const SizedBox(height: 5),
+            Text(value, style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: color)),
+          ],
+        ),
+      ),
+    ),
+  );
+}
+  void _clearControllers() {
+    _codeController.clear();
+    _nameController.clear();
+    _phoneController.clear();
+    _nationalityController.clear();
+    _positionController.clear();
+    _notesController.clear();
+  }
+
+  void _showSnackBar(String message, Color bgColor) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(message), backgroundColor: bgColor),
+    );
+  }
+
+  // ... (Ø¨Ø§Ù‚ÙŠ ÙƒÙˆØ¯ Ø§Ù„Ù€ UI ÙŠØ¸Ù„ ÙƒÙ…Ø§ Ù‡Ùˆ Ø¯ÙˆÙ† ØªØºÙŠÙŠØ± ÙÙŠ Ø§Ù„Ù…Ù†Ø·Ù‚)
+  // [ØªÙ… Ø§Ù„Ø§Ø­ØªÙØ§Ø¸ Ø¨Ù†ÙØ³ Ø¨Ù†ÙŠØ© Ø§Ù„Ù€ UI Ù„Ø¶Ù…Ø§Ù† Ø§Ø³ØªÙ‚Ø±Ø§Ø± Ø§Ù„ÙˆØ§Ø¬Ù‡Ø©]
+  
+  @override
+  Widget build(BuildContext context) {
+    // Ø§Ù„ÙˆØ§Ø¬Ù‡Ø© ØªØ¸Ù„ ÙƒÙ…Ø§ Ù‡ÙŠØŒ ØªØ£ÙƒØ¯ ÙÙ‚Ø· Ù…Ù† Ø§Ø³ØªØ¯Ø¹Ø§Ø¡ Ø§Ù„Ø¯ÙˆØ§Ù„ Ø§Ù„Ù…Ø­Ø¯Ø«Ø© Ø£Ø¹Ù„Ø§Ù‡
+    return Scaffold(
+      backgroundColor: Colors.grey[100],
+      appBar: AppBar(
+        title: const Text('Ø¥Ø¯Ø§Ø±Ø© Ø§Ù„Ø¹Ù…Ø§Ù„', style: TextStyle(fontWeight: FontWeight.bold, color: Colors.white)),
+        backgroundColor: const Color(0xff1a2a6c),
+        centerTitle: true,
+      ),
+      floatingActionButton: FloatingActionButton(
+        onPressed: _openAddWorkerSheet,
+        backgroundColor: const Color(0xfffdbb2d),
+        child: const Icon(Icons.add, color: Colors.black, size: 30),
+      ),
+      body: _isLoading
+          ? const Center(child: CircularProgressIndicator())
+          : Column(
+              children: [
+                Padding(
+                  padding: const EdgeInsets.all(12.0),
+                  child: Row(
+                    children: [
+                      _buildKPICard('Ø¥Ø¬Ù…Ø§Ù„ÙŠ Ø§Ù„Ø¹Ù…Ø§Ù„', '$_totalWorkers', const Color(0xff1a2a6c)),
+                      _buildKPICard('Ø§Ù„Ù†Ø´Ø·ÙŠÙ†', '$_activeWorkers', Colors.green),
+                      _buildKPICard('Ø§Ù„Ù…ØªÙˆÙ‚ÙÙŠÙ†', '${_totalWorkers - _activeWorkers}', Colors.red),
+                    ],
+                  ),
+                ),
+                // Ø¨Ù‚ÙŠØ© Ø§Ù„Ù€ ListView ÙƒÙ…Ø§ ÙƒØ§Ù†Øª ØªÙ…Ø§Ù…Ø§Ù‹
+                Expanded(child: ListView.builder(
+                    itemCount: _workers.length,
+                    itemBuilder: (context, index) {
+                      final worker = _workers[index];
+                      return Card(
+                          margin: const EdgeInsets.symmetric(horizontal: 15, vertical: 6),
+                          child: ListTile(
+                              title: Text(worker['full_name']),
+                              subtitle: Text(worker['job_position'] ?? ''),
+                              trailing: Text(worker['status'] == 'Active' ? 'Ù†Ø´Ø·' : 'Ù…ØªÙˆÙ‚Ù')
+                          )
+                      );
+                    }
+                )),
+              ],
+            ),
+    );
+  }
+  
+  // (Ø£Ø¶Ù Ø¯Ø§Ù„Ø© _openAddWorkerSheet Ùˆ _buildKPICard Ù…Ù† ÙƒÙˆØ¯Ùƒ Ø§Ù„Ø³Ø§Ø¨Ù‚ Ù‡Ù†Ø§)
+}
+import 'package:flutter/material.dart';
+import 'package:dio/dio.dart'; // ØªØ£ÙƒØ¯ Ù…Ù† Ø§Ø³ØªÙŠØ±Ø§Ø¯ dio Ù„Ù‚Ø±Ø§Ø¡Ø© Ø§Ù„Ù€ DioException
+import '../constants.dart'; 
+
+class WorkerAssignmentScreen extends StatefulWidget {
+  const WorkerAssignmentScreen({Key? key}) : super(key: key);
+
+  @override
+  State<WorkerAssignmentScreen> createState() => _WorkerAssignmentScreenState();
+}
+
+class _WorkerAssignmentScreenState extends State<WorkerAssignmentScreen> {
+  List<dynamic> _assignments = [];
+  List<dynamic> _workers = [];
+  List<dynamic> _sites = []; 
+  bool _isLoading = true;
+  String _searchQuery = "";
+  int? _selectedWorkerId;
+  int? _selectedSiteId;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadData();
+  }
+
+  Future<void> _loadData() async {
+    setState(() => _isLoading = true);
+    try {
+      final resWorkers = await ApiConfig.dio.get('/workers');
+      if (resWorkers.statusCode == 200) _workers = resWorkers.data['data'] ?? [];
+      
+      final resSites = await ApiConfig.dio.get('/sites/all-sites');
+      if (resSites.statusCode == 200) _sites = resSites.data['data'] ?? [];
+      
+      final resAssignments = await ApiConfig.dio.get('/assignments');
+      if (resAssignments.statusCode == 200) _assignments = resAssignments.data['data'] ?? [];
+      
+    } catch (e) {
+      debugPrint('Ø®Ø·Ø£ ÙÙŠ Ø¬Ù„Ø¨ Ø§Ù„Ø¨ÙŠØ§Ù†Ø§Øª: $e');
+    }
+    setState(() => _isLoading = false);
+  }
+
+  Future<void> _createAssignment() async {
+    if (_selectedWorkerId == null || _selectedSiteId == null) {
+      _showSnackBar('ÙŠØ±Ø¬Ù‰ ØªØ­Ø¯ÙŠØ¯ Ø§Ù„Ø¹Ø§Ù…Ù„ ÙˆØ§Ù„Ù…ÙˆÙ‚Ø¹ Ø£ÙˆÙ„Ø§Ù‹', Colors.orange);
+      return;
+    }
+    try {
+      final response = await ApiConfig.dio.post('/assignments', data: {
+        'worker_id': _selectedWorkerId,
+        'site_id': _selectedSiteId,
+      });
+      
+      if (response.statusCode == 201 || response.statusCode == 200) {
+        Navigator.pop(context);
+        _selectedWorkerId = null; // ØªØµÙÙŠØ± Ø§Ù„Ø§Ø®ØªÙŠØ§Ø± Ø¨Ø¹Ø¯ Ø§Ù„Ø­ÙØ¸
+        _selectedSiteId = null;   // ØªØµÙÙŠØ± Ø§Ù„Ø§Ø®ØªÙŠØ§Ø± Ø¨Ø¹Ø¯ Ø§Ù„Ø­ÙØ¸
+        _loadData(); 
+        _showSnackBar('ØªÙ… Ø­ÙØ¸ Ø§Ù„ØªØ¹ÙŠÙŠÙ† Ø¨Ù†Ø¬Ø§Ø­!', Colors.green);
+      }
+    } catch (e) {
+      // ØªØ¹Ø¯ÙŠÙ„ Ø°ÙƒÙŠ: Ù‚Ø±Ø§Ø¡Ø© Ø§Ù„Ø±Ø³Ø§Ù„Ø© Ø§Ù„Ø¯Ù‚ÙŠÙ‚Ø© Ø§Ù„Ù‚Ø§Ø¯Ù…Ø© Ù…Ù† Ø§Ù„Ø¨Ø§Ùƒ-Ø¥Ù†Ø¯ Ù„Ù…Ù†Ø¹ Ø§Ù„ØªÙƒØ±Ø§Ø±
+      String errorMessage = 'ÙØ´Ù„ Ø­ÙØ¸ Ø§Ù„Ø¨ÙŠØ§Ù†Ø§Øª';
+      if (e is DioException && e.response?.data != null) {
+        errorMessage = e.response?.data['message'] ?? 'Ø­Ø¯Ø« Ø®Ø·Ø£ ØºÙŠØ± Ù…Ø¹Ø±ÙˆÙ';
+      }
+      _showSnackBar(errorMessage, Colors.red);
+    }
+  }
+
+Future<void> _deleteAssignment(int assignmentId) async {
+  // Ø¥Ø¶Ø§ÙØ© ØªÙ†Ø¨ÙŠÙ‡ ØªØ£ÙƒÙŠØ¯ÙŠ Ù„Ù…Ù†Ø¹ Ø§Ù„Ø£Ø®Ø·Ø§Ø¡
+  bool? confirm = await showDialog(
+    context: context,
+    builder: (context) => AlertDialog(
+      title: const Text('ØªØ£ÙƒÙŠØ¯'),
+      content: const Text('Ù‡Ù„ Ø£Ù†Øª Ù…ØªØ£ÙƒØ¯ Ù…Ù† Ø¥Ù†Ù‡Ø§Ø¡ ØªØ¹ÙŠÙŠÙ† Ù‡Ø°Ø§ Ø§Ù„Ø¹Ø§Ù…Ù„ØŸ'),
+      actions: [
+        TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Ø¥Ù„ØºØ§Ø¡')),
+        ElevatedButton(onPressed: () => Navigator.pop(context, true), child: const Text('ØªØ£ÙƒÙŠØ¯')),
+      ],
+    ),
+  );
+
+  if (confirm != true) return;
+
+  try {
+    await ApiConfig.dio.delete('/assignments/$assignmentId');
+    _loadData(); // Ø³ØªÙ‚ÙˆÙ… Ø¨Ø¥Ø¹Ø§Ø¯Ø© ØªØ­Ù…ÙŠÙ„ Ø§Ù„Ø¨ÙŠØ§Ù†Ø§Øª ÙˆØ³ÙŠØ®ØªÙÙŠ Ø§Ù„Ø¹Ø§Ù…Ù„ ÙÙˆØ±Ø§Ù‹ Ù„Ø£Ù† Ø§Ù„Ø¨Ø§Ùƒ-Ø¥Ù†Ø¯ Ø³ÙŠØ³ØªØ«Ù†ÙŠÙ‡
+    _showSnackBar('ØªÙ… Ø¥Ù†Ù‡Ø§Ø¡ Ø§Ù„ØªØ¹ÙŠÙŠÙ† Ø¨Ù†Ø¬Ø§Ø­', Colors.blue);
+  } catch (e) {
+    _showSnackBar('ÙØ´Ù„ Ø¥Ù†Ù‡Ø§Ø¡ Ø§Ù„ØªØ¹ÙŠÙŠÙ†', Colors.red);
+  }
+}
+  void _showSnackBar(String message, Color color) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(message, style: const TextStyle(fontFamily: 'Cairo')), 
+        backgroundColor: color
+      )
+    );
+  }
+
+  // ÙÙ†ÙƒØ´Ù† Ù„ÙÙ„ØªØ±Ø© Ø§Ù„Ø¹Ù…Ø§Ù„ Ø§Ù„ØªØ§Ø¨Ø¹ÙŠÙ† Ù„Ù…ÙˆÙ‚Ø¹ Ù…Ø¹ÙŠÙ†
+  List<dynamic> _getWorkersForSite(int siteId) {
+    return _assignments.where((item) => item['site_id'] == siteId).toList();
+  }
+
+  void _openAddSheet() {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (context) => StatefulBuilder(
+        builder: (context, setSheetState) => Padding(
+          padding: EdgeInsets.only(
+            bottom: MediaQuery.of(context).viewInsets.bottom, 
+            top: 20, 
+            left: 20, 
+            right: 20
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              const Center(
+                child: Text(
+                  'ØªÙˆØ²ÙŠØ¹ Ø¹Ø§Ù…Ù„ Ø¹Ù„Ù‰ Ù…ÙˆÙ‚Ø¹', 
+                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, fontFamily: 'Cairo')
+                ),
+              ),
+              const SizedBox(height: 15),
+              DropdownButtonFormField<int>(
+                decoration: const InputDecoration(
+                  labelText: 'Ø§Ø®ØªØ± Ø§Ù„Ø¹Ø§Ù…Ù„',
+                  border: OutlineInputBorder(),
+                  prefixIcon: Icon(Icons.person),
+                ),
+                value: _selectedWorkerId,
+                items: _workers.map((w) => DropdownMenuItem<int>(
+                  value: int.tryParse(w['worker_id'].toString()), 
+                  child: Text(w['full_name'] ?? 'Ø¨Ø¯ÙˆÙ† Ø§Ø³Ù…')
+                )).toList(),
+                onChanged: (val) => setSheetState(() => _selectedWorkerId = val),
+              ),
+              const SizedBox(height: 15),
+              DropdownButtonFormField<int>(
+                decoration: const InputDecoration(
+                  labelText: 'Ø§Ø®ØªØ± Ø§Ù„Ù…ÙˆÙ‚Ø¹',
+                  border: OutlineInputBorder(),
+                  prefixIcon: Icon(Icons.location_on),
+                ),
+                value: _selectedSiteId,
+                items: _sites.map((s) => DropdownMenuItem<int>(
+                  value: int.tryParse(s['site_id']?.toString() ?? '0'), 
+                  child: Text(s['site_name'] ?? 'Ù…ÙˆÙ‚Ø¹ Ø¨Ø¯ÙˆÙ† Ø§Ø³Ù…')
+                )).toList(),
+                onChanged: (val) => setSheetState(() => _selectedSiteId = val),
+              ),
+              const SizedBox(height: 20),
+              ElevatedButton(
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: const Color(0xff1a2a6c),
+                  padding: const EdgeInsets.symmetric(vertical: 15),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10))
+                ),
+                onPressed: _createAssignment, 
+                child: const Text('Ø­ÙØ¸ Ø§Ù„ØªØ¹ÙŠÙŠÙ†', style: TextStyle(color: Colors.white, fontSize: 16))
+              ),
+              const SizedBox(height: 20),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+Widget _buildStatCard(String title, String value, Color color) {
+  return Expanded(
+    child: Card(
+      elevation: 2,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15)),
+      child: Padding(
+        padding: const EdgeInsets.all(15),
+        child: Column(
+          children: [
+            Text(title, style: const TextStyle(color: Colors.grey)),
+            const SizedBox(height: 5),
+            Text(value, style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: color)),
+          ],
+        ),
+      ),
+    ),
+  );
+}
+
+@override
+Widget build(BuildContext context) {
+ // ØªØµÙÙŠØ© Ø§Ù„Ù…ÙˆØ§Ù‚Ø¹: ØªØ´Ù…Ù„ Ø§Ù„Ù…ÙˆØ§Ù‚Ø¹ Ø§Ù„ØªÙŠ ØªØ·Ø§Ø¨Ù‚ Ø§Ù„Ø¨Ø­Ø« Ø¨Ø§Ù„Ø§Ø³Ù…ØŒ 
+  // Ø£Ùˆ Ø§Ù„Ù…ÙˆØ§Ù‚Ø¹ Ø§Ù„ØªÙŠ ØªØ­ØªÙˆÙŠ Ø¹Ù„Ù‰ Ø¹Ø§Ù…Ù„ ÙŠØ·Ø§Ø¨Ù‚ Ø§Ù„Ø¨Ø­Ø« Ø¨Ø§Ù„Ø§Ø³Ù….
+  final filteredSites = _sites.where((site) {
+    final siteName = site['site_name'].toString().toLowerCase();
+    final siteId = int.tryParse(site['site_id']?.toString() ?? '0') ?? 0;
+    
+    // Ø§Ù„Ø­ØµÙˆÙ„ Ø¹Ù„Ù‰ Ø¹Ù…Ø§Ù„ Ø§Ù„Ù…ÙˆÙ‚Ø¹ Ø§Ù„Ø­Ø§Ù„ÙŠ
+    final workersInSite = _getWorkersForSite(siteId);
+    
+    // Ù‡Ù„ Ø§Ù„Ø¨Ø­Ø« ÙŠØ·Ø§Ø¨Ù‚ Ø§Ø³Ù… Ø§Ù„Ù…ÙˆÙ‚Ø¹ØŸ
+    final matchesSiteName = siteName.contains(_searchQuery.toLowerCase());
+    
+    // Ù‡Ù„ Ø§Ù„Ø¨Ø­Ø« ÙŠØ·Ø§Ø¨Ù‚ Ø§Ø³Ù… Ø£ÙŠ Ø¹Ø§Ù…Ù„ Ø¯Ø§Ø®Ù„ Ù‡Ø°Ø§ Ø§Ù„Ù…ÙˆÙ‚Ø¹ØŸ
+    final matchesWorkerName = workersInSite.any((w) => 
+      w['worker_name'].toString().toLowerCase().contains(_searchQuery.toLowerCase())
+    );
+
+    return matchesSiteName || matchesWorkerName;
+  }).toList();
+
+  return Scaffold(
+    backgroundColor: Colors.grey[100],
+    appBar: AppBar(
+      title: const Text('ØªÙˆØ²ÙŠØ¹ Ø§Ù„Ø¹Ù…Ø§Ù„ ÙˆØ§Ù„Ù…ÙˆØ§Ù‚Ø¹', style: TextStyle(fontWeight: FontWeight.bold)),
+      backgroundColor: const Color(0xff1a2a6c),
+      centerTitle: true,
+    ),
+    body: _isLoading 
+      ? const Center(child: CircularProgressIndicator()) 
+      : Column(
+          children: [
+            // Ø§Ù„Ø¥Ø­ØµØ§Ø¦ÙŠØ§Øª
+            Padding(
+  padding: const EdgeInsets.all(12),
+  child: Row(
+    children: [
+      // Ø¥Ø¶Ø§ÙØ© Ù„ÙˆÙ† (Color) ÙƒÙ…Ø¹Ø§Ù…Ù„ Ø«Ø§Ù„Ø«
+      _buildStatCard('Ø§Ù„Ù…ÙˆØ§Ù‚Ø¹', _sites.length.toString(), const Color(0xff1a2a6c)),
+      const SizedBox(width: 10),
+      _buildStatCard('Ø§Ù„ØªØ¹ÙŠÙŠÙ†Ø§Øª', _assignments.length.toString(), Colors.blue),
+    ],
+  ),
+),
+            // Ø­Ù‚Ù„ Ø§Ù„Ø¨Ø­Ø«
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 12),
+              child: TextField(
+  onChanged: (val) => setState(() => _searchQuery = val),
+  decoration: InputDecoration(
+    hintText: 'Ø§Ø¨Ø­Ø« Ø¨Ø§Ù„Ù…ÙˆÙ‚Ø¹ Ø£Ùˆ Ø§Ù„Ø¹Ø§Ù…Ù„...',
+    prefixIcon: const Icon(Icons.search),
+    filled: true,
+    fillColor: Colors.white,
+    contentPadding: const EdgeInsets.symmetric(vertical: 0, horizontal: 20),
+    border: OutlineInputBorder(
+      borderRadius: BorderRadius.circular(30), // Ø­ÙˆØ§Ù Ø¯Ø§Ø¦Ø±ÙŠØ© ÙƒØ§Ù…Ù„Ø©
+      borderSide: BorderSide.none,
+    ),
+    enabledBorder: OutlineInputBorder(
+      borderRadius: BorderRadius.circular(30),
+      borderSide: BorderSide.none,
+    ),
+  ),
+)
+            ),
+            // Ø§Ù„Ù‚Ø§Ø¦Ù…Ø©
+            Expanded(
+              child: ListView.builder(
+                padding: const EdgeInsets.all(12),
+                itemCount: filteredSites.length,
+                itemBuilder: (context, index) {
+                  final site = filteredSites[index];
+                  final siteId = int.tryParse(site['site_id']?.toString() ?? '0') ?? 0;
+                  final siteWorkers = _getWorkersForSite(siteId);
+
+                  // Ø§Ø³ØªØ¨Ø¯Ù„ Ø§Ù„Ù€ Card Ø§Ù„Ø®Ø§Øµ Ø¨Ø§Ù„Ù€ ExpansionTile Ø¨Ù‡Ø°Ø§ Ø§Ù„ÙƒÙˆØ¯ Ø¯Ø§Ø®Ù„ Ø§Ù„Ù€ ListView
+return Card(
+  elevation: 0, // ØªØµÙ…ÙŠÙ… Ù…Ø³Ø·Ø­ ÙˆØ¹ØµØ±ÙŠ
+  shape: RoundedRectangleBorder(
+    borderRadius: BorderRadius.circular(15),
+    side: BorderSide(color: Colors.grey.shade200),
+  ),
+  margin: const EdgeInsets.symmetric(vertical: 6, horizontal: 12),
+  child: ExpansionTile(
+    leading: CircleAvatar(
+      backgroundColor: const Color(0xff1a2a6c).withOpacity(0.1),
+      child: const Icon(Icons.business, color: Color(0xff1a2a6c)),
+    ),
+    title: Text(site['site_name'], style: const TextStyle(fontWeight: FontWeight.bold)),
+    subtitle: Text('Ø¹Ø¯Ø¯ Ø§Ù„Ø¹Ù…Ø§Ù„: ${siteWorkers.length}'),
+    children: siteWorkers.map((assignment) {
+      return Container(
+        decoration: BoxDecoration(
+          color: Colors.grey.shade50,
+          border: Border(top: BorderSide(color: Colors.grey.shade200)),
+        ),
+        child: ListTile(
+          leading: const Icon(Icons.person_outline, color: Colors.grey),
+          title: Text(assignment['worker_name'] ?? 'Ø¹Ø§Ù…Ù„'),
+          trailing: IconButton(
+            icon: const Icon(Icons.delete_forever, color: Colors.redAccent),
+            onPressed: () => _deleteAssignment(assignment['assignment_id']),
+          ),
+        ),
+      );
+    }).toList(),
+  ),
+);
+                },
+              ),
+            ),
+          ],
+        ),
+    floatingActionButton: FloatingActionButton(
+      backgroundColor: const Color(0xff1a2a6c),
+      onPressed: _openAddSheet,
+      child: const Icon(Icons.person_add_alt_1, color: Colors.white),
+    ),
+  );
+}
+}
+import 'package:dio/dio.dart';
+import 'package:shared_preferences/shared_preferences.dart'; // âœ… Ø§Ø³ØªÙŠØ±Ø§Ø¯ Ø§Ù„Ø­Ø²Ù…Ø© Ù„Ø­ÙØ¸ Ø§Ù„ØªÙˆÙƒÙ†
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+class AuthService {
+final String baseUrl = "http://localhost:5000/api/auth";  final Dio dio = Dio(BaseOptions(
+    connectTimeout: const Duration(milliseconds: 10000), 
+    receiveTimeout: const Duration(milliseconds: 10000), 
+  ));
+
+  // Ø¯Ø§Ù„Ø© Ø¥Ø±Ø³Ø§Ù„ Ø·Ù„Ø¨ ØªØ³Ø¬ÙŠÙ„ Ø§Ù„Ø¯Ø®ÙˆÙ„ Ù„Ù„Ø¨Ø§ÙƒÙŠÙ†Ø¯
+Future<Map<String, dynamic>?> login(String email, String password) async {
+  try {
+    final response = await dio.post('$baseUrl/login', data: {
+      'email': email,
+      'password': password,
+    });
+
+    if (response.statusCode == 200) {
+      final responseData = response.data;
+
+      // 1. ØªÙ†Ø¸ÙŠÙ Ø£ÙŠ ØªÙˆÙƒÙ† Ù‚Ø¯ÙŠÙ… ÙÙŠ SharedPreferences Ù„Ø¶Ù…Ø§Ù† Ø¹Ø¯Ù… ÙˆØ¬ÙˆØ¯ ØªØ¶Ø§Ø±Ø¨
+      SharedPreferences prefs = await SharedPreferences.getInstance();
+      await prefs.remove('token'); 
+
+      // 2. Ø§Ù„ØªÙˆØ­ÙŠØ¯: Ø§Ù„Ø­ÙØ¸ ÙÙŠ FlutterSecureStorage ÙˆØ¨Ø§Ø³Ù… 'jwt_token'
+      if (responseData != null && responseData['token'] != null) {
+        const storage = FlutterSecureStorage();
+        await storage.write(key: 'jwt_token', value: responseData['token']);
+        print("ðŸ”‘ Token saved securely to jwt_token and old token cleared.");
+      }
+
+      return responseData;
+    }
+  } catch (e) {
+    print("âŒ Login Error: $e");
+    return null;
+  }
+  return null;
+}
+}
+// This is a basic Flutter widget test.
+//
+// To perform an interaction with a widget in your test, use the WidgetTester
+// utility in the flutter_test package. For example, you can send tap and scroll
+// gestures. You can also use WidgetTester to find child widgets in the widget
+// tree, read text, and verify that the values of widget properties are correct.
+
+import 'package:flutter/material.dart';
+import 'package:flutter_test/flutter_test.dart';
+
+import 'package:team_flow/main.dart';
+
+void main() {
+  testWidgets('Counter increments smoke test', (WidgetTester tester) async {
+    // Build our app and trigger a frame.
+    await tester.pumpWidget(const MyApp());
+
+    // Verify that our counter starts at 0.
+    expect(find.text('0'), findsOneWidget);
+    expect(find.text('1'), findsNothing);
+
+    // Tap the '+' icon and trigger a frame.
+    await tester.tap(find.byIcon(Icons.add));
+    await tester.pump();
+
+    // Verify that our counter has incremented.
+    expect(find.text('0'), findsNothing);
+    expect(find.text('1'), findsOneWidget);
+  });
+}

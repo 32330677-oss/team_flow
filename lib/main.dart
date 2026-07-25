@@ -5,7 +5,7 @@ import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 // استيراد الشاشات الخاصة بك
 import 'screens/login_screen.dart';
 import 'screens/admin_dashboard_screen.dart';
-import 'screens/supervisor_dashboard.dart'; // ✅ استيراد شاشة المشرف هنا
+import 'screens/supervisor_dashboard.dart';
 
 void main() {
   runApp(const MyApp());
@@ -30,7 +30,7 @@ class MyApp extends StatelessWidget {
       } else if (role == 'Supervisor') {
         // 2️⃣ توجيه المشرف مباشرة مع جلب بياناته المخزنة
         String? userIdRaw = await storage.read(key: 'user_id') ?? '0';
-        String? userName = await storage.read(key: 'user_name') ?? 'مشرف';
+        String? userName = await storage.read(key: 'user_name') ?? 'Supervisor';
         
         return SupervisorDashboard(
           supervisorId: int.parse(userIdRaw),
@@ -49,10 +49,17 @@ class MyApp extends StatelessWidget {
       title: 'Team Flow',
       debugShowCheckedModeBanner: false,
       
-      // إجبار التطبيق على دعم الاتجاه العربي RTL
-      locale: const Locale('ar', 'AE'), 
+      // ✅ ضبط الاتجاه ليصبح من اليسار لليمين (LTR) ليتناسب مع الواجهات الإنجليزية والـ Sidebar
+      builder: (context, child) {
+        return Directionality(
+          textDirection: TextDirection.ltr,
+          child: child!,
+        );
+      },
+
+      locale: const Locale('en', 'US'), 
       supportedLocales: const [
-        Locale('ar', 'AE'),
+        Locale('en', 'US'),
       ],
       localizationsDelegates: const [
         GlobalMaterialLocalizations.delegate,

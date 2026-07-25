@@ -2,8 +2,7 @@ import 'package:dio/dio.dart';
 import 'package:shared_preferences/shared_preferences.dart'; // ✅ استيراد الحزمة لحفظ التوكن
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 class AuthService {
-  final String baseUrl = "http://192.168.1.3:5000/api/auth";
-  final Dio dio = Dio(BaseOptions(
+final String baseUrl = "http://localhost:5000/api/auth";  final Dio dio = Dio(BaseOptions(
     connectTimeout: const Duration(milliseconds: 10000), 
     receiveTimeout: const Duration(milliseconds: 10000), 
   ));

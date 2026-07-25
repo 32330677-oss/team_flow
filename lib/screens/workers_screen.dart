@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
-import '../constants.dart'; // ✅ الاستيراد الموحد
-
+import '../constants.dart';
 class WorkersScreen extends StatefulWidget {
   const WorkersScreen({Key? key}) : super(key: key);
 
@@ -9,11 +8,15 @@ class WorkersScreen extends StatefulWidget {
 }
 
 class _WorkersScreenState extends State<WorkersScreen> {
-  // ✅ لا داعي لتعريف Dio هنا، سنستخدم ApiConfig.dio
+  final Color primaryColor = const Color(0xFF2563EB);
 
   List<dynamic> _workers = [];
+  List<dynamic> _filteredWorkers = [];
   bool _isLoading = true;
+  
+  final TextEditingController _searchController = TextEditingController();
 
+  // Controllers for Add/Edit
   final _codeController = TextEditingController();
   final _nameController = TextEditingController();
   final _phoneController = TextEditingController();
@@ -25,113 +28,218 @@ class _WorkersScreenState extends State<WorkersScreen> {
   void initState() {
     super.initState();
     _fetchWorkers();
+    _searchController.addListener(_filterWorkers);
+  }
+
+  @override
+  void dispose() {
+    _searchController.dispose();
+    _codeController.dispose();
+    _nameController.dispose();
+    _phoneController.dispose();
+    _nationalityController.dispose();
+    _positionController.dispose();
+    _notesController.dispose();
+    super.dispose();
   }
 
   int get _totalWorkers => _workers.length;
   int get _activeWorkers => _workers.where((w) => w['status'] == 'Active').length;
+  int get _inactiveWorkers => _totalWorkers - _activeWorkers;
 
   Future<void> _fetchWorkers() async {
     setState(() => _isLoading = true);
     try {
-      // ✅ استخدام ApiConfig.dio الموحد
       final response = await ApiConfig.dio.get('/workers');
       if (response.statusCode == 200 && response.data['status'] == 'success') {
         setState(() {
           _workers = response.data['data'];
+          _filteredWorkers = _workers;
           _isLoading = false;
         });
       }
     } catch (e) {
       setState(() => _isLoading = false);
-      _showSnackBar('حدث خطأ أثناء جلب العمال', Colors.red);
+      _showSnackBar('Failed to fetch workers data', Colors.red);
     }
   }
 
-  Future<void> _addWorker() async {
+  void _filterWorkers() {
+    final query = _searchController.text.toLowerCase();
+    setState(() {
+      _filteredWorkers = _workers.where((worker) {
+        final name = (worker['full_name'] ?? '').toLowerCase();
+        final code = (worker['worker_unique_id'] ?? '').toLowerCase();
+        final position = (worker['job_position'] ?? '').toLowerCase();
+        return name.contains(query) || code.contains(query) || position.contains(query);
+      }).toList();
+    });
+  }
+
+ Future<void> _saveWorker({String? workerUniqueId}) async {
     final code = _codeController.text.trim();
     final name = _nameController.text.trim();
 
     if (code.isEmpty || name.isEmpty) {
-      _showSnackBar('يرجى ملء الحقول الأساسية', Colors.orange);
+      _showSnackBar('Please fill in the required fields (ID & Name)', Colors.orange);
       return;
     }
 
     try {
-      // ✅ التوكن يرسل تلقائياً بواسطة الـ Interceptor
-      final response = await ApiConfig.dio.post('/workers', data: {
+      final data = {
         'worker_unique_id': code,
         'full_name': name,
         'phone_number': _phoneController.text.trim(),
         'nationality': _nationalityController.text.trim(),
         'job_position': _positionController.text.trim(),
         'notes': _notesController.text.trim(),
-      });
+      };
 
-      if (response.statusCode == 201) {
-        Navigator.pop(context);
-        _clearControllers();
-        _fetchWorkers();
-        _showSnackBar('تم إضافة العامل بنجاح', Colors.green);
+      if (workerUniqueId != null) {
+        // إرسال طلب تعديل PUT مع الـ worker_unique_id القديم أو الحالي
+        final response = await ApiConfig.dio.put('/workers/$workerUniqueId', data: data);
+        if (response.statusCode == 200) {
+          Navigator.pop(context);
+          _clearControllers();
+          _fetchWorkers();
+          _showSnackBar('Worker updated successfully', Colors.green);
+        }
+      } else {
+        // إرسال طلب إضافة POST جديد
+        final response = await ApiConfig.dio.post('/workers', data: data);
+        if (response.statusCode == 201) {
+          Navigator.pop(context);
+          _clearControllers();
+          _fetchWorkers();
+          _showSnackBar('Worker added successfully', Colors.green);
+        }
       }
     } catch (e) {
-      _showSnackBar('فشل الحفظ: تأكد من عدم تكرار كود العامل', Colors.red);
+      _showSnackBar('Operation failed: Check if Worker ID is unique', Colors.red);
     }
   }
- // دالة فتح النافذة
-void _openAddWorkerSheet() {
-  showModalBottomSheet(
-    context: context,
-    isScrollControlled: true,
-    shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
-    builder: (context) => Padding(
-      padding: EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom, top: 20, left: 20, right: 20),
-      child: SingleChildScrollView(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Container(width: 50, height: 5, decoration: BoxDecoration(color: Colors.grey[300], borderRadius: BorderRadius.circular(10))),
-            const SizedBox(height: 15),
-            const Text('إضافة عامل جديد للنظام', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Color(0xff1a2a6c))),
-            const SizedBox(height: 15),
-            TextField(controller: _codeController, decoration: const InputDecoration(labelText: 'كود العامل (ID) *', prefixIcon: Icon(Icons.badge))),
-            TextField(controller: _nameController, decoration: const InputDecoration(labelText: 'الاسم الكامل *', prefixIcon: Icon(Icons.person))),
-            TextField(controller: _phoneController, decoration: const InputDecoration(labelText: 'رقم الهاتف', prefixIcon: Icon(Icons.phone))),
-            TextField(controller: _nationalityController, decoration: const InputDecoration(labelText: 'الجنسية', prefixIcon: Icon(Icons.flag))),
-            TextField(controller: _positionController, decoration: const InputDecoration(labelText: 'المسمى الوظيفي', prefixIcon: Icon(Icons.work))),
-            TextField(controller: _notesController, decoration: const InputDecoration(labelText: 'ملاحظات', prefixIcon: Icon(Icons.note))),
-            const SizedBox(height: 25),
-            ElevatedButton(
-              onPressed: _addWorker,
-              style: ElevatedButton.styleFrom(minimumSize: const Size.fromHeight(50), backgroundColor: const Color(0xff1a2a6c)),
-              child: const Text('حفظ العامل', style: TextStyle(color: Colors.white, fontSize: 16)),
-            ),
-            const SizedBox(height: 20),
-          ],
-        ),
-      ),
-    ),
-  );
-}
 
-// دالة الكارد
-Widget _buildKPICard(String title, String value, Color color) {
-  return Expanded(
-    child: Card(
-      elevation: 2,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-      child: Padding(
-        padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 8),
-        child: Column(
-          children: [
-            Text(title, style: const TextStyle(fontSize: 13, color: Colors.grey, fontWeight: FontWeight.bold)),
-            const SizedBox(height: 5),
-            Text(value, style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: color)),
-          ],
+  Future<void> _toggleWorkerStatus(String workerUniqueId, String currentStatus) async {
+    final newStatus = currentStatus == 'Active' ? 'Inactive' : 'Active';
+    try {
+      final response = await ApiConfig.dio.put('/workers/$workerUniqueId', data: {'status': newStatus});
+      if (response.statusCode == 200) {
+        _fetchWorkers();
+        _showSnackBar('Worker status updated to $newStatus', Colors.blue);
+      }
+    } catch (e) {
+      _showSnackBar('Failed to update status', Colors.red);
+    }
+  }
+
+void _openWorkerSheet({Map<String, dynamic>? worker}) {
+    if (worker != null) {
+      _codeController.text = worker['worker_unique_id']?.toString() ?? '';
+      _nameController.text = worker['full_name']?.toString() ?? '';
+      _phoneController.text = worker['phone_number']?.toString() ?? '';
+      _nationalityController.text = worker['nationality']?.toString() ?? '';
+      _positionController.text = worker['job_position']?.toString() ?? '';
+      _notesController.text = worker['notes']?.toString() ?? '';
+    } else {
+      _clearControllers();
+    }
+
+    final isEditing = worker != null;
+   final String? workerUniqueId= worker?['worker_unique_id']; // التقاط الـ ID الرقمي الصحيح من البيانات القادمة من الباكيند
+
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.white,
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(24))),
+      builder: (context) => Padding(
+        padding: EdgeInsets.only(
+          bottom: MediaQuery.of(context).viewInsets.bottom,
+          top: 24, left: 24, right: 24,
+        ),
+        child: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Center(child: Container(width: 40, height: 4, decoration: BoxDecoration(color: Colors.grey[300], borderRadius: BorderRadius.circular(10)))),
+              const SizedBox(height: 16),
+              Text(
+                isEditing ? 'Edit Worker Details' : 'Add New Worker',
+                style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: primaryColor),
+              ),
+              const SizedBox(height: 20),
+              TextField(
+                controller: _codeController,
+                decoration: InputDecoration(labelText: 'Worker ID *', prefixIcon: Icon(Icons.badge_rounded, color: primaryColor)),
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: _nameController,
+                decoration: InputDecoration(labelText: 'Full Name *', prefixIcon: Icon(Icons.person_rounded, color: primaryColor)),
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: _phoneController,
+                keyboardType: TextInputType.phone,
+                decoration: InputDecoration(labelText: 'Phone Number', prefixIcon: Icon(Icons.phone_rounded, color: primaryColor)),
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: _nationalityController,
+                decoration: InputDecoration(labelText: 'Nationality', prefixIcon: Icon(Icons.flag_rounded, color: primaryColor)),
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: _positionController,
+                decoration: InputDecoration(labelText: 'Job Position', prefixIcon: Icon(Icons.work_rounded, color: primaryColor)),
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: _notesController,
+                maxLines: 2,
+                decoration: InputDecoration(labelText: 'Notes', prefixIcon: Icon(Icons.note_rounded, color: primaryColor)),
+              ),
+              const SizedBox(height: 24),
+              ElevatedButton(
+                onPressed: () => _saveWorker(workerUniqueId: workerUniqueId), // تمرير الـ workerId لـ دالة الحفظ
+                style: ElevatedButton.styleFrom(
+                  minimumSize: const Size.fromHeight(50),
+                  backgroundColor: primaryColor,
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                ),
+                child: Text(isEditing ? 'Save Changes' : 'Add Worker', style: const TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold)),
+              ),
+              const SizedBox(height: 20),
+            ],
+          ),
         ),
       ),
-    ),
-  );
-}
+    );
+  }
+
+  Widget _buildKPICard(String title, String value, Color color, IconData icon) {
+    return Expanded(
+      child: Card(
+        elevation: 1,
+        color: Colors.white,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 12),
+          child: Column(
+            children: [
+              Icon(icon, color: color, size: 24),
+              const SizedBox(height: 8),
+              Text(title, style: TextStyle(fontSize: 12, color: Colors.grey.shade600, fontWeight: FontWeight.w600)),
+              const SizedBox(height: 4),
+              Text(value, style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: color)),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
   void _clearControllers() {
     _codeController.clear();
     _nameController.clear();
@@ -143,61 +251,155 @@ Widget _buildKPICard(String title, String value, Color color) {
 
   void _showSnackBar(String message, Color bgColor) {
     ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(message), backgroundColor: bgColor),
+      SnackBar(content: Text(message), backgroundColor: bgColor, behavior: SnackBarBehavior.floating),
     );
   }
 
-  // ... (باقي كود الـ UI يظل كما هو دون تغيير في المنطق)
-  // [تم الاحتفاظ بنفس بنية الـ UI لضمان استقرار الواجهة]
-  
   @override
   Widget build(BuildContext context) {
-    // الواجهة تظل كما هي، تأكد فقط من استدعاء الدوال المحدثة أعلاه
     return Scaffold(
       backgroundColor: Colors.grey[100],
       appBar: AppBar(
-        title: const Text('إدارة العمال', style: TextStyle(fontWeight: FontWeight.bold, color: Colors.white)),
-        backgroundColor: const Color(0xff1a2a6c),
+        title: Text('Workers Management', style: TextStyle(fontWeight: FontWeight.bold, color: primaryColor)),
+        backgroundColor: Colors.white,
+        elevation: 0,
         centerTitle: true,
+        iconTheme: IconThemeData(color: primaryColor),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.refresh_rounded),
+            tooltip: 'Refresh',
+            onPressed: _fetchWorkers,
+          ),
+        ],
       ),
-      floatingActionButton: FloatingActionButton(
-        onPressed: _openAddWorkerSheet,
-        backgroundColor: const Color(0xfffdbb2d),
-        child: const Icon(Icons.add, color: Colors.black, size: 30),
+      floatingActionButton: FloatingActionButton.extended(
+        onPressed: () => _openWorkerSheet(),
+        backgroundColor: primaryColor,
+        icon: const Icon(Icons.add, color: Colors.white),
+        label: const Text('Add Worker', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
       ),
       body: _isLoading
           ? const Center(child: CircularProgressIndicator())
           : Column(
               children: [
                 Padding(
-                  padding: const EdgeInsets.all(12.0),
+                  padding: const EdgeInsets.all(16.0),
                   child: Row(
                     children: [
-                      _buildKPICard('إجمالي العمال', '$_totalWorkers', const Color(0xff1a2a6c)),
-                      _buildKPICard('النشطين', '$_activeWorkers', Colors.green),
-                      _buildKPICard('المتوقفين', '${_totalWorkers - _activeWorkers}', Colors.red),
+                      _buildKPICard('Total', '$_totalWorkers', primaryColor, Icons.group_rounded),
+                      const SizedBox(width: 8),
+                      _buildKPICard('Active', '$_activeWorkers', Colors.green.shade700, Icons.check_circle_rounded),
+                      const SizedBox(width: 8),
+                      _buildKPICard('Inactive', '$_inactiveWorkers', Colors.red.shade700, Icons.cancel_rounded),
                     ],
                   ),
                 ),
-                // بقية الـ ListView كما كانت تماماً
-                Expanded(child: ListView.builder(
-                    itemCount: _workers.length,
-                    itemBuilder: (context, index) {
-                      final worker = _workers[index];
-                      return Card(
-                          margin: const EdgeInsets.symmetric(horizontal: 15, vertical: 6),
-                          child: ListTile(
-                              title: Text(worker['full_name']),
-                              subtitle: Text(worker['job_position'] ?? ''),
-                              trailing: Text(worker['status'] == 'Active' ? 'نشط' : 'متوقف')
-                          )
-                      );
-                    }
-                )),
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 16.0),
+                  child: TextField(
+                    controller: _searchController,
+                    decoration: InputDecoration(
+                      hintText: 'Search by name, ID or position...',
+                      prefixIcon: Icon(Icons.search_rounded, color: primaryColor),
+                      filled: true,
+                      fillColor: Colors.white,
+                      contentPadding: const EdgeInsets.symmetric(vertical: 0, horizontal: 16),
+                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(14), borderSide: BorderSide.none),
+                      suffixIcon: _searchController.text.isNotEmpty
+                          ? IconButton(
+                              icon: const Icon(Icons.clear),
+                              onPressed: () {
+                                _searchController.clear();
+                                _filterWorkers();
+                              },
+                            )
+                          : null,
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                Expanded(
+                  child: _filteredWorkers.isEmpty
+                      ? Center(
+                          child: Column(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              Icon(Icons.person_off_rounded, size: 64, color: Colors.grey.shade400),
+                              const SizedBox(height: 12),
+                              Text('No workers found', style: TextStyle(fontSize: 16, color: Colors.grey.shade600)),
+                            ],
+                          ),
+                        )
+                      : ListView.builder(
+                          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+                          itemCount: _filteredWorkers.length,
+                          itemBuilder: (context, index) {
+                            final worker = _filteredWorkers[index];
+                            final isActive = worker['status'] == 'Active';
+                            return Card(
+                              elevation: 1,
+                              margin: const EdgeInsets.only(bottom: 10),
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                              child: ListTile(
+                                contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                                leading: CircleAvatar(
+                                  backgroundColor: isActive ? primaryColor.withOpacity(0.1) : Colors.grey.shade200,
+                                  child: Icon(Icons.person, color: isActive ? primaryColor : Colors.grey),
+                                ),
+                                title: Text(
+                                  worker['full_name'] ?? '',
+                                  style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+                                ),
+                                subtitle: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    const SizedBox(height: 4),
+                                    Text('ID: ${worker['worker_unique_id']} | Position: ${worker['job_position'] ?? 'N/A'}',
+                                        style: TextStyle(color: Colors.grey.shade600, fontSize: 13)),
+                                    const SizedBox(height: 4),
+                                    Container(
+                                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                                      decoration: BoxDecoration(
+                                        color: isActive ? Colors.green.shade50 : Colors.red.shade50,
+                                        borderRadius: BorderRadius.circular(6),
+                                      ),
+                                      child: Text(
+                                        isActive ? 'Active' : 'Inactive',
+                                        style: TextStyle(color: isActive ? Colors.green.shade700 : Colors.red.shade700, fontSize: 11, fontWeight: FontWeight.bold),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                                trailing: PopupMenuButton<String>(
+                                  onSelected: (value) {
+                                    if (value == 'edit') {
+                                      _openWorkerSheet(worker: worker);
+                                    } else if (value == 'status') {
+                                      _toggleWorkerStatus(worker['worker_unique_id'], worker['status']);
+                                    }
+                                  },
+                                  itemBuilder: (context) => [
+                                    const PopupMenuItem(value: 'edit', child: Row(children: [Icon(Icons.edit, size: 18), SizedBox(width: 8), Text('Edit')])),
+                                    PopupMenuItem(
+                                      value: 'status',
+                                      child: Row(
+                                        children: [
+                                          Icon(isActive ? Icons.block : Icons.check_circle, size: 18, color: isActive ? Colors.orange : Colors.green),
+                                          const SizedBox(width: 8),
+                                          Text(isActive ? 'Set Inactive' : 'Set Active'),
+                                        ],
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            );
+                          },
+                        ),
+                ),
               ],
             ),
     );
   }
-  
-  // (أضف دالة _openAddWorkerSheet و _buildKPICard من كودك السابق هنا)
 }

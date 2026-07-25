@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
-import 'package:dio/dio.dart';
-import '../services/auth_service.dart'; // تأكد من صحة مسار ملف الخدمة عندك
-import 'admin_dashboard_screen.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+
+import '../services/auth_service.dart'; // Make sure this path matches your project structure
+import 'admin_dashboard_screen.dart';
 import 'supervisor_dashboard.dart';
 
 class LoginScreen extends StatefulWidget {
@@ -12,26 +12,61 @@ class LoginScreen extends StatefulWidget {
   State<LoginScreen> createState() => _LoginScreenState();
 }
 
-class _LoginScreenState extends State<LoginScreen> {
+class _LoginScreenState extends State<LoginScreen>
+    with SingleTickerProviderStateMixin {
+  // ---------------------------------------------------------------------
+  // Kept exactly as in the original file: same controllers, same service,
+  // same state variables, same storage keys and same auth/navigation logic.
+  // Only the UI layer below has been redesigned.
+  // ---------------------------------------------------------------------
   final TextEditingController _emailController = TextEditingController();
   final TextEditingController _passwordController = TextEditingController();
   final AuthService _authService = AuthService();
-  
+
   bool _isLoading = false;
   bool _isPasswordHidden = true;
   final _storage = const FlutterSecureStorage();
 
+  // Simple entrance animation (purely cosmetic, no logic impact)
+  late final AnimationController _animController;
+  late final Animation<double> _fadeAnim;
+  late final Animation<Offset> _slideAnim;
+
+  @override
+  void initState() {
+    super.initState();
+    _animController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 700),
+    )..forward();
+
+    _fadeAnim = CurvedAnimation(parent: _animController, curve: Curves.easeOut);
+    _slideAnim = Tween<Offset>(
+      begin: const Offset(0, 0.08),
+      end: Offset.zero,
+    ).animate(CurvedAnimation(parent: _animController, curve: Curves.easeOutCubic));
+  }
+
+  @override
+  void dispose() {
+    _animController.dispose();
+    _emailController.dispose();
+    _passwordController.dispose();
+    super.dispose();
+  }
+
+  // ---------------------------------------------------------------------
+  // UNCHANGED LOGIC: same endpoint call, same response parsing, same
+  // secure storage keys ('jwt_token', 'user_role', 'user_id', 'user_name'),
+  // same role-based navigation (Admin -> AdminDashboardScreen,
+  // otherwise -> SupervisorDashboard).
+  // ---------------------------------------------------------------------
   void _handleLogin() async {
     final email = _emailController.text.trim();
     final password = _passwordController.text.trim();
 
     if (email.isEmpty || password.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text("الرجاء ملء جميع الحقول"),
-          backgroundColor: Colors.orange,
-        ),
-      );
+      _showSnack("Please fill in all fields", Colors.orange);
       return;
     }
 
@@ -47,210 +82,325 @@ class _LoginScreenState extends State<LoginScreen> {
 
     if (result != null && result['status'] == 'success') {
       String token = result['token'];
-      String role = result['user']['role']; // سحب الـ role (Admin أو Supervisor)
-      String fullName = result['user']['full_name'] ?? 'المستخدم';
+      String role = result['user']['role']; // 'Admin' or 'Supervisor'
+      String fullName = result['user']['full_name'] ?? 'User';
 
-      // 👈 حفظ البيانات في ذاكرة الهاتف المشفرة
-final userIdRaw = result['user']['user_id'] ?? result['user']['id'];
-final int supervisorId = (userIdRaw != null) ? int.parse(userIdRaw.toString()) : 0;
+      final userIdRaw = result['user']['user_id'] ?? result['user']['id'];
+      final int supervisorId =
+          (userIdRaw != null) ? int.parse(userIdRaw.toString()) : 0;
 
-await _storage.write(key: 'jwt_token', value: token);
-await _storage.write(key: 'user_role', value: role);
-await _storage.write(key: 'user_id', value: supervisorId.toString()); // ✅ حفظ الآي دي
-await _storage.write(key: 'user_name', value: fullName); // ✅ حفظ الاسم الكامل
+      await _storage.write(key: 'jwt_token', value: token);
+      await _storage.write(key: 'user_role', value: role);
+      await _storage.write(key: 'user_id', value: supervisorId.toString());
+      await _storage.write(key: 'user_name', value: fullName);
 
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text("أهلاً بك يا $fullName، تم تسجيل الدخول بنجاح!"), backgroundColor: Colors.green),
-      );
+      _showSnack("Welcome, $fullName! Login successful.", Colors.green);
 
-      // التوجيه الذكي بناءً على الـ Role
-      Future.delayed(const Duration(seconds: 1), () {
+      Future.delayed(const Duration(milliseconds: 900), () {
+        if (!mounted) return;
         if (role == 'Admin') {
           Navigator.pushReplacement(
             context,
             MaterialPageRoute(builder: (context) => const AdminDashboardScreen()),
           );
         } else {
-          // جلب الـ ID بأمان مع التحقق من كلا الاسمين (user_id أو id) وتحويله لـ int
           final userIdRaw = result['user']['user_id'] ?? result['user']['id'];
-          final int supervisorId = (userIdRaw != null) ? int.parse(userIdRaw.toString()) : 0; 
+          final int supervisorId =
+              (userIdRaw != null) ? int.parse(userIdRaw.toString()) : 0;
 
           Navigator.pushReplacement(
             context,
             MaterialPageRoute(
               builder: (context) => SupervisorDashboard(
-                supervisorId: supervisorId, // مررنا المتغير الآمن
-                supervisorName: result['user']['full_name'] ?? result['user']['username'] ?? 'مشرف جديد',
+                supervisorId: supervisorId,
+                supervisorName:
+                    result['user']['full_name'] ?? result['user']['username'] ?? 'New Supervisor',
               ),
             ),
           );
         }
       });
     } else {
-      String errorMsg = result?['message'] ?? "فشل الاتصال بالسيرفر";
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(errorMsg),
-          backgroundColor: Colors.red,
-        ),
-      );
+      String errorMsg = result?['message'] ?? "Failed to connect to the server";
+      _showSnack(errorMsg, Colors.red);
     }
   }
 
+  void _showSnack(String message, Color color) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(message),
+        backgroundColor: color,
+        behavior: SnackBarBehavior.floating,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+        margin: const EdgeInsets.all(14),
+      ),
+    );
+  }
+
+  // ---------------------------------------------------------------------
+  // UI ONLY — redesigned below. No changes to state, controllers or logic.
+  // ---------------------------------------------------------------------
+  static const Color _primaryDark = Color(0xff1a2a6c);
+  static const Color _primaryLight = Color(0xff2a4d8f);
+  static const Color _accent = Color(0xfffdbb2d);
+
   @override
   Widget build(BuildContext context) {
+    final size = MediaQuery.of(context).size;
+
     return Scaffold(
-      body: Container(
-        // 1️⃣ تدرج لوني أنيق للخلفية يناسب هويّة التطبيق
-        width: double.infinity,
-        height: double.infinity,
-        decoration: const BoxDecoration(
-          gradient: LinearGradient(
-            colors: [Color(0xff1a2a6c), Color(0xff275d8c)],
-            begin: Alignment.topCenter,
-            end: Alignment.bottomCenter,
-          ),
-        ),
-        child: Center(
-          child: SingleChildScrollView(
-            padding: const EdgeInsets.all(24.0),
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                // 2️⃣ شعار التطبيق أو أيقونة تعبيرية
-                const Icon(
-                  Icons.group_work_rounded,
-                  size: 80,
-                  color: Colors.white,
-                ),
-                const SizedBox(height: 12),
-                const Text(
-                  "TEAM FLOW",
-                  style: TextStyle(
-                    fontSize: 28,
-                    fontWeight: FontWeight.bold,
-                    color: Colors.white,
-                    letterSpacing: 2,
-                  ),
-                ),
-                const SizedBox(height: 8),
-                Text(
-                  "إدارة المهام والعمل الجماعي بكل سلاسة",
-                  style: TextStyle(
-                    fontSize: 14,
-                    color: Colors.white.withOpacity(0.8),
-                  ),
-                ),
-                const SizedBox(height: 40),
-
-                // 3️⃣ كارد أبيض يحتوي على حقول الإدخال
-                Container(
-                  padding: const EdgeInsets.all(24.0),
-                  decoration: BoxDecoration(
-                    color: Colors.white,
-                    borderRadius: BorderRadius.circular(20),
-                    boxShadow: [
-                      BoxShadow(
-                        color: Colors.black.withOpacity(0.2),
-                        blurRadius: 15,
-                        offset: const Offset(0, 8),
-                      )
-                    ],
-                  ),
-                  child: Column(
-                    children: [
-                      const Text(
-                        "تسجيل الدخول",
-                        style: TextStyle(
-                          fontSize: 20,
-                          fontWeight: FontWeight.bold,
-                          color: Color(0xff1a2a6c),
-                        ),
-                      ),
-                      const SizedBox(height: 24),
-
-                      // حقل البريد الإلكتروني
-                      TextField(
-                        controller: _emailController,
-                        keyboardType: TextInputType.emailAddress,
-                        decoration: InputDecoration(
-                          labelText: "البريد الإلكتروني",
-                          prefixIcon: const Icon(Icons.email_outlined, color: Color(0xff275d8c)),
-                          border: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(12),
-                          ),
-                          enabledBorder: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(12),
-                            borderSide: BorderSide(color: Colors.grey.shade300),
-                          ),
-                        ),
-                      ),
-                      const SizedBox(height: 16),
-
-                      // حقل كلمة المرور
-                      TextField(
-                        controller: _passwordController,
-                        obscureText: _isPasswordHidden,
-                        decoration: InputDecoration(
-                          labelText: "كلمة المرور",
-                          prefixIcon: const Icon(Icons.lock_outline_rounded, color: Color(0xff275d8c)),
-                          suffixIcon: IconButton(
-                            icon: Icon(
-                              _isPasswordHidden ? Icons.visibility_off_outlined : Icons.visibility_outlined,
-                              color: Colors.grey,
-                            ),
-                            onPressed: () {
-                              setState(() {
-                                _isPasswordHidden = !_isPasswordHidden;
-                              });
-                            },
-                          ),
-                          border: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(12),
-                          ),
-                          enabledBorder: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(12),
-                            borderSide: BorderSide(color: Colors.grey.shade300),
-                          ),
-                        ),
-                      ),
-                      const SizedBox(height: 24),
-
-                      // 4️⃣ زر تسجيل الدخول التفاعلي مع مؤشر التحميل
-                      SizedBox(
-                        width: double.infinity,
-                        height: 50,
-                        child: ElevatedButton(
-                          onPressed: _isLoading ? null : _handleLogin,
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: const Color(0xff1a2a6c),
-                            foregroundColor: Colors.white,
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(12),
-                            ),
-                            elevation: 2,
-                          ),
-                          child: _isLoading
-                              ? const SizedBox(
-                                  width: 24,
-                                  height: 24,
-                                  child: CircularProgressIndicator(
-                                    color: Colors.white,
-                                    strokeWidth: 2.5,
-                                  ),
-                                )
-                              : const Text(
-                                  "دخول",
-                                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
-                                ),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ],
+      body: Stack(
+        children: [
+          // Background gradient
+          Container(
+            width: double.infinity,
+            height: double.infinity,
+            decoration: const BoxDecoration(
+              gradient: LinearGradient(
+                colors: [_primaryDark, _primaryLight],
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+              ),
             ),
           ),
+
+          // Soft decorative circles
+          Positioned(
+            top: -60,
+            right: -40,
+            child: _decorativeCircle(180, Colors.white.withOpacity(0.06)),
+          ),
+          Positioned(
+            bottom: -80,
+            left: -50,
+            child: _decorativeCircle(220, Colors.white.withOpacity(0.05)),
+          ),
+          Positioned(
+            top: size.height * 0.28,
+            left: -30,
+            child: _decorativeCircle(90, _accent.withOpacity(0.08)),
+          ),
+
+          // Main content
+          SafeArea(
+            child: Center(
+              child: SingleChildScrollView(
+                padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 32),
+                child: FadeTransition(
+                  opacity: _fadeAnim,
+                  child: SlideTransition(
+                    position: _slideAnim,
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        _buildLogo(),
+                        const SizedBox(height: 36),
+                        _buildLoginCard(),
+                        const SizedBox(height: 20),
+                        Text(
+                          'Team Flow © ${DateTime.now().year}',
+                          style: TextStyle(
+                            color: Colors.white.withOpacity(0.55),
+                            fontSize: 12,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _decorativeCircle(double diameter, Color color) {
+    return Container(
+      width: diameter,
+      height: diameter,
+      decoration: BoxDecoration(shape: BoxShape.circle, color: color),
+    );
+  }
+
+  Widget _buildLogo() {
+    return Column(
+      children: [
+        Container(
+          padding: const EdgeInsets.all(18),
+          decoration: BoxDecoration(
+            shape: BoxShape.circle,
+            color: Colors.white.withOpacity(0.12),
+            border: Border.all(color: Colors.white.withOpacity(0.25), width: 1.4),
+          ),
+          child: const Icon(
+            Icons.group_work_rounded,
+            size: 56,
+            color: Colors.white,
+          ),
+        ),
+        const SizedBox(height: 16),
+        const Text(
+          "TEAM FLOW",
+          style: TextStyle(
+            fontSize: 30,
+            fontWeight: FontWeight.w800,
+            color: Colors.white,
+            letterSpacing: 3,
+          ),
+        ),
+        const SizedBox(height: 6),
+        Text(
+          "Manage your team and workflow with ease",
+          style: TextStyle(
+            fontSize: 14,
+            color: Colors.white.withOpacity(0.8),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildLoginCard() {
+    return Container(
+      width: double.infinity,
+      constraints: const BoxConstraints(maxWidth: 420),
+      padding: const EdgeInsets.symmetric(horizontal: 26, vertical: 32),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(24),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.25),
+            blurRadius: 24,
+            offset: const Offset(0, 12),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          const Text(
+            "Sign In",
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              fontSize: 22,
+              fontWeight: FontWeight.bold,
+              color: _primaryDark,
+            ),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            "Enter your credentials to continue",
+            textAlign: TextAlign.center,
+            style: TextStyle(fontSize: 13, color: Colors.grey.shade600),
+          ),
+          const SizedBox(height: 28),
+
+          // Email field
+          _buildTextField(
+            controller: _emailController,
+            label: "Email",
+            icon: Icons.email_outlined,
+            keyboardType: TextInputType.emailAddress,
+          ),
+          const SizedBox(height: 18),
+
+          // Password field
+          _buildTextField(
+            controller: _passwordController,
+            label: "Password",
+            icon: Icons.lock_outline_rounded,
+            obscureText: _isPasswordHidden,
+            suffixIcon: IconButton(
+              icon: Icon(
+                _isPasswordHidden
+                    ? Icons.visibility_off_outlined
+                    : Icons.visibility_outlined,
+                color: Colors.grey,
+              ),
+              onPressed: () {
+                setState(() {
+                  _isPasswordHidden = !_isPasswordHidden;
+                });
+              },
+            ),
+          ),
+
+          const SizedBox(height: 30),
+
+          // Login button
+          SizedBox(
+            height: 52,
+            child: ElevatedButton(
+              onPressed: _isLoading ? null : _handleLogin,
+              style: ElevatedButton.styleFrom(
+                backgroundColor: _primaryDark,
+                foregroundColor: Colors.white,
+                elevation: 3,
+                shadowColor: _primaryDark.withOpacity(0.4),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(14),
+                ),
+              ),
+              child: _isLoading
+                  ? const SizedBox(
+                      width: 24,
+                      height: 24,
+                      child: CircularProgressIndicator(
+                        color: Colors.white,
+                        strokeWidth: 2.6,
+                      ),
+                    )
+                  : const Text(
+                      "Sign In",
+                      style: TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.bold,
+                        letterSpacing: 0.5,
+                      ),
+                    ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildTextField({
+    required TextEditingController controller,
+    required String label,
+    required IconData icon,
+    bool obscureText = false,
+    TextInputType? keyboardType,
+    Widget? suffixIcon,
+  }) {
+    return TextField(
+      controller: controller,
+      obscureText: obscureText,
+      keyboardType: keyboardType,
+      style: const TextStyle(fontSize: 15),
+      decoration: InputDecoration(
+        labelText: label,
+        labelStyle: TextStyle(color: Colors.grey.shade600),
+        prefixIcon: Icon(icon, color: _primaryLight),
+        suffixIcon: suffixIcon,
+        filled: true,
+        fillColor: Colors.grey.shade50,
+        contentPadding: const EdgeInsets.symmetric(vertical: 16, horizontal: 16),
+        border: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(14),
+          borderSide: BorderSide(color: Colors.grey.shade300),
+        ),
+        enabledBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(14),
+          borderSide: BorderSide(color: Colors.grey.shade300),
+        ),
+        focusedBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(14),
+          borderSide: const BorderSide(color: _primaryDark, width: 1.6),
         ),
       ),
     );

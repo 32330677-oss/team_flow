@@ -11,7 +11,7 @@ class HRManagementScreen extends StatelessWidget {
       backgroundColor: Colors.grey[100],
       appBar: AppBar(
         title: const Text(
-          'إدارة الموارد البشرية',
+          'HR Management',
           style: TextStyle(fontWeight: FontWeight.bold, color: Colors.white),
         ),
         backgroundColor: const Color(0xff1a2a6c),
@@ -24,11 +24,11 @@ class HRManagementScreen extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.stretch,
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            // 1. بطاقة إدارة العمال
+            // 1. Workers Management Card
             _buildCategoryCard(
               context,
-              title: 'إدارة العمال',
-              subtitle: 'عرض العمال، إضافة عامل جديد، وتعديل بياناتهم',
+              title: 'Workers Management',
+              subtitle: 'View workers, add new workers, and edit their details',
               icon: Icons.engineering_outlined,
               gradientColors: [const Color(0xff1a2a6c), const Color(0xff2753a7)],
               onTap: () {
@@ -40,11 +40,11 @@ class HRManagementScreen extends StatelessWidget {
             ),
             const SizedBox(height: 20),
 
-            // 2. بطاقة إدارة المشرفين
+            // 2. Supervisors Management Card
             _buildCategoryCard(
               context,
-              title: 'إدارة المشرفين (Supervisors)',
-              subtitle: 'إنشاء حسابات المشرفين، تفعيل/تعطيل، وإعادة تعيين كلمات المرور',
+              title: 'Supervisors Management',
+              subtitle: 'Create supervisor accounts, activate/deactivate, and manage access',
               icon: Icons.manage_accounts_outlined,
               gradientColors: [const Color(0xffb21f1f), const Color(0xfff12711)],
               onTap: () {

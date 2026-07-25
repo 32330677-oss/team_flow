@@ -2,8 +2,7 @@ import 'package:dio/dio.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 
 class ApiConfig {
-  static const String baseUrl = 'http://192.168.1.3:5000/api'; 
-
+static const String baseUrl = 'http://localhost:5000/api';
   // 1. هنا عرفنا المتغير باسم 'storage' (بدون _)
   static const FlutterSecureStorage storage = FlutterSecureStorage();
 

@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:team_flow/constants.dart'; // ✅ استيراد ملف الإعدادات الموحد
+import 'package:team_flow/constants.dart';
 
 class ContractSitesScreen extends StatefulWidget {
   final int contractId;
@@ -16,13 +16,11 @@ class ContractSitesScreen extends StatefulWidget {
 }
 
 class _ContractSitesScreenState extends State<ContractSitesScreen> {
-  // ✅ استخدام الروابط الفرعية فقط لأن الرابط الأساسي معرّف داخل الـ ApiConfig
   late final String _apiUrl;
   late final String _supervisorsUrl; 
   
   List _sites = [];
   List _supervisors = []; 
-  int? _selectedSupervisorId; 
   
   bool _isLoading = true;
   bool _isLoadingSupervisors = false; 
@@ -34,16 +32,21 @@ class _ContractSitesScreenState extends State<ContractSitesScreen> {
   @override
   void initState() {
     super.initState();
-    _apiUrl = '/sites'; // ✅ مسار فرعي مبسط
-    _supervisorsUrl = '/users/supervisors'; // ✅ مسار فرعي مبسط
+    _apiUrl = '/sites'; 
+    _supervisorsUrl = '/users/supervisors'; 
     _fetchSites();
   }
 
-  // 1. جلب المواقع التابعة للعقد الحالي
+  @override
+  void dispose() {
+    _nameController.dispose();
+    _detailsController.dispose();
+    super.dispose();
+  }
+
   Future<void> _fetchSites() async {
     setState(() => _isLoading = true);
     try {
-      // ✅ استخدام ApiConfig.dio للطلب تلقائياً مع التوكن
       final response = await ApiConfig.dio.get('$_apiUrl/contract/${widget.contractId}');
       if (response.data['status'] == 'success') {
         setState(() {
@@ -54,16 +57,14 @@ class _ContractSitesScreenState extends State<ContractSitesScreen> {
     } catch (e) {
       setState(() => _isLoading = false);
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('فشل جلب مواقع العقد'), backgroundColor: Colors.red),
+        const SnackBar(content: Text('Failed to load contract sites'), backgroundColor: Colors.red),
       );
     }
   }
 
-  // ⚡ جلب قائمة المشرفين النشطين فقط لعرضهم في الـ Dropdown
   Future<void> _fetchActiveSupervisors() async {
     setState(() => _isLoadingSupervisors = true);
     try {
-      // ✅ استخدام ApiConfig.dio للطلب تلقائياً مع التوكن
       final response = await ApiConfig.dio.get(_supervisorsUrl);
       if (response.data['status'] == 'success') {
         setState(() {
@@ -79,43 +80,64 @@ class _ContractSitesScreenState extends State<ContractSitesScreen> {
     }
   }
 
-  // 2. إضافة موقع جديد مربوط بالعقد الحالي وبالمشرف المختار
-  Future<void> _addSite() async {
+  Future<void> _saveSite({int? siteId, int? existingSupervisorId}) async {
     if (!_formKey.currentState!.validate()) return;
 
     try {
-      // ✅ استخدام ApiConfig.dio لإرسال طلب الـ POST والتوكن يضاف تلقائياً بالخلفية
-      final response = await ApiConfig.dio.post(_apiUrl, data: {
+      final data = {
         'site_name': _nameController.text.trim(),
         'location': _detailsController.text.trim(),
-        'contract_id': widget.contractId, 
-        'supervisor_id': _selectedSupervisorId 
-      });
+        'contract_id': widget.contractId,
+        'supervisor_id': existingSupervisorId,
+      };
 
-      if (response.data['status'] == 'success') {
-        Navigator.pop(context);
-        _nameController.clear();
-        _detailsController.clear();
-        setState(() => _selectedSupervisorId = null); 
-        _fetchSites(); 
-        
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('تم إنشاء الموقع بنجاح!'), backgroundColor: Colors.green),
-        );
+      if (siteId == null) {
+        await ApiConfig.dio.post(_apiUrl, data: data);
+      } else {
+        await ApiConfig.dio.put('$_apiUrl/$siteId', data: data);
       }
-    } catch (e) {
-      print("🚨 DIO ERROR DETAILS: $e");
+
+      Navigator.pop(context);
+      _nameController.clear();
+      _detailsController.clear();
+      _fetchSites();
+      
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('فشل إنشاء الموقع الجديد'), backgroundColor: Colors.red),
+        SnackBar(
+          content: Text(siteId == null ? 'Site created successfully!' : 'Site updated successfully!'), 
+          backgroundColor: Colors.green,
+        ),
+      );
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Operation failed'), backgroundColor: Colors.red),
       );
     }
   }
 
-  // 3. نافذة إضافة موقع جديد (Dialog)
-  void _showAddSiteDialog() async {
-    await _fetchActiveSupervisors();
+  Future<void> _updateSiteStatus(int siteId, String newStatus) async {
+    try {
+      final response = await ApiConfig.dio.patch('$_apiUrl/$siteId/status', data: {'status': newStatus});
+      if (response.data['status'] == 'success') {
+        _fetchSites();
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Site status updated to $newStatus'), backgroundColor: Colors.green),
+        );
+      }
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Failed to update site status'), backgroundColor: Colors.red),
+      );
+    }
+  }
 
+  void _showSiteDialog({Map? site}) async {
+    await _fetchActiveSupervisors();
     if (!mounted) return;
+
+    _nameController.text = site != null ? site['site_name'] ?? '' : '';
+    _detailsController.text = site != null ? site['location'] ?? '' : '';
+    int? selectedSupervisorId = site != null ? site['supervisor_id'] : null;
 
     showModalBottomSheet(
       context: context,
@@ -134,34 +156,35 @@ class _ContractSitesScreenState extends State<ContractSitesScreen> {
                 mainAxisSize: MainAxisSize.min,
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  Text('إضافة موقع لـ ${widget.contractName}', style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold), textAlign: TextAlign.center),
+                  Text(
+                    site == null ? 'Add Site to ${widget.contractName}' : 'Edit Site', 
+                    style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold), 
+                    textAlign: TextAlign.center,
+                  ),
                   const SizedBox(height: 15),
                   TextFormField(
                     controller: _nameController,
-                    decoration: const InputDecoration(labelText: 'اسم الموقع / القطاع *', border: OutlineInputBorder()),
-                    validator: (value) => value == null || value.isEmpty ? 'الرجاء إدخال اسم الموقع' : null,
+                    decoration: const InputDecoration(labelText: 'Site Name / Sector *', border: OutlineInputBorder()),
+                    validator: (value) => value == null || value.isEmpty ? 'Please enter site name' : null,
                   ),
                   const SizedBox(height: 12),
                   TextFormField(
                     controller: _detailsController,
-                    decoration: const InputDecoration(labelText: 'تفاصيل الموقع الجغرافي أو العنوان', border: OutlineInputBorder()),
+                    decoration: const InputDecoration(labelText: 'Location Address or Details', border: OutlineInputBorder()),
                     maxLines: 2,
                   ),
                   const SizedBox(height: 12),
                   
                   _isLoadingSupervisors
-                      ? const Center(child: Padding(
-                          padding: EdgeInsets.all(8.0),
-                          child: CircularProgressIndicator(),
-                        ))
+                      ? const Center(child: Padding(padding: EdgeInsets.all(8.0), child: CircularProgressIndicator()))
                       : DropdownButtonFormField<int>(
                           decoration: const InputDecoration(
-                            labelText: 'تعيين مشرف للموقع',
+                            labelText: 'Assign Supervisor',
                             border: OutlineInputBorder(),
                             prefixIcon: Icon(Icons.person, color: Colors.orange),
                           ),
-                          value: _selectedSupervisorId,
-                          hint: const Text('اختر مشرفاً لهذا الموقع (اختياري)'),
+                          value: selectedSupervisorId,
+                          hint: const Text('Select a supervisor (Optional)'),
                           items: _supervisors.map((supervisor) {
                             return DropdownMenuItem<int>(
                               value: supervisor['user_id'], 
@@ -170,19 +193,19 @@ class _ContractSitesScreenState extends State<ContractSitesScreen> {
                           }).toList(),
                           onChanged: (value) {
                             setModalState(() { 
-                              _selectedSupervisorId = value;
+                              selectedSupervisorId = value;
                             });
                           },
                         ),
                   
                   const SizedBox(height: 20),
                   ElevatedButton(
-                    onPressed: () => _addSite(), 
+                    onPressed: () => _saveSite(siteId: site?['site_id'], existingSupervisorId: selectedSupervisorId), 
                     style: ElevatedButton.styleFrom(
                       backgroundColor: const Color(0xffb21f1f), 
-                      padding: const EdgeInsets.symmetric(vertical: 12)
+                      padding: const EdgeInsets.symmetric(vertical: 12),
                     ),
-                    child: const Text('حفظ الموقع', style: TextStyle(color: Colors.white, fontSize: 16)),
+                    child: Text(site == null ? 'Save Site' : 'Update Site', style: const TextStyle(color: Colors.white, fontSize: 16)),
                   ),
                   const SizedBox(height: 20),
                 ],
@@ -194,50 +217,108 @@ class _ContractSitesScreenState extends State<ContractSitesScreen> {
     );
   }
 
+  Color _getStatusColor(String? status) {
+    switch (status) {
+      case 'Active': return Colors.green.shade800;
+      case 'Suspended': return Colors.orange.shade800;
+      case 'Completed': return Colors.grey.shade700;
+      default: return Colors.black87;
+    }
+  }
+
+  Color _getStatusBgColor(String? status) {
+    switch (status) {
+      case 'Active': return Colors.green.shade100;
+      case 'Suspended': return Colors.orange.shade100;
+      case 'Completed': return Colors.grey.shade300;
+      default: return Colors.grey.shade200;
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: Text('مواقع: ${widget.contractName}'),
+        title: Text('Sites: ${widget.contractName}'),
         backgroundColor: const Color(0xffb21f1f), 
       ),
       floatingActionButton: FloatingActionButton(
-        onPressed: _showAddSiteDialog,
+        onPressed: () => _showSiteDialog(),
         backgroundColor: const Color(0xffb21f1f),
         child: const Icon(Icons.add, color: Colors.white),
       ),
       body: _isLoading
           ? const Center(child: CircularProgressIndicator())
           : _sites.isEmpty
-              ? const Center(child: Text('لا يوجد مواقع مسجلة لهذا العقد حالياً', style: TextStyle(fontSize: 15)))
+              ? const Center(child: Text('No sites registered for this contract yet', style: TextStyle(fontSize: 15)))
               : ListView.builder(
                   padding: const EdgeInsets.all(10),
                   itemCount: _sites.length,
                   itemBuilder: (context, index) {
                     final site = _sites[index];
+                    final currentStatus = site['site_status'] ?? 'Active';
                     return Card(
                       elevation: 2,
                       margin: const EdgeInsets.symmetric(vertical: 6),
                       child: ListTile(
+                        contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
                         leading: const CircleAvatar(
                           backgroundColor: Colors.orange,
                           child: Icon(Icons.location_on, color: Colors.white, size: 20),
                         ),
                         title: Text(site['site_name'], style: const TextStyle(fontWeight: FontWeight.bold)),
-                        subtitle: Text('العنوان: ${site['location_details'] ?? 'غير محدد'}\nالمشرف: ${site['supervisor_name'] ?? 'لم يتم تعيين مشرف بعد'}'),
-                        trailing: Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                          decoration: BoxDecoration(
-                            color: site['site_status'] == 'Active' ? Colors.green.shade100 : Colors.grey.shade300,
-                            borderRadius: BorderRadius.circular(5),
-                          ),
-                          child: Text(
-                            site['site_status'] == 'Active' ? 'نشط' : 'متوقف', 
-                            style: TextStyle(
-                              color: site['site_status'] == 'Active' ? Colors.green.shade900 : Colors.grey.shade700, 
-                              fontWeight: FontWeight.bold,
+                        subtitle: Padding(
+                          padding: const EdgeInsets.only(top: 4.0),
+                          child: Text('Location: ${site['location'] ?? 'N/A'}\nSupervisor: ${site['supervisor_name'] ?? 'Not assigned'}'),
+                        ),
+                        trailing: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                              decoration: BoxDecoration(
+                                color: _getStatusBgColor(currentStatus),
+                                borderRadius: BorderRadius.circular(6),
+                              ),
+                              child: Text(
+                                currentStatus,
+                                style: TextStyle(
+                                  color: _getStatusColor(currentStatus), 
+                                  fontWeight: FontWeight.bold,
+                                  fontSize: 12,
+                                ),
+                              ),
                             ),
-                          ),
+                            const SizedBox(width: 4),
+                            PopupMenuButton<String>(
+                              onSelected: (value) {
+                                if (value == 'edit') {
+                                  _showSiteDialog(site: site);
+                                } else if (value == 'Active' || value == 'Suspended' || value == 'Completed') {
+                                  _updateSiteStatus(site['site_id'], value);
+                                }
+                              },
+                              itemBuilder: (context) => [
+                                const PopupMenuItem(
+                                  value: 'edit',
+                                  child: Row(children: [Icon(Icons.edit, size: 18), SizedBox(width: 8), Text('Edit Site')]),
+                                ),
+                                const PopupMenuDivider(),
+                                const PopupMenuItem(
+                                  value: 'Active',
+                                  child: Row(children: [Icon(Icons.check_circle, color: Colors.green, size: 18), SizedBox(width: 8), Text('Set Active')]),
+                                ),
+                                const PopupMenuItem(
+                                  value: 'Suspended',
+                                  child: Row(children: [Icon(Icons.pause_circle, color: Colors.orange, size: 18), SizedBox(width: 8), Text('Set Suspended')]),
+                                ),
+                                const PopupMenuItem(
+                                  value: 'Completed',
+                                  child: Row(children: [Icon(Icons.done_all, color: Colors.grey, size: 18), SizedBox(width: 8), Text('Set Completed')]),
+                                ),
+                              ],
+                            ),
+                          ],
                         ),
                         isThreeLine: true,
                       ),
