@@ -1,0 +1,40 @@
+﻿import 'package:dio/dio.dart';
+import 'package:shared_preferences/shared_preferences.dart'; // âœ… Ø§Ø³ØªÙŠØ±Ø§Ø¯ Ø§Ù„Ø­Ø²Ù…Ø© Ù„Ø­ÙØ¸ Ø§Ù„ØªÙˆÙƒÙ†
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+class AuthService {
+final String baseUrl = "http://localhost:5000/api/auth";  final Dio dio = Dio(BaseOptions(
+    connectTimeout: const Duration(milliseconds: 10000), 
+    receiveTimeout: const Duration(milliseconds: 10000), 
+  ));
+
+  // Ø¯Ø§Ù„Ø© Ø¥Ø±Ø³Ø§Ù„ Ø·Ù„Ø¨ ØªØ³Ø¬ÙŠÙ„ Ø§Ù„Ø¯Ø®ÙˆÙ„ Ù„Ù„Ø¨Ø§ÙƒÙŠÙ†Ø¯
+Future<Map<String, dynamic>?> login(String email, String password) async {
+  try {
+    final response = await dio.post('$baseUrl/login', data: {
+      'email': email,
+      'password': password,
+    });
+
+    if (response.statusCode == 200) {
+      final responseData = response.data;
+
+      // 1. ØªÙ†Ø¸ÙŠÙ Ø£ÙŠ ØªÙˆÙƒÙ† Ù‚Ø¯ÙŠÙ… ÙÙŠ SharedPreferences Ù„Ø¶Ù…Ø§Ù† Ø¹Ø¯Ù… ÙˆØ¬ÙˆØ¯ ØªØ¶Ø§Ø±Ø¨
+      SharedPreferences prefs = await SharedPreferences.getInstance();
+      await prefs.remove('token'); 
+
+      // 2. Ø§Ù„ØªÙˆØ­ÙŠØ¯: Ø§Ù„Ø­ÙØ¸ ÙÙŠ FlutterSecureStorage ÙˆØ¨Ø§Ø³Ù… 'jwt_token'
+      if (responseData != null && responseData['token'] != null) {
+        const storage = FlutterSecureStorage();
+        await storage.write(key: 'jwt_token', value: responseData['token']);
+        print("ðŸ”‘ Token saved securely to jwt_token and old token cleared.");
+      }
+
+      return responseData;
+    }
+  } catch (e) {
+    print("âŒ Login Error: $e");
+    return null;
+  }
+  return null;
+}
+}

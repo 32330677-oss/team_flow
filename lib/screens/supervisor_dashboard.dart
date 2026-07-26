@@ -1,7 +1,12 @@
 import 'package:flutter/material.dart';
-import 'package:dio/dio.dart';
-import 'package:team_flow/screens/site_attendance_screen.dart';
 import 'package:team_flow/constants.dart';
+import 'rejected_records_screen.dart';
+import 'transfer_request_screen.dart';
+import 'login_screen.dart';
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+import 'package:intl/intl.dart';
+import 'site_attendance_screen.dart';
+
 class SupervisorDashboard extends StatefulWidget {
   final int supervisorId;
   final String supervisorName;
@@ -13,157 +18,224 @@ class SupervisorDashboard extends StatefulWidget {
   });
 
   @override
-  State<SupervisorDashboard> createState() => _SupervisorDashboardState();
+  _SupervisorDashboardState createState() => _SupervisorDashboardState();
 }
 
 class _SupervisorDashboardState extends State<SupervisorDashboard> {
-  final Dio _dio = ApiConfig.dio;
-  final String _apiUrl = 'http://192.168.1.3:5000/api/sites/supervisor';
-  
-  List _mySites = [];
   bool _isLoading = true;
+  List<dynamic> _sites = [];
 
   @override
   void initState() {
     super.initState();
-    _fetchMySites();
+    _fetchSupervisorSites();
   }
 
-  // جلب المواقع المسؤولة عنها هذا المشرف تلقائياً
-  Future<void> _fetchMySites() async {
-  setState(() => _isLoading = true);
-  try {
-    // نطلب المسار بدون الـ ID (السيرفر سيقرأ الـ ID من التوكن)
-    final response = await _dio.get('/sites/my-sites'); 
-    if (response.data['status'] == 'success') {
+  Future<void> _fetchSupervisorSites() async {
+    setState(() => _isLoading = true);
+    try {
+      final response = await ApiConfig.dio.get('/sites/my-sites');
+      List sitesList = [];
+      if (response.data is List) {
+        sitesList = response.data;
+      } else if (response.data is Map && response.data['data'] != null) {
+        sitesList = response.data['data'];
+      }
+      
       setState(() {
-        _mySites = response.data['data'];
+        _sites = sitesList;
         _isLoading = false;
       });
-    }
-  } catch (e) {
+    } catch (e) {
       setState(() => _isLoading = false);
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('فشل جلب المواقع المسؤولة عنها'), backgroundColor: Colors.red),
+        SnackBar(content: Text('Failed to load sites: ${e.toString()}'), backgroundColor: Colors.red),
       );
     }
   }
 
   @override
   Widget build(BuildContext context) {
+    String formattedDate = DateFormat('yyyy/MM/dd').format(DateTime.now());
+
     return Scaffold(
+      backgroundColor: const Color(0xfff8f9fa),
       appBar: AppBar(
-        title: const Text('لوحة تحكم المشرف'),
-        backgroundColor: const Color(0xffb21f1f),
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.logout),
-            onPressed: () {
-              // هنا تضع منطق تسجيل الخروج والعودة لشاشة الـ Login
-              Navigator.pushReplacementNamed(context, '/login'); 
-            },
-          )
-        ],
-      ),
-      body: Padding(
-        padding: const EdgeInsets.all(16.0),
-        child: Column(
+        backgroundColor: const Color(0xff1a2a6c),
+        elevation: 0,
+        title: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // ترحيب بالمشرف
-            Text(
-              'مرحباً بك، ${widget.supervisorName} 👋',
-              style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: Colors.black87),
-            ),
-            const SizedBox(height: 5),
-            const Text(
-              'المواقع الجغرافية المسؤولة عن متابعتها وتثبيت عمالها اليوم:',
-              style: TextStyle(fontSize: 14, color: Colors.grey),
-            ),
-            const SizedBox(height: 20),
-
-            // قائمة المواقع المربوطة بالمشرف
-            Expanded(
-              child: _isLoading
-                  ? const Center(child: CircularProgressIndicator())
-                  : _mySites.isEmpty
-                      ? const Center(
-                          child: Text(
-                            'لم يتم تعيين أي مواقع لك بعد.\nيرجى مراجعة الإدارة.',
-                            textAlign: TextAlign.center,
-                            style: TextStyle(fontSize: 16, color: Colors.grey),
-                          ),
-                        )
-                      : ListView.builder(
-                          itemCount: _mySites.length,
-                          itemBuilder: (context, index) {
-                            final site = _mySites[index];
-                            return Card(
-                              elevation: 3,
-                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                              margin: const EdgeInsets.symmetric(vertical: 8),
-                              child: InkWell(
-                                borderRadius: BorderRadius.circular(12),
-                                onTap: () {
-  Navigator.push(
-    context,
-    MaterialPageRoute(
-      builder: (context) => SiteAttendanceScreen(
-        siteId: site['site_id'],   // مرر الـ site_id الديناميكي من الكرت
-        siteName: site['site_name'], // مرر اسم الموقع لعرضه بالـ AppBar
+            Text('Welcome, ${widget.supervisorName}', style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.white)),
+            Text(formattedDate, style: const TextStyle(fontSize: 11, color: Colors.white70, fontWeight: FontWeight.normal)),
+          ],
+        ),
+        iconTheme: const IconThemeData(color: Colors.white),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.warning_amber_rounded, color: Colors.amberAccent),
+            tooltip: 'Rejected Records',
+            onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const RejectedRecordsScreen())),
+          ),
+        ],
       ),
-    ),
-  ); // <--- تأكد من وجود الفاصلة المنقوطة هنا لقفل الـ push
-},
-                                child: Padding(
-                                  padding: const EdgeInsets.all(16.0),
-                                  child: Row(
-                                    children: [
-                                      const CircleAvatar(
-                                        radius: 25,
-                                        backgroundColor: Colors.orange,
-                                        child: Icon(Icons.location_on, color: Colors.white, size: 28),
-                                      ),
-                                      const SizedBox(width: 15),
-                                      Expanded(
-                                        child: Column(
-                                          crossAxisAlignment: CrossAxisAlignment.start,
-                                          children: [
-                                            Text(
-                                              site['site_name'],
-                                              style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
-                                            ),
-                                            const SizedBox(height: 4),
-                                            Text(
-                                              'العقد: ${site['contract_name'] ?? 'غير محدد'} (${site['project_name'] ?? ''})',
-                                              style: const TextStyle(fontSize: 12, color: Colors.grey),
-                                            ),
-                                            const SizedBox(height: 4),
-                                            Row(
-                                              children: [
-                                                const Icon(Icons.map, size: 14, color: Colors.grey),
-                                                const SizedBox(width: 4),
-                                                Text(
-                                                  site['location'] ?? 'موقع غير محدد جغرافياً',
-                                                  style: const TextStyle(fontSize: 12, color: Colors.blueGrey),
-                                                ),
-                                              ],
-                                            ),
-                                          ],
+
+      // Sidebar / Drawer Navigation
+      drawer: Drawer(
+        child: ListView(
+          padding: EdgeInsets.zero,
+          children: [
+            UserAccountsDrawerHeader(
+              accountName: Text(widget.supervisorName, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+              accountEmail: Text('Supervisor ID: ${widget.supervisorId}', style: const TextStyle(color: Colors.white70)),
+              currentAccountPicture: const CircleAvatar(
+                backgroundColor: Colors.white,
+                child: Icon(Icons.person, size: 36, color: Color(0xff1a2a6c)),
+              ),
+              decoration: const BoxDecoration(color: Color(0xff1a2a6c)),
+            ),
+            ListTile(
+              leading: const Icon(Icons.dashboard_rounded, color: Color(0xff1a2a6c)),
+              title: const Text('My Sites Dashboard', style: TextStyle(fontWeight: FontWeight.w600)),
+              onTap: () => Navigator.pop(context),
+            ),
+            ListTile(
+              leading: const Icon(Icons.warning_amber_rounded, color: Colors.orange),
+              title: const Text('Rejected Records', style: TextStyle(fontWeight: FontWeight.w600)),
+              onTap: () {
+                Navigator.pop(context);
+                Navigator.push(context, MaterialPageRoute(builder: (_) => const RejectedRecordsScreen()));
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.swap_horiz_rounded, color: Color(0xff1a2a6c)),
+              title: const Text('Worker Transfer Request', style: TextStyle(fontWeight: FontWeight.w600)),
+              onTap: () {
+                Navigator.pop(context);
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (_) => const TransferRequestScreen()),
+                );
+              },
+            ),
+            const Divider(),
+            ListTile(
+              leading: const Icon(Icons.logout_rounded, color: Colors.red),
+              title: const Text('Logout', style: TextStyle(color: Colors.red, fontWeight: FontWeight.w600)),
+              onTap: () async {
+                const storage = FlutterSecureStorage();
+                await storage.deleteAll();
+                if (!mounted) return;
+                Navigator.pushAndRemoveUntil(
+                  context,
+                  MaterialPageRoute(builder: (_) => const LoginScreen()),
+                  (route) => false,
+                );
+              },
+            ),
+          ],
+        ),
+      ),
+
+      body: _isLoading 
+          ? const Center(child: CircularProgressIndicator(color: Color(0xff1a2a6c)))
+          : _sites.isEmpty
+              ? Center(
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Icon(Icons.location_off_rounded, size: 64, color: Colors.grey.shade400),
+                      const SizedBox(height: 12),
+                      const Text('No sites assigned to you currently', style: TextStyle(fontSize: 15, color: Colors.grey, fontWeight: FontWeight.w500)),
+                    ],
+                  ),
+                )
+              : Padding(
+                  padding: const EdgeInsets.all(16.0),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text(
+                        'Select a site to manage attendance:',
+                        style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Color(0xff1a2a6c)),
+                      ),
+                      const SizedBox(height: 16),
+                      Expanded(
+                        child: ListView.builder(
+                          itemCount: _sites.length,
+                          itemBuilder: (context, index) {
+                            final site = _sites[index];
+                            return Container(
+                              margin: const EdgeInsets.only(bottom: 14),
+                              decoration: BoxDecoration(
+                                color: Colors.white,
+                                borderRadius: BorderRadius.circular(16),
+                                boxShadow: [
+                                  BoxShadow(
+                                    color: Colors.black.withOpacity(0.04),
+                                    blurRadius: 10,
+                                    offset: const Offset(0, 4),
+                                  ),
+                                ],
+                              ),
+                              child: Material(
+                                color: Colors.transparent,
+                                borderRadius: BorderRadius.circular(16),
+                                child: InkWell(
+                                  borderRadius: BorderRadius.circular(16),
+                                  onTap: () {
+                                    Navigator.push(
+                                      context,
+                                      MaterialPageRoute(
+                                        builder: (_) => SiteAttendanceScreen(
+                                          siteId: site['site_id'],
+                                          siteName: site['site_name'] ?? 'Site',
                                         ),
                                       ),
-                                      const Icon(Icons.arrow_forward_ios, size: 16, color: Colors.grey),
-                                    ],
+                                    );
+                                  },
+                                  child: Padding(
+                                    padding: const EdgeInsets.all(18.0),
+                                    child: Row(
+                                      children: [
+                                        Container(
+                                          padding: const EdgeInsets.all(14),
+                                          decoration: BoxDecoration(
+                                            color: const Color(0xff1a2a6c).withOpacity(0.1),
+                                            borderRadius: BorderRadius.circular(14),
+                                          ),
+                                          child: const Icon(Icons.location_on_rounded, color: Color(0xff1a2a6c), size: 28),
+                                        ),
+                                        const SizedBox(width: 16),
+                                        Expanded(
+                                          child: Column(
+                                            crossAxisAlignment: CrossAxisAlignment.start,
+                                            children: [
+                                              Text(
+                                                site['site_name'] ?? 'Site',
+                                                style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: Color(0xff1a2a6c)),
+                                              ),
+                                              const SizedBox(height: 4),
+                                              Text(
+                                                site['location_description'] ?? 'Tap to manage workers and attendance',
+                                                style: TextStyle(color: Colors.grey.shade600, fontSize: 13, fontWeight: FontWeight.w500),
+                                              ),
+                                            ],
+                                          ),
+                                        ),
+                                        const Icon(Icons.arrow_forward_ios_rounded, size: 16, color: Colors.grey),
+                                      ],
+                                    ),
                                   ),
                                 ),
                               ),
                             );
                           },
                         ),
-            ),
-          ],
-        ),
-      ),
+                      ),
+                    ],
+                  ),
+                ),
     );
   }
 }

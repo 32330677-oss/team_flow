@@ -59,31 +59,24 @@ class _RejectedRecordsScreenState extends State<RejectedRecordsScreen> {
     });
   }
 
-  // تجميع السجلات: أولاً حسب الموقع، وداخل كل موقع حسب التاريخ (الأحدث أولاً)
   Map<String, Map<String, List<dynamic>>> _groupRecords() {
     final Map<String, Map<String, List<dynamic>>> grouped = {};
-
     for (var r in _filteredRecords) {
       final site = r['site_name'] ?? 'بدون موقع';
       final date = (r['record_date'] ?? '').toString().split('T').first;
-
       grouped.putIfAbsent(site, () => {});
       grouped[site]!.putIfAbsent(date, () => []);
       grouped[site]![date]!.add(r);
     }
-
-    // ترتيب التواريخ داخل كل موقع تنازلياً (الأحدث أولاً)
     final Map<String, Map<String, List<dynamic>>> sortedGrouped = {};
     for (var site in grouped.keys) {
-      final dates = grouped[site]!.keys.toList()
-        ..sort((a, b) => b.compareTo(a));
+      final dates = grouped[site]!.keys.toList()..sort((a, b) => b.compareTo(a));
       final Map<String, List<dynamic>> orderedDates = {};
       for (var d in dates) {
         orderedDates[d] = grouped[site]![d]!;
       }
       sortedGrouped[site] = orderedDates;
     }
-
     return sortedGrouped;
   }
 
@@ -106,8 +99,7 @@ class _RejectedRecordsScreenState extends State<RejectedRecordsScreen> {
     }
   }
 
-  Future<void> _resubmit(
-      int id, String? newInIso, String? newOutIso, String remarks) async {
+  Future<void> _resubmit(int id, String? newInIso, String? newOutIso, String remarks) async {
     try {
       await ApiConfig.dio.patch('/attendance/$id/resubmit', data: {
         'check_in_time': newInIso,
@@ -117,37 +109,26 @@ class _RejectedRecordsScreenState extends State<RejectedRecordsScreen> {
       _fetchRejected();
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('تمت إعادة الإرسال')),
+          const SnackBar(content: Text('تمت إعادة الإرسال'), backgroundColor: Colors.green),
         );
       }
     } catch (e) {
-      if (e is DioException) {
-        print("STATUS CODE: ${e.response?.statusCode}");
-        print("RESPONSE: ${e.response?.data}");
-      } else {
-        print(e);
+      String errorMsg = 'فشل إعادة الإرسال';
+      if (e is DioException && e.response?.data['message'] != null) {
+        errorMsg = e.response!.data['message'];
       }
-
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(
-              e is DioException ? "${e.response?.data}" : e.toString(),
-            ),
-            backgroundColor: Colors.red,
-          ),
+          SnackBar(content: Text(errorMsg), backgroundColor: Colors.red),
         );
       }
     }
   }
 
   Future<void> _openEditDialog(Map<String, dynamic> r) async {
-    DateTime? checkIn =
-        r['check_in_time'] != null ? DateTime.parse(r['check_in_time']).toLocal() : null;
-    DateTime? checkOut =
-        r['check_out_time'] != null ? DateTime.parse(r['check_out_time']).toLocal() : null;
-    final remarksController =
-        TextEditingController(text: r['remarks']?.toString() ?? '');
+    DateTime? checkIn = r['check_in_time'] != null ? DateTime.parse(r['check_in_time']).toLocal() : null;
+    DateTime? checkOut = r['check_out_time'] != null ? DateTime.parse(r['check_out_time']).toLocal() : null;
+    final remarksController = TextEditingController(text: r['remarks']?.toString() ?? '');
 
     await showDialog(
       context: context,
@@ -156,26 +137,15 @@ class _RejectedRecordsScreenState extends State<RejectedRecordsScreen> {
           builder: (context, setDialogState) {
             Future<void> pickTime(bool isCheckIn) async {
               final initial = isCheckIn
-                  ? (checkIn != null
-                      ? TimeOfDay.fromDateTime(checkIn!)
-                      : TimeOfDay.now())
-                  : (checkOut != null
-                      ? TimeOfDay.fromDateTime(checkOut!)
-                      : TimeOfDay.now());
+                  ? (checkIn != null ? TimeOfDay.fromDateTime(checkIn!) : TimeOfDay.now())
+                  : (checkOut != null ? TimeOfDay.fromDateTime(checkOut!) : TimeOfDay.now());
 
-              final picked = await showTimePicker(
-                context: context,
-                initialTime: initial,
-              );
+              final picked = await showTimePicker(context: context, initialTime: initial);
 
               if (picked != null) {
                 final baseDate = checkIn ?? checkOut ?? DateTime.now();
                 final newDateTime = DateTime(
-                  baseDate.year,
-                  baseDate.month,
-                  baseDate.day,
-                  picked.hour,
-                  picked.minute,
+                  baseDate.year, baseDate.month, baseDate.day, picked.hour, picked.minute,
                 );
                 setDialogState(() {
                   if (isCheckIn) {
@@ -188,19 +158,12 @@ class _RejectedRecordsScreenState extends State<RejectedRecordsScreen> {
             }
 
             return AlertDialog(
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(16),
-              ),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
               title: Row(
                 children: [
                   const Icon(Icons.person, color: Colors.blue),
                   const SizedBox(width: 8),
-                  Expanded(
-                    child: Text(
-                      r['full_name'] ?? '',
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                  ),
+                  Expanded(child: Text(r['full_name'] ?? '', overflow: TextOverflow.ellipsis)),
                 ],
               ),
               content: SingleChildScrollView(
@@ -208,6 +171,7 @@ class _RejectedRecordsScreenState extends State<RejectedRecordsScreen> {
                   mainAxisSize: MainAxisSize.min,
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
+                    // ✅ سبب الرفض بارز باللون الأحمر
                     if ((r['admin_rejection_notes'] ?? r['remarks']) != null)
                       Container(
                         width: double.infinity,
@@ -223,18 +187,11 @@ class _RejectedRecordsScreenState extends State<RejectedRecordsScreen> {
                           children: [
                             Text(
                               'سبب الرفض',
-                              style: TextStyle(
-                                color: Colors.red.shade700,
-                                fontWeight: FontWeight.bold,
-                                fontSize: 12,
-                              ),
+                              style: TextStyle(color: Colors.red.shade700, fontWeight: FontWeight.bold, fontSize: 12),
                             ),
                             const SizedBox(height: 4),
                             Text(
-                              (r['admin_rejection_notes'] ??
-                                      r['remarks'] ??
-                                      'لا يوجد')
-                                  .toString(),
+                              (r['admin_rejection_notes'] ?? r['remarks'] ?? 'لا يوجد').toString(),
                               style: TextStyle(color: Colors.red.shade900),
                             ),
                           ],
@@ -251,19 +208,14 @@ class _RejectedRecordsScreenState extends State<RejectedRecordsScreen> {
                       maxLines: 3,
                       decoration: InputDecoration(
                         labelText: 'الملاحظات',
-                        border: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(10),
-                        ),
+                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
                       ),
                     ),
                   ],
                 ),
               ),
               actions: [
-                TextButton(
-                  onPressed: () => Navigator.pop(context),
-                  child: const Text('إلغاء'),
-                ),
+                TextButton(onPressed: () => Navigator.pop(context), child: const Text('إلغاء')),
                 ElevatedButton.icon(
                   onPressed: () {
                     Navigator.pop(context);
@@ -288,15 +240,11 @@ class _RejectedRecordsScreenState extends State<RejectedRecordsScreen> {
   Widget _timeRow(String label, DateTime? value, VoidCallback onTap) {
     return Row(
       children: [
-        Expanded(
-          child: Text(label, style: const TextStyle(fontWeight: FontWeight.w600)),
-        ),
+        Expanded(child: Text(label, style: const TextStyle(fontWeight: FontWeight.w600))),
         OutlinedButton.icon(
           onPressed: onTap,
           icon: const Icon(Icons.access_time, size: 16),
-          label: Text(
-            value != null ? DateFormat('HH:mm').format(value) : '--:--',
-          ),
+          label: Text(value != null ? DateFormat('HH:mm').format(value) : '--:--'),
         ),
       ],
     );
@@ -307,9 +255,7 @@ class _RejectedRecordsScreenState extends State<RejectedRecordsScreen> {
     final grouped = _groupRecords();
 
     return Scaffold(
-      appBar: AppBar(
-        title: const Text("سجلات مرفوضة"),
-      ),
+      appBar: AppBar(title: const Text("سجلات مرفوضة")),
       body: Column(
         children: [
           Padding(
@@ -336,13 +282,9 @@ class _RejectedRecordsScreenState extends State<RejectedRecordsScreen> {
                         child: Column(
                           mainAxisSize: MainAxisSize.min,
                           children: [
-                            Icon(Icons.check_circle_outline,
-                                size: 60, color: Colors.grey.shade400),
+                            Icon(Icons.check_circle_outline, size: 60, color: Colors.grey.shade400),
                             const SizedBox(height: 12),
-                            Text(
-                              'لا يوجد سجلات مرفوضة',
-                              style: TextStyle(color: Colors.grey.shade600),
-                            ),
+                            Text('لا يوجد سجلات مرفوضة', style: TextStyle(color: Colors.grey.shade600)),
                           ],
                         ),
                       )
@@ -357,31 +299,24 @@ class _RejectedRecordsScreenState extends State<RejectedRecordsScreen> {
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
                                   Padding(
-                                    padding:
-                                        const EdgeInsets.symmetric(vertical: 8),
+                                    padding: const EdgeInsets.symmetric(vertical: 8),
                                     child: Row(
                                       children: [
-                                        const Icon(Icons.location_on,
-                                            color: Colors.indigo, size: 20),
+                                        const Icon(Icons.location_on, color: Colors.indigo, size: 20),
                                         const SizedBox(width: 6),
                                         Text(
                                           siteEntry.key,
-                                          style: const TextStyle(
-                                            fontSize: 16,
-                                            fontWeight: FontWeight.bold,
-                                          ),
+                                          style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
                                         ),
                                       ],
                                     ),
                                   ),
                                   ...siteEntry.value.entries.map((dateEntry) {
                                     return Column(
-                                      crossAxisAlignment:
-                                          CrossAxisAlignment.start,
+                                      crossAxisAlignment: CrossAxisAlignment.start,
                                       children: [
                                         Padding(
-                                          padding: const EdgeInsets.symmetric(
-                                              vertical: 6),
+                                          padding: const EdgeInsets.symmetric(vertical: 6),
                                           child: Text(
                                             _formatDate(dateEntry.key),
                                             style: TextStyle(
@@ -394,140 +329,80 @@ class _RejectedRecordsScreenState extends State<RejectedRecordsScreen> {
                                         ...dateEntry.value.map((r) {
                                           return Card(
                                             elevation: 1.5,
-                                            margin:
-                                                const EdgeInsets.only(bottom: 8),
-                                            shape: RoundedRectangleBorder(
-                                              borderRadius:
-                                                  BorderRadius.circular(14),
-                                            ),
+                                            margin: const EdgeInsets.only(bottom: 8),
+                                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
                                             child: Padding(
                                               padding: const EdgeInsets.all(12),
                                               child: Column(
-                                                crossAxisAlignment:
-                                                    CrossAxisAlignment.start,
+                                                crossAxisAlignment: CrossAxisAlignment.start,
                                                 children: [
                                                   Row(
                                                     children: [
                                                       const CircleAvatar(
-                                                        backgroundColor:
-                                                            Colors.blueGrey,
-                                                        child: Icon(
-                                                            Icons.person,
-                                                            color:
-                                                                Colors.white),
+                                                        backgroundColor: Colors.blueGrey,
+                                                        child: Icon(Icons.person, color: Colors.white),
                                                       ),
                                                       const SizedBox(width: 10),
                                                       Expanded(
                                                         child: Column(
-                                                          crossAxisAlignment:
-                                                              CrossAxisAlignment
-                                                                  .start,
+                                                          crossAxisAlignment: CrossAxisAlignment.start,
                                                           children: [
                                                             Text(
-                                                              r['full_name'] ??
-                                                                  '',
-                                                              style: const TextStyle(
-                                                                  fontWeight:
-                                                                      FontWeight
-                                                                          .bold),
+                                                              r['full_name'] ?? '',
+                                                              style: const TextStyle(fontWeight: FontWeight.bold),
                                                             ),
                                                             Row(
                                                               children: [
-                                                                Icon(
-                                                                    Icons
-                                                                        .login,
-                                                                    size: 14,
-                                                                    color: Colors
-                                                                        .grey
-                                                                        .shade600),
-                                                                const SizedBox(
-                                                                    width: 4),
-                                                                Text(_formatTime(
-                                                                    r['check_in_time'])),
-                                                                const SizedBox(
-                                                                    width: 10),
-                                                                Icon(
-                                                                    Icons
-                                                                        .logout,
-                                                                    size: 14,
-                                                                    color: Colors
-                                                                        .grey
-                                                                        .shade600),
-                                                                const SizedBox(
-                                                                    width: 4),
-                                                                Text(_formatTime(
-                                                                    r['check_out_time'])),
+                                                                Icon(Icons.login, size: 14, color: Colors.grey.shade600),
+                                                                const SizedBox(width: 4),
+                                                                Text(_formatTime(r['check_in_time'])),
+                                                                const SizedBox(width: 10),
+                                                                Icon(Icons.logout, size: 14, color: Colors.grey.shade600),
+                                                                const SizedBox(width: 4),
+                                                                Text(_formatTime(r['check_out_time'])),
                                                               ],
                                                             ),
                                                           ],
                                                         ),
                                                       ),
                                                       Container(
-                                                        padding: const EdgeInsets
-                                                            .symmetric(
-                                                            horizontal: 8,
-                                                            vertical: 4),
+                                                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                                                         decoration: BoxDecoration(
-                                                          color: Colors
-                                                              .red.shade50,
-                                                          borderRadius:
-                                                              BorderRadius
-                                                                  .circular(20),
+                                                          color: Colors.red.shade50,
+                                                          borderRadius: BorderRadius.circular(20),
                                                         ),
                                                         child: Text(
                                                           'Rejected',
                                                           style: TextStyle(
-                                                            color: Colors
-                                                                .red.shade700,
+                                                            color: Colors.red.shade700,
                                                             fontSize: 11,
-                                                            fontWeight:
-                                                                FontWeight.w600,
+                                                            fontWeight: FontWeight.w600,
                                                           ),
                                                         ),
                                                       ),
                                                     ],
                                                   ),
-                                                  if ((r['admin_rejection_notes'] ??
-                                                          r['remarks']) !=
-                                                      null)
+                                                  // ✅ سبب الرفض بارز في البطاقة نفسها أيضاً
+                                                  if ((r['admin_rejection_notes'] ?? r['remarks']) != null)
                                                     Container(
                                                       width: double.infinity,
-                                                      margin:
-                                                          const EdgeInsets.only(
-                                                              top: 10),
-                                                      padding:
-                                                          const EdgeInsets.all(
-                                                              8),
+                                                      margin: const EdgeInsets.only(top: 10),
+                                                      padding: const EdgeInsets.all(8),
                                                       decoration: BoxDecoration(
-                                                        color:
-                                                            Colors.red.shade50,
-                                                        borderRadius:
-                                                            BorderRadius
-                                                                .circular(8),
+                                                        color: Colors.red.shade50,
+                                                        borderRadius: BorderRadius.circular(8),
                                                       ),
                                                       child: Text(
                                                         'سبب الرفض: ${r['admin_rejection_notes'] ?? r['remarks'] ?? 'لا يوجد'}',
-                                                        style: TextStyle(
-                                                          color: Colors
-                                                              .red.shade900,
-                                                          fontSize: 12,
-                                                        ),
+                                                        style: TextStyle(color: Colors.red.shade900, fontSize: 12),
                                                       ),
                                                     ),
                                                   Align(
-                                                    alignment:
-                                                        Alignment.centerLeft,
+                                                    alignment: Alignment.centerLeft,
                                                     child: TextButton.icon(
-                                                      onPressed: () =>
-                                                          _openEditDialog(
-                                                              Map<String,
-                                                                  dynamic>.from(
-                                                                  r)),
-                                                      icon: const Icon(
-                                                          Icons.edit,
-                                                          size: 16),
-                                                      label: const Text(
-                                                          'تعديل وإعادة إرسال'),
+                                                      onPressed: () => _openEditDialog(Map<String, dynamic>.from(r)),
+                                                      icon: const Icon(Icons.edit, size: 16),
+                                                      label: const Text('تعديل وإعادة إرسال'),
                                                     ),
                                                   ),
                                                 ],

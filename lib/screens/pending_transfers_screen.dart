@@ -1,0 +1,267 @@
+import 'package:flutter/material.dart';
+import 'package:dio/dio.dart';
+import 'package:team_flow/constants.dart';
+
+class PendingTransfersScreen extends StatefulWidget {
+  const PendingTransfersScreen({super.key});
+
+  @override
+  State<PendingTransfersScreen> createState() => _PendingTransfersScreenState();
+}
+
+class _PendingTransfersScreenState extends State<PendingTransfersScreen> {
+  static const Color primaryColor = Color(0xff1a2a6c);
+
+  List<dynamic> _requests = [];
+  bool _isLoading = true;
+  int? _processingId;
+
+  @override
+  void initState() {
+    super.initState();
+    _fetchPending();
+  }
+
+  Future<void> _fetchPending() async {
+    setState(() => _isLoading = true);
+    try {
+      final response = await ApiConfig.dio.get('/transfers/pending');
+      setState(() {
+        _requests = response.data['data'] ?? [];
+        _isLoading = false;
+      });
+    } catch (e) {
+      setState(() => _isLoading = false);
+      _showSnack('Failed to load transfer requests', Colors.red);
+    }
+  }
+
+  Future<void> _review(int requestId, String status) async {
+    String? adminNote;
+
+    if (status == 'Approved') {
+      // نافذة تأكيد للموافقة لمنع الضغط الخطأ
+      bool confirmed = await _showApproveDialog();
+      if (!confirmed) return;
+    } else if (status == 'Rejected') {
+      // نافذة إدخال ملاحظات الأدمن عند الرفض
+      adminNote = await _showRejectDialog();
+      if (adminNote == null) return; // تم إلغاء العملية
+    }
+
+    setState(() => _processingId = requestId);
+    try {
+      final response = await ApiConfig.dio.put('/transfers/$requestId/review', data: {
+        'status': status,
+        'admin_notes': adminNote,
+      });
+      if (response.data['status'] == 'success') {
+        _showSnack(
+          status == 'Approved' ? 'Request approved and worker transferred successfully' : 'Transfer request rejected',
+          Colors.green,
+        );
+        await _fetchPending();
+      }
+    } on DioException catch (e) {
+      final msg = e.response?.data['message'] ?? 'Failed to process request';
+      _showSnack(msg, Colors.red);
+    } catch (e) {
+      _showSnack('Server connection error', Colors.red);
+    } finally {
+      if (mounted) setState(() => _processingId = null);
+    }
+  }
+
+  // نافذة تأكيد القبول
+  Future<bool> asyncConfirmApprove() => _showApproveDialog();
+  Future<bool> _showApproveDialog() async {
+    final result = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Approve Transfer'),
+        content: const Text('Are you sure you want to approve this transfer request? This will reassign the worker to the new site.'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.green.shade700),
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Approve', style: TextStyle(color: Colors.white)),
+          ),
+        ],
+      ),
+    );
+    return result ?? false;
+  }
+
+  // نافذة كتابة ملاحظات الرفض
+  Future<String?> _showRejectDialog() async {
+    final controller = TextEditingController();
+    return showDialog<String>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Reject Transfer Request'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text('Please provide a reason for rejection (Admin Notes):', style: TextStyle(fontSize: 13)),
+            const SizedBox(height: 10),
+            TextField(
+              controller: controller,
+              maxLines: 3,
+              decoration: const InputDecoration(
+                hintText: 'Enter reason here...',
+                border: OutlineInputBorder(),
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
+            onPressed: () => Navigator.pop(ctx, controller.text),
+            child: const Text('Confirm Rejection', style: TextStyle(color: Colors.white)),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _showSnack(String message, Color color) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(message), backgroundColor: color),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('Pending Transfer Requests'),
+        backgroundColor: primaryColor,
+        actions: [
+          IconButton(icon: const Icon(Icons.refresh), onPressed: _fetchPending),
+        ],
+      ),
+      body: _isLoading
+          ? const Center(child: CircularProgressIndicator())
+          : _requests.isEmpty
+              ? Center(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(Icons.check_circle_outline, size: 60, color: Colors.grey.shade400),
+                      const SizedBox(height: 12),
+                      Text('No pending transfer requests', style: TextStyle(color: Colors.grey.shade600)),
+                    ],
+                  ),
+                )
+              : RefreshIndicator(
+                  onRefresh: _fetchPending,
+                  child: ListView.builder(
+                    padding: const EdgeInsets.all(12),
+                    itemCount: _requests.length,
+                    itemBuilder: (context, index) {
+                      final req = _requests[index];
+                      final isProcessing = _processingId == req['request_id'];
+
+                      return Card(
+                        elevation: 2,
+                        margin: const EdgeInsets.symmetric(vertical: 6),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                        child: Padding(
+                          padding: const EdgeInsets.all(16),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Row(
+                                children: [
+                                  const CircleAvatar(
+                                    backgroundColor: primaryColor,
+                                    child: Icon(Icons.person, color: Colors.white),
+                                  ),
+                                  const SizedBox(width: 10),
+                                  Expanded(
+                                    child: Text(
+                                      req['worker_name'] ?? '',
+                                      style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                              const SizedBox(height: 12),
+                              Row(
+                                children: [
+                                  Expanded(
+                                    child: _siteChip(
+                                      icon: Icons.logout,
+                                      label: 'From',
+                                      site: req['current_site_name'] ?? '',
+                                      color: Colors.grey.shade700,
+                                    ),
+                                  ),
+                                  const Icon(Icons.arrow_forward, size: 18, color: Colors.grey),
+                                  Expanded(
+                                    child: _siteChip(
+                                      icon: Icons.login,
+                                      label: 'To',
+                                      site: req['target_site_name'] ?? '',
+                                      color: Colors.green.shade700,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                              const SizedBox(height: 8),
+                              Text(
+                                'Requested by: ${req['requested_by_name'] ?? ''}',
+                                style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
+                              ),
+                              const SizedBox(height: 14),
+                              Row(
+                                children: [
+                                  Expanded(
+                                    child: OutlinedButton.icon(
+                                      onPressed: isProcessing ? null : () => _review(req['request_id'], 'Rejected'),
+                                      icon: const Icon(Icons.close, color: Colors.red),
+                                      label: const Text('Reject', style: TextStyle(color: Colors.red)),
+                                      style: OutlinedButton.styleFrom(side: const BorderSide(color: Colors.red)),
+                                    ),
+                                  ),
+                                  const SizedBox(width: 10),
+                                  Expanded(
+                                    child: ElevatedButton.icon(
+                                      onPressed: isProcessing ? null : () => _review(req['request_id'], 'Approved'),
+                                      icon: isProcessing
+                                          ? const SizedBox(
+                                              width: 16, height: 16,
+                                              child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                                            )
+                                          : const Icon(Icons.check, color: Colors.white),
+                                      label: const Text('Approve', style: TextStyle(color: Colors.white)),
+                                      style: ElevatedButton.styleFrom(backgroundColor: Colors.green.shade700),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ],
+                          ),
+                        ),
+                      );
+                    },
+                  ),
+                ),
+    );
+  }
+
+  Widget _siteChip({required IconData icon, required String label, required String site, required Color color}) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(children: [Icon(icon, size: 14, color: color), const SizedBox(width: 4), Text(label, style: TextStyle(fontSize: 11, color: color))]),
+        const SizedBox(height: 2),
+        Text(site, style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13)),
+      ],
+    );
+  }
+}

@@ -9,6 +9,7 @@ import 'hr_management_screen.dart';
 import 'attendance_payroll_hub.dart';
 import 'workers_screen.dart';
 import 'supervisor_management_screen.dart';
+import 'pending_transfers_screen.dart'; // <-- أضف ملف الشاشة الجديدة هنا
 
 class AdminDashboardScreen extends StatefulWidget {
   const AdminDashboardScreen({super.key});
@@ -38,12 +39,14 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
   int _pendingReviews = 0;
   List<dynamic> _recentPending = [];
 
+  // تم إضافة عنصر Transfer Requests إلى القائمة الجانبية
   final List<_SidebarItem> _items = const [
     _SidebarItem(icon: Icons.dashboard_rounded, label: 'Dashboard'),
     _SidebarItem(icon: Icons.business_rounded, label: 'Projects'),
     _SidebarItem(icon: Icons.alt_route_rounded, label: 'Worker Distribution'),
     _SidebarItem(icon: Icons.people_alt_rounded, label: 'HR Management'),
     _SidebarItem(icon: Icons.fact_check_rounded, label: 'Attendance & Payroll'),
+    _SidebarItem(icon: Icons.swap_horiz_rounded, label: 'Transfer Requests'), // <-- العنصر الجديد
   ];
 
   @override
@@ -53,8 +56,6 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
   }
 
   // ---------- Data fetching (uses existing backend endpoints only) ----------
-  // The JWT token is attached automatically to every request below through
-  // ApiConfig's Dio interceptor, which reads it from FlutterSecureStorage.
   Future<void> _loadDashboardData() async {
     setState(() => _isLoading = true);
     try {
@@ -154,6 +155,9 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
         break;
       case 4:
         destination = const AttendancePayrollHub();
+        break;
+      case 5: // <-- ربط الفهرس رقم 5 بشاشة Transfer Requests الجديدة
+        destination = const PendingTransfersScreen();
         break;
       default:
         return;
@@ -340,8 +344,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
     );
   }
 
-  // ---------- Top bar (FIXED: title now wrapped in Expanded + ellipsis so it
-  // can never push the trailing icons past the available width) ----------
+  // ---------- Top bar ----------
   Widget _buildTopBar({bool showMenuButton = false}) {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
@@ -394,8 +397,6 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
 
   // ---------- Overview content ----------
   Widget _buildOverview() {
-    // Cards are centered and capped in width for a clean, readable
-    // stacked layout even on very wide screens.
     return Center(
       child: ConstrainedBox(
         constraints: const BoxConstraints(maxWidth: 760),
@@ -462,10 +463,6 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
     );
   }
 
-  // ---------- Reusable: full-width breakdown card (Workers / Supervisors) ----------
-  // FIXED: header row no longer relies on a fixed-size number Text — it is
-  // now wrapped in Flexible + FittedBox so it shrinks instead of overflowing,
-  // and title/subtitle are capped to a single line with ellipsis.
   Widget _buildBreakdownCard({
     required String title,
     required String subtitle,
@@ -596,10 +593,6 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
     );
   }
 
-  // ---------- Reusable: prominent alert-style card (Pending Reviews) ----------
-  // FIXED: same treatment — the big count uses Flexible + FittedBox, and the
-  // title row (which includes the small red indicator dot) is wrapped so it
-  // never competes for space with the trailing count/chevron.
   Widget _buildAlertCard({
     required String title,
     required String subtitle,
@@ -689,7 +682,6 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
     );
   }
 
-  // ---------- Recent pending list preview ----------
   Widget _buildRecentPendingSection() {
     return Container(
       padding: const EdgeInsets.all(20),

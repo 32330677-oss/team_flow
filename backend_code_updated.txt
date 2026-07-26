@@ -1,4 +1,4 @@
-const mysql = require('mysql2');
+﻿const mysql = require('mysql2');
 require('dotenv').config();
 
 // Ø¥Ù†Ø´Ø§Ø¡ Pool Ù„Ø¥Ø¯Ø§Ø±Ø© Ø§Ù„Ø§ØªØµØ§Ù„Ø§Øª Ø¨Ø´ÙƒÙ„ Ø³Ø±ÙŠØ¹ ÙˆÙ…Ø³ØªÙ‚Ø± Ù…Ø¹ Ø¯Ø¹Ù… Ø§Ù„Ù€ Port Ø¯ÙŠÙ†Ø§Ù…ÙŠÙƒÙŠØ§Ù‹
@@ -453,7 +453,7 @@ exports.login = async (req, res) => {
 };
 const db = require('../config/db');
 
-// 1. Ø¬Ù„Ø¨ Ø§Ù„Ø¹Ù‚ÙˆØ¯ (Ù„Ø§ ÙŠØ­ØªØ§Ø¬ Ù„ØªØ¹Ø¯ÙŠÙ„ØŒ Ù‡Ùˆ Ù…Ø­Ù…ÙŠ Ø¨Ø§Ù„Ù€ Middleware ÙÙŠ Ø§Ù„Ø±ÙˆØªØ±)
+// 1. Get contracts by project ID
 exports.getContractsByProject = async (req, res) => {
     const { projectId } = req.params;
     try {
@@ -464,22 +464,21 @@ exports.getContractsByProject = async (req, res) => {
         return res.status(200).json({ status: 'success', data: rows });
     } catch (error) {
         console.error(error);
-        return res.status(500).json({ status: 'error', message: 'Ø­Ø¯Ø« Ø®Ø·Ø£ Ø£Ø«Ù†Ø§Ø¡ Ø¬Ù„Ø¨ Ø¹Ù‚ÙˆØ¯ Ø§Ù„Ù…Ø´Ø±ÙˆØ¹' });
+        return res.status(500).json({ status: 'error', message: 'Failed to fetch project contracts' });
     }
 };
 
-// 2. Ø¥Ù†Ø´Ø§Ø¡ Ø¹Ù‚Ø¯ Ø¬Ø¯ÙŠØ¯ (Ù…Ø¤Ù…Ù† Ø§Ù„Ø¢Ù† Ø¨Ø§Ø³ØªØ®Ø¯Ø§Ù… Ø§Ù„ØªÙˆÙƒÙ†)
+// 2. Create a new contract
 exports.createContract = async (req, res) => {
     const { 
         contract_name, description, start_date, end_date, 
         project_id, hourly_rate, overtime_hourly_rate 
     } = req.body;
 
-    // Ø§Ø³ØªØ®Ø±Ø§Ø¬ Ù‡ÙˆÙŠØ© Ø§Ù„Ù…Ø´Ø±Ù Ù…Ù† Ø§Ù„ØªÙˆÙƒÙ† (req.user) ÙˆÙ„ÙŠØ³ Ù…Ù† Ø§Ù„Ù€ body
     const admin_id = req.user.user_id; 
 
     if (!contract_name || !project_id || !hourly_rate || !overtime_hourly_rate) {
-        return res.status(400).json({ status: 'error', message: 'ÙŠØ±Ø¬Ù‰ Ù…Ù„Ø¡ ÙƒØ§ÙØ© Ø§Ù„Ø­Ù‚ÙˆÙ„ Ø§Ù„Ø£Ø³Ø§Ø³ÙŠØ© ÙˆØ£Ø³Ø¹Ø§Ø± Ø§Ù„Ø³Ø§Ø¹Ø§Øª' });
+        return res.status(400).json({ status: 'error', message: 'Please fill in all required fields and rates' });
     }
 
     try {
@@ -495,16 +494,16 @@ exports.createContract = async (req, res) => {
 
         return res.status(201).json({
             status: 'success',
-            message: 'ØªÙ… Ø¥Ù†Ø´Ø§Ø¡ Ø§Ù„Ø¹Ù‚Ø¯ Ø¨Ù†Ø¬Ø§Ø­',
+            message: 'Contract created successfully',
             contract_id: result.insertId
         });
     } catch (error) {
         console.error(error);
-        return res.status(500).json({ status: 'error', message: 'Ø­Ø¯Ø« Ø®Ø·Ø£ ÙÙŠ Ø§Ù„Ø³ÙŠØ±ÙØ± Ø£Ø«Ù†Ø§Ø¡ Ø¥Ù†Ø´Ø§Ø¡ Ø§Ù„Ø¹Ù‚Ø¯' });
+        return res.status(500).json({ status: 'error', message: 'Server error while creating contract' });
     }
 };
 
-// 3. ØªØ¹Ø¯ÙŠÙ„ Ø§Ù„Ø¹Ù‚Ø¯ (Ù…Ø­Ù…ÙŠ Ø¨Ø§Ù„Ù€ Middleware ÙÙŠ Ø§Ù„Ø±ÙˆØªØ±)
+// 3. Update contract details
 exports.updateContract = async (req, res) => {
     const { contractId } = req.params;
     const { contract_name, description, start_date, end_date, hourly_rate, overtime_hourly_rate } = req.body;
@@ -515,12 +514,45 @@ exports.updateContract = async (req, res) => {
             SET contract_name = ?, description = ?, start_date = ?, end_date = ?, hourly_rate = ?, overtime_hourly_rate = ? 
             WHERE contract_id = ?
         `;
-        await db.query(query, [contract_name, description, start_date, end_date, hourly_rate, overtime_hourly_rate, contractId]);
+        const [result] = await db.query(query, [contract_name, description, start_date, end_date, hourly_rate, overtime_hourly_rate, contractId]);
         
-        return res.status(200).json({ status: 'success', message: 'ØªÙ… ØªØ­Ø¯ÙŠØ« Ø¨ÙŠØ§Ù†Ø§Øª Ø§Ù„Ø¹Ù‚Ø¯ Ø¨Ù†Ø¬Ø§Ø­' });
+        if (result.affectedRows === 0) {
+            return res.status(404).json({ status: 'error', message: 'Contract not found' });
+        }
+
+        return res.status(200).json({ status: 'success', message: 'Contract updated successfully' });
     } catch (error) {
         console.error(error);
-        return res.status(500).json({ status: 'error', message: 'Ø­Ø¯Ø« Ø®Ø·Ø£ Ø£Ø«Ù†Ø§Ø¡ ØªØ¹Ø¯ÙŠÙ„ Ø§Ù„Ø¹Ù‚Ø¯' });
+        return res.status(500).json({ status: 'error', message: 'Server error while updating contract' });
+    }
+};
+
+// 4. Toggle Contract Status (Active / Suspended / Completed)
+exports.toggleContractStatus = async (req, res) => {
+    const { contractId } = req.params;
+    const { status } = req.body; 
+
+    if (!['Active', 'Completed', 'Suspended'].includes(status)) {
+        return res.status(400).json({ status: 'error', message: 'Invalid status value' });
+    }
+
+    try {
+        const [result] = await db.query(
+            'UPDATE Contracts SET status = ? WHERE contract_id = ?',
+            [status, contractId]
+        );
+
+        if (result.affectedRows === 0) {
+            return res.status(404).json({ status: 'error', message: 'Contract not found' });
+        }
+
+        return res.status(200).json({
+            status: 'success',
+            message: `Contract status updated to ${status}`
+        });
+    } catch (error) {
+        console.error(error);
+        return res.status(500).json({ status: 'error', message: 'Server error while updating contract status' });
     }
 };
 const db = require('../config/db');
@@ -564,9 +596,68 @@ exports.createProject = async (req, res) => {
         return res.status(500).json({ status: 'error', message: 'Ø­Ø¯Ø« Ø®Ø·Ø£ Ø£Ø«Ù†Ø§Ø¡ Ø¥Ø¶Ø§ÙØ© Ø§Ù„Ù…Ø´Ø±ÙˆØ¹ Ø§Ù„Ø¬Ø¯ÙŠØ¯' });
     }
 };
+
+// 3. ØªØ¹Ø¯ÙŠÙ„ Ø¨ÙŠØ§Ù†Ø§Øª Ø§Ù„Ù…Ø´Ø±ÙˆØ¹
+exports.updateProject = async (req, res) => {
+    const { id } = req.params;
+    const { project_name, client_name, location } = req.body;
+
+    if (!project_name) {
+        return res.status(400).json({ status: 'error', message: 'Project name is required' });
+    }
+
+    try {
+        const [result] = await db.query(
+            'UPDATE Projects SET project_name = ?, client_name = ?, location = ? WHERE project_id = ?',
+            [project_name, client_name || null, location || null, id]
+        );
+
+        if (result.affectedRows === 0) {
+            return res.status(404).json({ status: 'error', message: 'Project not found' });
+        }
+
+        return res.status(200).json({
+            status: 'success',
+            message: 'Project updated successfully'
+        });
+    } catch (error) {
+        console.error(error);
+        return res.status(500).json({ status: 'error', message: 'Server error while updating project' });
+    }
+};
+
+// 4. ØªØºÙŠÙŠØ± Ø­Ø§Ù„Ø© Ø§Ù„Ù…Ø´Ø±ÙˆØ¹ (Active / Inactive)
+// 4. ØªØºÙŠÙŠØ± Ø­Ø§Ù„Ø© Ø§Ù„Ù…Ø´Ø±ÙˆØ¹ (Active / Suspended / Completed)
+exports.toggleProjectStatus = async (req, res) => {
+    const { id } = req.params;
+    const { status } = req.body; 
+
+    if (!['Active', 'Completed', 'Suspended'].includes(status)) {
+        return res.status(400).json({ status: 'error', message: 'Invalid status value' });
+    }
+
+    try {
+        const [result] = await db.query(
+            'UPDATE Projects SET status = ? WHERE project_id = ?',
+            [status, id]
+        );
+
+        if (result.affectedRows === 0) {
+            return res.status(404).json({ status: 'error', message: 'Project not found' });
+        }
+
+        return res.status(200).json({
+            status: 'success',
+            message: `Project status updated to ${status}`
+        });
+    } catch (error) {
+        console.error(error);
+        return res.status(500).json({ status: 'error', message: 'Server error while updating project status' });
+    }
+};
 const db = require('../config/db');
 
-// 1. Ø¬Ù„Ø¨ Ø§Ù„Ù…ÙˆØ§Ù‚Ø¹ Ø§Ù„ØªØ§Ø¨Ø¹Ø© Ù„Ø¹Ù‚Ø¯ Ù…Ø¹ÙŠÙ† (ÙŠØ¬Ø¨ Ø£Ù† ÙŠÙƒÙˆÙ† Ø§Ù„Ù…Ø´Ø±Ù Ù‡Ùˆ Ø§Ù„Ù…Ø³Ø¤ÙˆÙ„ Ø¹Ù† Ø§Ù„Ù…ÙˆÙ‚Ø¹)
+// Get sites by contract ID
 exports.getSitesByContract = async (req, res) => {
     const { contractId } = req.params;
     try {
@@ -581,17 +672,16 @@ exports.getSitesByContract = async (req, res) => {
         return res.status(200).json({ status: 'success', data: rows });
     } catch (error) {
         console.error("ðŸš¨ FETCH ERROR:", error);
-        return res.status(500).json({ status: 'error', message: 'Ø­Ø¯Ø« Ø®Ø·Ø£ Ø£Ø«Ù†Ø§Ø¡ Ø¬Ù„Ø¨ Ù…ÙˆØ§Ù‚Ø¹ Ø§Ù„Ø¹Ù‚Ø¯' });
+        return res.status(500).json({ status: 'error', message: 'Failed to fetch contract sites' });
     }
 };
 
-// 2. Ø¥Ù†Ø´Ø§Ø¡ Ù…ÙˆÙ‚Ø¹ Ø¬Ø¯ÙŠØ¯ (Ù…Ø¤Ù…Ù†: ÙŠÙØ³Ù†Ø¯ ØªÙ„Ù‚Ø§Ø¦ÙŠØ§Ù‹ Ù„Ù„Ù…Ø´Ø±Ù ØµØ§Ø­Ø¨ Ø§Ù„ØªÙˆÙƒÙ†)
+// Create a new site
 exports.createSite = async (req, res) => {
-    const { site_name, location, contract_id } = req.body;
-    const supervisor_id = req.user.user_id; // Ø§Ù„Ù‡ÙˆÙŠØ© Ù…Ù† Ø§Ù„ØªÙˆÙƒÙ† Ø­ØµØ±Ø§Ù‹
+    const { site_name, location, contract_id, supervisor_id } = req.body;
 
     if (!site_name || !contract_id) {
-        return res.status(400).json({ status: 'error', message: 'ÙŠØ±Ø¬Ù‰ Ø¥Ø¯Ø®Ø§Ù„ Ø§Ø³Ù… Ø§Ù„Ù…ÙˆÙ‚Ø¹ ÙˆØªØ­Ø¯ÙŠØ¯ Ø§Ù„Ø¹Ù‚Ø¯' });
+        return res.status(400).json({ status: 'error', message: 'Please provide site name and contract ID' });
     }
 
     try {
@@ -599,16 +689,69 @@ exports.createSite = async (req, res) => {
             INSERT INTO Sites (site_name, location, contract_id, supervisor_id, site_status) 
             VALUES (?, ?, ?, ?, 'Active')
         `;
-        const [result] = await db.query(query, [site_name, location || null, contract_id, supervisor_id]);
-        return res.status(201).json({ status: 'success', message: 'ØªÙ… Ø¥Ù†Ø´Ø§Ø¡ Ø§Ù„Ù…ÙˆÙ‚Ø¹ Ø¨Ù†Ø¬Ø§Ø­', site_id: result.insertId });
+        const [result] = await db.query(query, [site_name, location || null, contract_id, supervisor_id || null]);
+        return res.status(201).json({ status: 'success', message: 'Site created successfully', site_id: result.insertId });
     } catch (error) {
         console.error("ðŸš¨ DATABASE ERROR:", error);
-        return res.status(500).json({ status: 'error', message: 'Ø­Ø¯Ø« Ø®Ø·Ø£ ÙÙŠ Ø§Ù„Ø³ÙŠØ±ÙØ± Ø£Ø«Ù†Ø§Ø¡ Ø¥Ù†Ø´Ø§Ø¡ Ø§Ù„Ù…ÙˆÙ‚Ø¹' });
+        return res.status(500).json({ status: 'error', message: 'Server error while creating site' });
     }
 };
+
+// Update site details
+exports.updateSite = async (req, res) => {
+    const { siteId } = req.params;
+    const { site_name, location, supervisor_id } = req.body;
+
+    try {
+        const query = `
+            UPDATE Sites 
+            SET site_name = ?, location = ?, supervisor_id = ?
+            WHERE site_id = ?
+        `;
+        const [result] = await db.query(query, [site_name, location || null, supervisor_id || null, siteId]);
+
+        if (result.affectedRows === 0) {
+            return res.status(404).json({ status: 'error', message: 'Site not found' });
+        }
+
+        return res.status(200).json({ status: 'success', message: 'Site updated successfully' });
+    } catch (error) {
+        console.error("ðŸš¨ UPDATE ERROR:", error);
+        return res.status(500).json({ status: 'error', message: 'Server error while updating site' });
+    }
+};
+
+// Toggle site status (Active / Suspended / Completed)
+exports.toggleSiteStatus = async (req, res) => {
+    const { siteId } = req.params;
+    const { status } = req.body;
+
+    if (!['Active', 'Completed', 'Suspended'].includes(status)) {
+        return res.status(400).json({ status: 'error', message: 'Invalid status value' });
+    }
+
+    try {
+        const [result] = await db.query(
+            'UPDATE Sites SET site_status = ? WHERE site_id = ?',
+            [status, siteId]
+        );
+
+        if (result.affectedRows === 0) {
+            return res.status(404).json({ status: 'error', message: 'Site not found' });
+        }
+
+        return res.status(200).json({
+            status: 'success',
+            message: `Site status updated to ${status}`
+        });
+    } catch (error) {
+        console.error("ðŸš¨ STATUS ERROR:", error);
+        return res.status(500).json({ status: 'error', message: 'Server error while updating site status' });
+    }
+};
+
 exports.getAllSites = async (req, res) => {
     try {
-        // Ø¨Ø¯ÙˆÙ† Ø£ÙŠ WHEREØŒ Ø¬Ù„Ø¨ ÙƒÙ„ Ø§Ù„Ù…ÙˆØ§Ù‚Ø¹ Ø§Ù„Ù…ØªØ§Ø­Ø©
         const query = `
             SELECT site_id, site_name 
             FROM Sites 
@@ -616,17 +759,13 @@ exports.getAllSites = async (req, res) => {
             ORDER BY site_name ASC
         `;
         const [rows] = await db.query(query);
-        
-        return res.status(200).json({ 
-            status: 'success', 
-            data: rows 
-        });
+        return res.status(200).json({ status: 'success', data: rows });
     } catch (error) {
-        console.error("Ø®Ø·Ø£ ÙÙŠ Ø¬Ù„Ø¨ Ø§Ù„Ù…ÙˆØ§Ù‚Ø¹ Ù„Ù„Ø£Ø¯Ù…Ù†:", error);
-        return res.status(500).json({ status: 'error', message: 'ÙØ´Ù„ Ø¬Ù„Ø¨ Ù‚Ø§Ø¦Ù…Ø© Ø§Ù„Ù…ÙˆØ§Ù‚Ø¹' });
+        console.error("ðŸš¨ FETCH ALL SITES ERROR:", error);
+        return res.status(500).json({ status: 'error', message: 'Failed to fetch sites list' });
     }
 };
-// 3. Ø¬Ù„Ø¨ Ù…ÙˆØ§Ù‚Ø¹ Ø§Ù„Ù…Ø´Ø±Ù Ø§Ù„Ø­Ø§Ù„ÙŠ ÙÙ‚Ø· (Ù‡Ø°Ù‡ Ù‡ÙŠ Ø§Ù„Ø¨ÙˆØ§Ø¨Ø© Ø§Ù„ÙˆØ­ÙŠØ¯Ø© Ù„Ù„Ù…Ø´Ø±Ù Ù„Ø±Ø¤ÙŠØ© Ù…ÙˆØ§Ù‚Ø¹Ù‡)
+
 exports.getMySites = async (req, res) => {
     const supervisorId = req.user.user_id; 
     try {
@@ -639,16 +778,10 @@ exports.getMySites = async (req, res) => {
             ORDER BY s.created_at DESC
         `;
         const [rows] = await db.query(query, [supervisorId]);
-        console.log("--- ÙØ­Øµ Ø¨ÙŠØ§Ù†Ø§Øª Ø§Ù„Ù…ÙˆØ§Ù‚Ø¹ ---");
-console.log("Ø¹Ø¯Ø¯ Ø§Ù„ØµÙÙˆÙ Ø§Ù„Ù…Ø¬Ù„ÙˆØ¨Ø©:", rows.length);
-if (rows.length > 0) {
-    console.log("Ù…Ø«Ø§Ù„ Ø¹Ù† Ø£ÙˆÙ„ Ø³Ø¬Ù„:", JSON.stringify(rows[0], null, 2));
-}
-console.log("--------------------------");
         return res.status(200).json({ status: 'success', data: rows });
     } catch (error) {
         console.error("ðŸš¨ FETCH MY SITES ERROR:", error);
-        return res.status(500).json({ status: 'error', message: 'Ø­Ø¯Ø« Ø®Ø·Ø£ Ø£Ø«Ù†Ø§Ø¡ Ø¬Ù„Ø¨ Ù…ÙˆØ§Ù‚Ø¹Ùƒ' });
+        return res.status(500).json({ status: 'error', message: 'Failed to fetch your sites' });
     }
 };
 const db = require('../config/db'); 
@@ -873,6 +1006,54 @@ exports.createWorker = async (req, res) => {
             return res.status(400).json({ status: 'error', message: 'ÙƒÙˆØ¯ Ø§Ù„Ø¹Ø§Ù…Ù„ Ù…Ø³Ø¬Ù„ Ù…Ø³Ø¨Ù‚Ø§Ù‹ØŒ ÙŠØ±Ø¬Ù‰ Ø§Ø³ØªØ®Ø¯Ø§Ù… ÙƒÙˆØ¯ ÙØ±ÙŠØ¯' });
         }
         return res.status(500).json({ status: 'error', message: 'Ø­Ø¯Ø« Ø®Ø·Ø£ ÙÙŠ Ø§Ù„Ø³ÙŠØ±ÙØ± Ø£Ø«Ù†Ø§Ø¡ Ø¥Ø¶Ø§ÙØ© Ø§Ù„Ø¹Ø§Ù…Ù„' });
+    }
+};
+
+
+// 3. ØªØ¹Ø¯ÙŠÙ„ Ø¨ÙŠØ§Ù†Ø§Øª Ø¹Ø§Ù…Ù„ Ø£Ùˆ ØªØºÙŠÙŠØ± Ø­Ø§Ù„ØªÙ‡ (Update Worker)
+// 3. ØªØ¹Ø¯ÙŠÙ„ Ø¨ÙŠØ§Ù†Ø§Øª Ø¹Ø§Ù…Ù„ Ø£Ùˆ ØªØºÙŠÙŠØ± Ø­Ø§Ù„ØªÙ‡ (Update Worker)
+exports.updateWorker = async (req, res) => {
+    const workerId = req.params.id; // Ù‡Ù†Ø§ Ø³ÙŠØµÙ„ Ø§Ù„Ù€ worker_unique_id (Ù…Ø«Ù„ 'ØªÙŠØ³Øª')
+    const { full_name, phone_number, nationality, job_position, hire_date, notes, status } = req.body;
+
+    try {
+        // Ø§Ù„ØªØ­Ù‚Ù‚ Ù…Ù…Ø§ Ø¥Ø°Ø§ ÙƒØ§Ù† Ø§Ù„Ø¹Ø§Ù…Ù„ Ù…ÙˆØ¬ÙˆØ¯Ø§Ù‹ Ø¨Ø§Ø³ØªØ®Ø¯Ø§Ù… worker_unique_id
+        const [existing] = await db.query('SELECT * FROM workers WHERE worker_unique_id = ?', [workerId]);
+        if (existing.length === 0) {
+            return res.status(404).json({ status: 'error', message: 'Ø§Ù„Ø¹Ø§Ù…Ù„ ØºÙŠØ± Ù…ÙˆØ¬ÙˆØ¯' });
+        }
+
+        // Ø¨Ù†Ø§Ø¡ Ø§Ø³ØªØ¹Ù„Ø§Ù… Ø§Ù„ØªØ¹Ø¯ÙŠÙ„
+        const query = `
+            UPDATE workers 
+            SET full_name = COALESCE(?, full_name),
+                phone_number = ?,
+                nationality = ?,
+                job_position = ?,
+                hire_date = COALESCE(?, hire_date),
+                notes = ?,
+                status = COALESCE(?, status)
+            WHERE worker_unique_id = ?
+        `;
+
+        await db.query(query, [
+            full_name || null,
+            phone_number !== undefined ? phone_number : existing[0].phone_number,
+            nationality !== undefined ? nationality : existing[0].nationality,
+            job_position !== undefined ? job_position : existing[0].job_position,
+            hire_date || null,
+            notes !== undefined ? notes : existing[0].notes,
+            status || null,
+            workerId
+        ]);
+
+        return res.status(200).json({
+            status: 'success',
+            message: 'ØªÙ… ØªØ­Ø¯ÙŠØ« Ø¨ÙŠØ§Ù†Ø§Øª Ø§Ù„Ø¹Ø§Ù…Ù„ Ø¨Ù†Ø¬Ø§Ø­'
+        });
+    } catch (error) {
+        console.error("ðŸš¨ UPDATE WORKER ERROR:", error);
+        return res.status(500).json({ status: 'error', message: 'Ø­Ø¯Ø« Ø®Ø·Ø£ ÙÙŠ Ø§Ù„Ø³ÙŠØ±ÙØ± Ø£Ø«Ù†Ø§Ø¡ ØªØ­Ø¯ÙŠØ« Ø§Ù„Ø¹Ø§Ù…Ù„' });
     }
 };
 const jwt = require('jsonwebtoken');
@@ -1101,7 +1282,8 @@ router.post('/', restrictTo('Admin'), contractController.createContract);
 
 // 4. ØªØ¹Ø¯ÙŠÙ„ Ø¹Ù‚Ø¯: Ø¹Ù…Ù„ÙŠØ© Ø¥Ø¯Ø§Ø±ÙŠØ© Ø­Ø³Ø§Ø³Ø© (Ù„Ù„Ø£Ø¯Ù…Ù† ÙÙ‚Ø·)
 router.put('/:contractId', restrictTo('Admin'), contractController.updateContract);
-
+// 5. ØªØºÙŠÙŠØ± Ø­Ø§Ù„Ø© Ø§Ù„Ø¹Ù‚Ø¯ (Ù„Ù„Ø£Ø¯Ù…Ù† ÙÙ‚Ø·)
+router.patch('/:contractId/status', restrictTo('Admin'), contractController.toggleContractStatus);
 module.exports = router;
 const express = require('express');
 const router = express.Router();
@@ -1119,27 +1301,22 @@ router.get('/', restrictTo('Admin', 'Supervisor'), projectController.getAllProje
 // 2. Ø¥Ù†Ø´Ø§Ø¡ Ù…Ø´Ø±ÙˆØ¹ Ø¬Ø¯ÙŠØ¯:
 // Ø¹Ù…Ù„ÙŠØ© Ø¥Ø¯Ø§Ø±ÙŠØ© Ø­Ø³Ø§Ø³Ø©ØŒ Ù„Ù„Ø£Ø¯Ù…Ù† ÙÙ‚Ø·
 router.post('/', restrictTo('Admin'), projectController.createProject);
-
+router.put('/:id', restrictTo('Admin'), projectController.updateProject);
+router.patch('/:id/status', restrictTo('Admin'), projectController.toggleProjectStatus);
 module.exports = router;
 const express = require('express');
 const router = express.Router();
 const siteController = require('../controllers/siteController');
 const authMiddleware = require('../middleware/authMiddleware');
-const restrictTo = require('../middleware/roleMiddleware'); // Ø§Ø³ØªØ¯Ø¹Ø§Ø¡ Ø§Ù„Ø­Ø§Ø±Ø³
+const restrictTo = require('../middleware/roleMiddleware');
 
-// Ø­Ù…Ø§ÙŠØ© Ø´Ø§Ù…Ù„Ø© Ù„Ø¬Ù…ÙŠØ¹ Ø±ÙˆØ§Ø¨Ø· Ø§Ù„Ù…ÙˆØ§Ù‚Ø¹
 router.use(authMiddleware);
 
-// 1. Ø¬Ù„Ø¨ Ù…ÙˆØ§Ù‚Ø¹ Ø¹Ù‚Ø¯ Ù…Ø¹ÙŠÙ†: Ù…Ø³Ù…ÙˆØ­ Ù„Ù„Ø£Ø¯Ù…Ù† ÙˆØ§Ù„Ù…Ø´Ø±Ù
 router.get('/contract/:contractId', restrictTo('Admin', 'Supervisor'), siteController.getSitesByContract);
-
-// 2. Ø¥Ù†Ø´Ø§Ø¡ Ù…ÙˆÙ‚Ø¹ Ø¬Ø¯ÙŠØ¯: Ù„Ù„Ø£Ø¯Ù…Ù† ÙÙ‚Ø·
 router.post('/', restrictTo('Admin'), siteController.createSite);
-
-// 3. Ù…ÙˆØ§Ù‚Ø¹ÙŠ (Ù„Ù„Ø³ÙˆØ¨Ø±ÙØ§ÙŠØ²Ø±): Ù…Ø³Ù…ÙˆØ­ Ù„Ù„Ù…Ø´Ø±Ù (ÙˆÙŠÙ…ÙƒÙ† Ù„Ù„Ø£Ø¯Ù…Ù† Ø£ÙŠØ¶Ø§Ù‹ Ø¥Ø°Ø§ Ø£Ø±Ø¯Øª)
+router.put('/:siteId', restrictTo('Admin'), siteController.updateSite);
+router.patch('/:siteId/status', restrictTo('Admin'), siteController.toggleSiteStatus);
 router.get('/my-sites', restrictTo('Admin', 'Supervisor'), siteController.getMySites);
-
-// 4. Ø¬Ù„Ø¨ ÙƒÙ„ Ø§Ù„Ù…ÙˆØ§Ù‚Ø¹: Ù„Ù„Ø£Ø¯Ù…Ù† ÙÙ‚Ø· (Ø­ØªÙ‰ Ù„Ø§ ÙŠØªÙ…ÙƒÙ† Ø§Ù„Ù…Ø´Ø±Ù Ù…Ù† Ø±Ø¤ÙŠØ© Ù…ÙˆØ§Ù‚Ø¹ Ù„ÙŠØ³Øª ØªØ­Øª Ø¥Ø¯Ø§Ø±ØªÙ‡)
 router.get('/all-sites', restrictTo('Admin'), siteController.getAllSites);
 
 module.exports = router;
@@ -1182,7 +1359,7 @@ router.get('/', restrictTo('Admin', 'Supervisor'), workerController.getAllWorker
 // 2. Ø¥Ù†Ø´Ø§Ø¡ Ø¹Ø§Ù…Ù„ Ø¬Ø¯ÙŠØ¯:
 // Ø¹Ù…Ù„ÙŠØ© Ø¥Ø¯Ø§Ø±ÙŠØ© Ø­Ø³Ø§Ø³Ø©ØŒ Ù„Ù„Ø£Ø¯Ù…Ù† ÙÙ‚Ø·
 router.post('/', restrictTo('Admin'), workerController.createWorker);
-
+router.put('/:id', restrictTo('Admin'), workerController.updateWorker);
 module.exports = router;
 const db = require('../config/db');
 
