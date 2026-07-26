@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
-import 'admin_attendance_screen.dart'; // تأكد أن هذا الملف موجود في نفس المجلد
+import 'admin_attendance_screen.dart'; 
+import 'payroll_screen.dart';
 
 class AttendancePayrollHub extends StatelessWidget {
   const AttendancePayrollHub({super.key});
@@ -10,22 +11,22 @@ class AttendancePayrollHub extends StatelessWidget {
       length: 2, 
       child: Scaffold(
         appBar: AppBar(
-          title: const Text('إدارة الحضور والرواتب'),
+          title: const Text('Attendance & Payroll Management'),
           backgroundColor: const Color(0xff1a2a6c),
           bottom: const TabBar(
             tabs: [
-              Tab(icon: Icon(Icons.assignment_turned_in), text: 'الحضور'),
-              Tab(icon: Icon(Icons.attach_money), text: 'الرواتب'),
+              Tab(icon: Icon(Icons.assignment_turned_in), text: 'Attendance'),
+              Tab(icon: Icon(Icons.attach_money), text: 'Payroll'),
             ],
           ),
         ),
         body: const TabBarView(
           children: [
-            // ✅ تم استبدال الـ Text القديم بالشاشة الجديدة التي برمجناها
+            // Admin attendance screen
             AdminAttendanceScreen(), 
             
-            // شاشة الرواتب (سنعمل عليها لاحقاً)
-            Center(child: Text("شاشة الرواتب ستظهر هنا")),
+            // Payroll screen
+            PayrollScreen(),
           ],
         ),
       ),
