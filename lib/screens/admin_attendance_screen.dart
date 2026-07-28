@@ -115,22 +115,61 @@ class _AdminAttendanceScreenState extends State<AdminAttendanceScreen> {
     );
   }
 
+  // >>> تمت إضافة دالة منح ساعات الإجازة الإدارية هنا بنجاح <<<
+  Future<void> _showManagementLeaveDialog(int attendanceId) async {
+    final hoursController = TextEditingController();
+    final reasonController = TextEditingController();
+    final result = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Grant Management Leave Hours'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            TextField(
+              controller: hoursController,
+              keyboardType: TextInputType.number,
+              decoration: const InputDecoration(labelText: 'Hours'),
+            ),
+            TextField(
+              controller: reasonController,
+              decoration: const InputDecoration(labelText: 'Reason'),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
+          ElevatedButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Save')),
+        ],
+      ),
+    );
+    if (result != true) return;
+    try {
+      await ApiConfig.dio.patch('/attendance/$attendanceId/management-leave', data: {
+        'hours': double.tryParse(hoursController.text) ?? 0,
+        'reason': reasonController.text,
+      });
+      _showSnackBar('Management hours recorded', Colors.green);
+      _fetchData();
+    } catch (e) {
+      _showSnackBar('Failed to record hours', Colors.red);
+    }
+  }
+
   // نافذة الإعدادات السريعة لأوقات الدوام والاستراحات
-Future<void> _showSettingsDialog(BuildContext context) async {
+  Future<void> _showSettingsDialog(BuildContext context) async {
     TimeOfDay? lunchStart;
     TimeOfDay? lunchEnd;
     TextEditingController workMinutesController = TextEditingController();
     bool isFetchingSettings = true;
 
-    // دالة مساعدة لتحويل TimeOfDay إلى نص HH:mm
     String timeToString(TimeOfDay time) {
       final hours = time.hour.toString().padLeft(2, '0');
       final minutes = time.minute.toString().padLeft(2, '0');
       return '$hours:$minutes';
     }
 
-    // دالة مساعدة لتحويل نص القادم من الباكت إند إلى TimeOfDay
- TimeOfDay parseTimeString(String? timeStr) {
+    TimeOfDay parseTimeString(String? timeStr) {
       if (timeStr == null || timeStr.isEmpty) {
         return const TimeOfDay(hour: 12, minute: 0);
       }
@@ -173,8 +212,6 @@ Future<void> _showSettingsDialog(BuildContext context) async {
                         children: [
                           const Text("Lunch Break Time Window", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
                           const SizedBox(height: 8),
-                          
-                          // زر اختيار وقت بداية الغداء
                           ListTile(
                             tileColor: Colors.grey.shade100,
                             shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
@@ -191,8 +228,6 @@ Future<void> _showSettingsDialog(BuildContext context) async {
                             },
                           ),
                           const SizedBox(height: 8),
-
-                          // زر اختيار وقت نهاية الغداء
                           ListTile(
                             tileColor: Colors.grey.shade100,
                             shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
@@ -209,8 +244,6 @@ Future<void> _showSettingsDialog(BuildContext context) async {
                             },
                           ),
                           const SizedBox(height: 16),
-
-                          // حقل دقائق الدوام الكامل
                           TextField(
                             controller: workMinutesController,
                             keyboardType: TextInputType.number,
@@ -230,7 +263,6 @@ Future<void> _showSettingsDialog(BuildContext context) async {
                 ElevatedButton(
                   style: ElevatedButton.styleFrom(backgroundColor: Colors.blue),
                   onPressed: () async {
-                    // Restriction: التحقق أن وقت النهاية بعد وقت البداية
                     if (lunchStart != null && lunchEnd != null) {
                       int startMinutes = lunchStart!.hour * 60 + lunchStart!.minute;
                       int endMinutes = lunchEnd!.hour * 60 + lunchEnd!.minute;
@@ -243,20 +275,13 @@ Future<void> _showSettingsDialog(BuildContext context) async {
 
                     try {
                       await ApiConfig.dio.put('/admin/attendance/settings/breaks', data: {
-  'lunch_start_time': lunchStart != null ? timeToString(lunchStart!) : null,
-  'lunch_end_time': lunchEnd != null ? timeToString(lunchEnd!) : null,
-  'standard_work_minutes': int.tryParse(workMinutesController.text) ?? 480,
-});
+                        'lunch_start_time': lunchStart != null ? timeToString(lunchStart!) : null,
+                        'lunch_end_time': lunchEnd != null ? timeToString(lunchEnd!) : null,
+                        'standard_work_minutes': int.tryParse(workMinutesController.text) ?? 480,
+                      });
                       Navigator.pop(ctx);
                       _showSnackBar('Settings updated successfully', Colors.green);
                     } catch (e) {
-                      print("=== FULL ERROR DETAILS ===");
-                      print(e);
-                      if (e is DioException) {
-                        print("Response data: ${e.response?.data}");
-                        print("Response status: ${e.response?.statusCode}");
-                      }
-                      
                       String errorMsg = 'Failed to update settings';
                       if (e is DioException && e.response?.data != null) {
                         if (e.response?.data is Map && e.response?.data['message'] != null) {
@@ -429,6 +454,15 @@ Future<void> _showSettingsDialog(BuildContext context) async {
                               trailing: Row(
                                 mainAxisSize: MainAxisSize.min,
                                 children: [
+                                  // >>> تمت إضافة زر منح ساعات الإجازة الإدارية هنا في الـ trailing <<<
+                                  IconButton(
+                                    constraints: const BoxConstraints(),
+                                    padding: const EdgeInsets.symmetric(horizontal: 4),
+                                    icon: const Icon(Icons.more_time, color: Colors.blue, size: 26),
+                                    onPressed: () => _showManagementLeaveDialog(id),
+                                    tooltip: 'Grant Management Hours',
+                                  ),
+                                  const SizedBox(width: 4),
                                   IconButton(
                                     constraints: const BoxConstraints(),
                                     padding: const EdgeInsets.symmetric(horizontal: 4),

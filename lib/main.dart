@@ -2,6 +2,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 
+// استيراد ملف إعدادات الـ API لربط الـ navigatorKey
+import 'constants.dart'; // تأكد أن المسار يوافق هيكل مشروعك
+
 // استيراد الشاشات الخاصة بك
 import 'screens/login_screen.dart';
 import 'screens/admin_dashboard_screen.dart';
@@ -48,6 +51,9 @@ class MyApp extends StatelessWidget {
     return MaterialApp(
       title: 'Team Flow',
       debugShowCheckedModeBanner: false,
+      
+      // ✅ ربط الـ navigatorKey لتمكين الخروج التلقائي عند خطأ 401
+      navigatorKey: ApiConfig.navigatorKey,
       
       // ✅ ضبط الاتجاه ليصبح من اليسار لليمين (LTR) ليتناسب مع الواجهات الإنجليزية والـ Sidebar
       builder: (context, child) {
