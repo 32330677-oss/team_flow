@@ -30,19 +30,22 @@ class ApiConfig {
         },
         
         // 2. معالجة انتهاء صلاحية التوكن (خطأ 401)
-        onError: (DioException error, ErrorInterceptorHandler handler) async {
-          if (error.response?.statusCode == 401) {
-            // حذف كافة بيانات الجلسة المخزنة
-            await storage.delete(key: 'jwt_token');
-            await storage.delete(key: 'user_role');
-            await storage.delete(key: 'user_id');
-            await storage.delete(key: 'user_name');
-            
-            // إجبار التطبيق على الخروج وتوجيه المستخدم لصفحة تسجيل الدخول فوراً
-            navigatorKey.currentState?.pushNamedAndRemoveUntil('/login', (route) => false);
-          }
-          return handler.next(error);
-        },
+     onError: (DioException error, ErrorInterceptorHandler handler) async {
+  // فحص ما إذا كان الخطأ 401، والتأكد أن الطلب لم يكن لصفحة تسجيل الدخول
+  bool isLoginRequest = error.requestOptions.path.contains('/login');
+
+  if (error.response?.statusCode == 401 && !isLoginRequest) {
+    // حذف كافة بيانات الجلسة المخزنة فقط إذا لم يكن الطلب هو تسجيل الدخول
+    await storage.delete(key: 'jwt_token');
+    await storage.delete(key: 'user_role');
+    await storage.delete(key: 'user_id');
+    await storage.delete(key: 'user_name');
+    
+    // إجبار التطبيق على الخروج وتوجيه المستخدم لصفحة تسجيل الدخول فوراً
+    navigatorKey.currentState?.pushNamedAndRemoveUntil('/login', (route) => false);
+  }
+  return handler.next(error);
+},
       ),
     );
 }

@@ -18,7 +18,7 @@ dependencies:
   dio: ^5.10.0
   flutter_secure_storage: ^9.0.0
   shared_preferences: ^2.5.5
-  intl: ^0.20.2 # تم التحديث هنا
+  intl: ^0.20.2
   
   pdf: ^3.13.0
   printing: ^5.15.0
@@ -30,3 +30,9 @@ dev_dependencies:
 
 flutter:
   uses-material-design: true
+
+  # إعدادات الخطوط (إذا كنت تريد إبقاء ملف الخط الاحتياطي المحلي، اتركها، وإلا يمكنك حذفها أيضاً لأننا سنعتمد على محرك الـ HTML للطباعة)
+  fonts:
+    - family: Cairo
+      fonts:
+        - asset: assets/Cairo.ttf

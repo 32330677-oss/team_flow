@@ -1,11 +1,10 @@
 // payroll_screen.dart
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart' as intl;
-import 'package:pdf/pdf.dart';
-import 'package:pdf/widgets.dart' as pw;
 import 'package:printing/printing.dart';
 import 'package:team_flow/constants.dart';
-
+import 'package:dio/dio.dart';
+import 'package:intl/intl.dart';
 class PayrollScreen extends StatefulWidget {
   const PayrollScreen({Key? key}) : super(key: key);
 
@@ -37,6 +36,7 @@ class _PayrollScreenState extends State<PayrollScreen> {
     super.initState();
     _fetchSites();
     _fetchPayrollReports();
+    _fetchLastBatchDate();
     _searchController.addListener(_filterBatches);
   }
 
@@ -48,20 +48,17 @@ class _PayrollScreenState extends State<PayrollScreen> {
     super.dispose();
   }
 
-  Future<void> _fetchSites() async {
+Future<void> _fetchSites() async {
     try {
-      final response = await ApiConfig.dio.get('/admin/sites');
+      final response = await ApiConfig.dio.get('/sites/all-sites'); // ✅ كان /admin/sites (404)
       final responseData = response.data;
       List sitesList = [];
       if (responseData is List) {
         sitesList = responseData;
       } else if (responseData is Map && responseData['data'] is List) {
         sitesList = responseData['data'];
-      } else if (responseData is Map && responseData['sites'] is List) {
-        sitesList = responseData['sites'];
       }
 
-      // تحويل الـ site_id ليكون int دائماً لتجنب مشاكل المقارنة
       final formattedSites = sitesList.map((site) {
         return {
           ...site,
@@ -75,18 +72,33 @@ class _PayrollScreenState extends State<PayrollScreen> {
       });
     } catch (e) {
       setState(() => _isLoadingSites = false);
-      _showSnack('Failed to load sites: $e', dangerColor);
+      _showSnack('Failed to load sites', dangerColor);
     }
+}
+String formatDisplayDate(String? dateStr) {
+  if (dateStr == null || dateStr.isEmpty) return '';
+  try {
+    // تحليل التاريخ بشكل محلي بحت لتجنب فرق توقيت الـ UTC
+    final parsedDate = DateTime.parse(dateStr);
+    return DateFormat('yyyy-MM-dd').format(DateTime(parsedDate.year, parsedDate.month, parsedDate.day));
+  } catch (e) {
+    return dateStr;
   }
-
-  Future<void> _fetchPayrollReports() async {
+}
+Future<void> _fetchPayrollReports() async {
     setState(() => _isLoadingBatches = true);
     try {
-      String url = '/admin/payroll/report';
+      // ✅ استخدام Query Parameters بشكل نظيف وآمن مع Dio
+      final queryParams = <String, dynamic>{};
       if (_selectedSiteId != null) {
-        url += '?site_id=$_selectedSiteId';
+        queryParams['site_id'] = _selectedSiteId;
       }
-      final response = await ApiConfig.dio.get(url);
+
+      final response = await ApiConfig.dio.get(
+        '/admin/payroll/report',
+        queryParameters: queryParams,
+      );
+
       final responseData = response.data;
       List batchesList = [];
       if (responseData is List) {
@@ -117,7 +129,7 @@ class _PayrollScreenState extends State<PayrollScreen> {
     });
   }
 
-  Future<void> _generatePayroll() async {
+Future<void> _generatePayroll() async {
     if (_startDateController.text.isEmpty || _endDateController.text.isEmpty) {
       _showSnack('Please select start and end dates', Colors.orange);
       return;
@@ -127,6 +139,7 @@ class _PayrollScreenState extends State<PayrollScreen> {
       final response = await ApiConfig.dio.post('/admin/payroll/generate', data: {
         'start_date': _startDateController.text,
         'end_date': _endDateController.text,
+        // ✅ يتم إرسال site_id فقط إن وجد، وعندما يكون All Sites (null) لن يتم إرساله ليحسب السيرفر كل المواقع
         if (_selectedSiteId != null) 'site_id': _selectedSiteId,
       });
       if (response.data['success'] == true || response.statusCode == 200 || response.statusCode == 201) {
@@ -134,9 +147,19 @@ class _PayrollScreenState extends State<PayrollScreen> {
         _startDateController.clear();
         _endDateController.clear();
         _fetchPayrollReports();
+        _fetchLastBatchDate();
       }
     } catch (e) {
-      _showSnack('Error generating payroll: $e', dangerColor);
+      String errorMessage = 'Error generating payroll';
+      
+      // ✅ فحص إذا كان الخطأ قادماً من الـ Dio (أي استجابة من السيرفر)
+      if (e is DioException && e.response?.data != null) {
+        // أخذ الرسالة القادمة من الباك إند (مثل: تداخل التواريخ أو عدم وجود حضور)
+        errorMessage = e.response?.data['message'] ?? errorMessage;
+      }
+      
+      // عرضها بلون برتقالي تحذيري لطيف بدلاً من الأحمر القاتم للـ Exception
+      _showSnack(errorMessage, Colors.orange[800]!);
     } finally {
       setState(() => _isGenerating = false);
     }
@@ -152,20 +175,64 @@ class _PayrollScreenState extends State<PayrollScreen> {
     }
   }
 
-  Future<void> _selectDate(TextEditingController controller) async {
-    final picked = await showDatePicker(
-      context: context,
-      initialDate: DateTime.now(),
-      firstDate: DateTime(2025),
-      lastDate: DateTime(2035),
-    );
-    if (picked != null) {
+// متغير لتخزين آخر تاريخ انتهى عنده آخر كشف رواتب (مثلاً تاريخ اليوم القادم المسموح)
+DateTime? _lastBatchEndDate;
+
+ Future<void> _fetchLastBatchDate() async {
+  try {
+    final response = await ApiConfig.dio.get('/admin/payroll/last-date');
+    if (response.data['success'] && response.data['last_end_date'] != null) {
+      // استخراج التاريخ كـ String أو DateTime بدقة
+      String lastEndStr = response.data['last_end_date'].toString();
+      if (lastEndStr.contains('T')) lastEndStr = lastEndStr.split('T')[0];
+      
+      DateTime parsedEnd = DateTime.parse(lastEndStr);
+      DateTime nextStart = parsedEnd.add(const Duration(days: 1));
+      
       setState(() {
-        controller.text =
-            "${picked.year}-${picked.month.toString().padLeft(2, '0')}-${picked.day.toString().padLeft(2, '0')}";
+        _lastBatchEndDate = parsedEnd;
+        // تعبئة الـ Start Date تلقائياً باليوم التالي لآخر انتهاء ليكون مقفلاً وصحيحاً
+        _startDateController.text = "${nextStart.year.toString().padLeft(4, '0')}-"
+            "${nextStart.month.toString().padLeft(2, '0')}-"
+            "${nextStart.day.toString().padLeft(2, '0')}";
       });
     }
+  } catch (_) {}
+}
+
+Future<void> _selectDate(TextEditingController controller, {bool isStartDate = false}) async {
+  // تحديد التاريخ الافتراضي عند فتح التقويم
+  final initial = isStartDate && _lastBatchEndDate != null 
+      ? _lastBatchEndDate!.add(const Duration(days: 1)) 
+      : DateTime.now();
+
+  final picked = await showDatePicker(
+    context: context,
+    initialDate: initial,
+    firstDate: DateTime(2025),
+    lastDate: DateTime(2035),
+    // 🛠️ هنا السر: منع وتغميق الأيام القديمة والسماح فقط بالأيام اللاحقة لآخر كشف
+    selectableDayPredicate: (DateTime day) {
+      if (isStartDate && _lastBatchEndDate != null) {
+        // إذا كان حقل بداية، امنع أي يوم يساوي أو يسبق آخر تاريخ انتهاء تم عمله
+        // (يعني إذا آخر كشف انتهى في 17، سيتم إغلاق يوم 17 وما قبله، ويُفتح من 18 وطالع)
+        return day.isAfter(_lastBatchEndDate!);
+      }
+      return true; // باقي الحقول مفتوحة عادي
+    },
+  );
+
+  if (picked != null) {
+    // تثبيت التاريخ كـ String خام تماماً بدون مشاكل إزاحة توقيت (UTC)
+    final String formattedDate = "${picked.year.toString().padLeft(4, '0')}-"
+        "${picked.month.toString().padLeft(2, '0')}-"
+        "${picked.day.toString().padLeft(2, '0')}";
+
+    setState(() {
+      controller.text = formattedDate;
+    });
   }
+}
 
   void _showSnack(String message, Color color) {
     ScaffoldMessenger.of(context).showSnackBar(
@@ -174,11 +241,21 @@ class _PayrollScreenState extends State<PayrollScreen> {
   }
 
   String _formatDate(dynamic dateInput) {
-    if (dateInput == null) return '';
-    final str = dateInput.toString();
-    return str.contains('T') ? str.split('T')[0] : str;
+  if (dateInput == null || dateInput.toString().isEmpty) return '';
+  try {
+    // إذا كان النص يحتوي على وقت (T)، نقوم بأخذ الجزء الخاص بالتاريخ فقط كنص خام دون إدخاله في DateTime يتحكم به الـ UTC
+    String str = dateInput.toString();
+    if (str.contains('T')) {
+      str = str.split('T')[0]; // يأخذ الجزء YYYY-MM-DD مباشرة كما أرسله السيرفر
+    }
+    
+    // أو للتأكد تماماً وإعادة تنسيقه بشكل نظيف:
+    DateTime parsed = DateTime.parse(str);
+    return DateFormat('yyyy-MM-dd').format(DateTime(parsed.year, parsed.month, parsed.day));
+  } catch (e) {
+    return dateInput.toString();
   }
-
+}
   Future<void> _openBatchDetails(int batchId) async {
     showDialog(
       context: context,
@@ -298,67 +375,81 @@ class _PayrollScreenState extends State<PayrollScreen> {
     );
   }
 
-  Future<void> _exportBatchPdfReport(Map batch, List workers) async {
-    try {
-      final pdf = pw.Document();
-      final ttfRegular = await PdfGoogleFonts.robotoRegular();
-      final ttfBold = await PdfGoogleFonts.robotoBold();
+// استبدل الدالة القديمة بالكامل بهذه — لا حاجة لـ pw.Document ولا PdfGoogleFonts هنا
+Future<void> _exportBatchPdfReport(Map batch, List workers) async {
+  try {
+    final startDate = _formatDate(batch['start_date']);
+    final endDate = _formatDate(batch['end_date']);
+    final batchId = batch['payroll_batch_id'];
 
-      pdf.addPage(
-        pw.MultiPage(
-          pageFormat: PdfPageFormat.a4,
-          textDirection: pw.TextDirection.ltr,
-          theme: pw.ThemeData.withFont(base: ttfRegular, bold: ttfBold),
-          build: (context) => [
-            pw.Row(
-              mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
-              children: [
-                pw.Text('TEAM FLOW', style: pw.TextStyle(fontSize: 20, fontWeight: pw.FontWeight.bold, color: PdfColors.indigo900)),
-                pw.Text('Comprehensive Payroll Report', style: pw.TextStyle(fontSize: 14, color: PdfColors.grey700)),
-              ],
-            ),
-            pw.SizedBox(height: 4),
-            pw.Text('Batch #${batch['payroll_batch_id']} • Period: ${_formatDate(batch['start_date'])} to ${_formatDate(batch['end_date'])}',
-                style: const pw.TextStyle(fontSize: 10, color: PdfColors.grey600)),
-            pw.Divider(height: 20),
-            pw.Table.fromTextArray(
-              headerStyle: pw.TextStyle(fontWeight: pw.FontWeight.bold, color: PdfColors.white, fontSize: 10),
-              headerDecoration: const pw.BoxDecoration(color: PdfColors.indigo800),
-              cellAlignment: pw.Alignment.center,
-              cellStyle: const pw.TextStyle(fontSize: 9),
-              headers: ['Worker Name', 'Regular Hours', 'Overtime Hours', 'Base Salary', 'Overtime Pay', 'Net Salary'],
-              data: workers.map((w) {
-                return [
-                  w['worker_name'] ?? 'Worker #${w['worker_id']}',
-                  w['regular_hours_worked']?.toString() ?? '0',
-                  w['overtime_hours_worked']?.toString() ?? '0',
-                  '\$${w['base_salary'] ?? 0}',
-                  '\$${w['overtime_pay'] ?? 0}',
-                  '\$${w['net_salary'] ?? 0}',
-                ];
-              }).toList(),
-            ),
-            pw.SizedBox(height: 16),
-            pw.Container(
-              padding: const pw.EdgeInsets.all(10),
-              decoration: pw.BoxDecoration(color: PdfColors.grey200, borderRadius: pw.BorderRadius.circular(6)),
-              child: pw.Row(
-                mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
-                children: [
-                  pw.Text('Total Workers: ${workers.length}', style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 11)),
-                  pw.Text('Total Amount: \$${batch['total_amount'] ?? 0}', style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 11, color: PdfColors.indigo900)),
-                ],
-              ),
-            ),
-          ],
-        ),
-      );
-      await Printing.layoutPdf(onLayout: (format) async => pdf.save());
-    } catch (e) {
-      _showSnack('Error exporting batch report: $e', dangerColor);
-    }
+    final rowsHtml = workers.map((w) {
+      final name = (w['worker_name'] ?? 'Worker #${w['worker_id']}').toString();
+      return '''
+        <tr>
+          <td class="name-cell" dir="rtl">$name</td>
+          <td>${w['regular_hours_worked'] ?? 0}</td>
+          <td>\$${w['hourly_rate_snapshot'] ?? 0}</td>
+          <td>${w['overtime_hours_worked'] ?? 0}</td>
+          <td>\$${w['overtime_hourly_rate_snapshot'] ?? 0}</td>
+          <td>\$${w['base_salary'] ?? 0}</td>
+          <td>\$${w['overtime_pay'] ?? 0}</td>
+          <td class="net">\$${w['net_salary'] ?? 0}</td>
+        </tr>
+      ''';
+    }).join();
+
+    final htmlContent = '''
+    <!DOCTYPE html>
+    <html lang="ar">
+    <head>
+      <meta charset="UTF-8">
+      <style>
+        @import url('https://fonts.googleapis.com/css2?family=Cairo:wght@400;700&display=swap');
+        body { font-family: 'Cairo', sans-serif; padding: 24px; color:#222; }
+        .header { display:flex; justify-content:space-between; align-items:center;
+                  border-bottom:2px solid #1a2a6c; padding-bottom:12px; }
+        .logo { font-size:20px; font-weight:700; color:#1a2a6c; }
+        .meta { font-size:11px; color:#777; margin-top:6px; }
+        table { width:100%; border-collapse:collapse; margin-top:16px; font-size:11px; }
+        th { background:#1a2a6c; color:#fff; padding:8px; text-align:center; }
+        td { padding:7px; text-align:center; border-bottom:1px solid #eee; }
+        .name-cell { text-align:right; font-weight:600; }
+        .net { font-weight:700; color:#1a2a6c; }
+        .summary { margin-top:16px; background:#f2f3f7; padding:12px; border-radius:6px;
+                   display:flex; justify-content:space-between; font-weight:700; }
+      </style>
+    </head>
+    <body>
+      <div class="header">
+        <div class="logo">TEAM FLOW</div>
+        <div>Comprehensive Payroll Report</div>
+      </div>
+      <div class="meta">Batch #$batchId &nbsp;•&nbsp; Period: $startDate to $endDate</div>
+      <table>
+        <thead>
+          <tr>
+            <th>Worker Name</th><th>Reg Hours</th><th>Hourly Rate</th>
+            <th>OT Hours</th><th>OT Rate</th><th>Base Salary</th>
+            <th>OT Pay</th><th>Net Salary</th>
+          </tr>
+        </thead>
+        <tbody>$rowsHtml</tbody>
+      </table>
+      <div class="summary">
+        <span>Total Workers: ${workers.length}</span>
+        <span>Total Amount: \$${batch['total_amount'] ?? 0}</span>
+      </div>
+    </body>
+    </html>
+    ''';
+
+    await Printing.layoutPdf(
+      onLayout: (format) async => Printing.convertHtml(format: format, html: htmlContent),
+    );
+  } catch (e) {
+    _showSnack('Error exporting batch report: $e', dangerColor);
   }
-
+}
   Future<void> _confirmMarkPaid(int batchId) async {
     final confirm = await showDialog<bool>(
       context: context,
@@ -515,30 +606,32 @@ class _PayrollScreenState extends State<PayrollScreen> {
         borderRadius: BorderRadius.circular(14),
         boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.04), blurRadius: 8, offset: const Offset(0, 2))],
       ),
-      child: DropdownButton<int?>(
-  value: _selectedSiteId,
-  hint: const Text('All Sites'),
-  isExpanded: true,
-  items: [
-    const DropdownMenuItem<int?>(
-      value: null,
-      child: Text('All Sites'),
+      child: DropdownButtonFormField<int?>(
+    value: _selectedSiteId,
+    decoration: const InputDecoration(
+      labelText: 'Filter by Site',
+      border: OutlineInputBorder(),
+      contentPadding: EdgeInsets.symmetric(horizontal: 10, vertical: 5),
     ),
-    ..._sites.map((site) {
-      return DropdownMenuItem<int?>(
-        value: site['site_id'] as int?,
-        child: Text(site['site_name'] ?? 'Unknown Site'),
-      );
-    }).toList(),
-  ],
-  onChanged: (value) {
-    setState(() {
-      _selectedSiteId = value;
-    });
-    // إعادة جلب التقارير تلقائياً عند تغيير الموقع
-    _fetchPayrollReports();
-  },
-)
+    items: [
+      const DropdownMenuItem<int?>(
+        value: null,
+        child: Text('All Sites (الكل)'),
+      ),
+      ..._sites.map((site) {
+        return DropdownMenuItem<int?>(
+          value: site['site_id'],
+          child: Text(site['site_name'] ?? 'Site #${site['site_id']}'),
+        );
+      }).toList(),
+    ],
+    onChanged: (val) {
+      setState(() {
+        _selectedSiteId = val;
+      });
+      _fetchPayrollReports();
+    },
+  )
     );
   }
 
@@ -568,14 +661,17 @@ class _PayrollScreenState extends State<PayrollScreen> {
           const SizedBox(height: 14),
           Row(
             children: [
-              Expanded(
-                child: TextField(
-                  controller: _startDateController,
-                  readOnly: true,
-                  decoration: const InputDecoration(labelText: 'Start Date', suffixIcon: Icon(Icons.calendar_today, size: 18)),
-                  onTap: () => _selectDate(_startDateController),
-                ),
-              ),
+  Expanded(
+  child: TextField(
+    controller: _startDateController,
+    readOnly: true, // لمنع الكتابة اليدوية الخاطئة
+    onTap: () => _selectDate(_startDateController, isStartDate: true), // عند الضغط يفتح التقويم
+    decoration: const InputDecoration(
+      labelText: 'Start Date',
+      suffixIcon: Icon(Icons.calendar_today, size: 18), // أيقونة تقويم تدل أنه قابل للاختيار
+    ),
+  ),
+),
               const SizedBox(width: 12),
               Expanded(
                 child: TextField(
@@ -686,15 +782,11 @@ class _PayslipDialogState extends State<_PayslipDialog> {
 
   double _num(dynamic v) => double.tryParse(v?.toString() ?? '0') ?? 0;
 
-  Future<void> _exportPdf() async {
+Future<void> _exportPdf() async {
     setState(() => _isExporting = true);
     try {
-      final pdf = pw.Document();
       final w = widget.worker;
       final b = widget.batch;
-
-      final ttfRegular = await PdfGoogleFonts.robotoRegular();
-      final ttfBold = await PdfGoogleFonts.robotoBold();
 
       final regularHours = _num(w['regular_hours_worked']);
       final overtimeHours = _num(w['overtime_hours_worked']);
@@ -703,75 +795,109 @@ class _PayslipDialogState extends State<_PayslipDialog> {
       final baseSalary = _num(w['base_salary']);
       final overtimePay = _num(w['overtime_pay']);
       final netSalary = _num(w['net_salary']);
+      final workerName = w['worker_name'] ?? 'Worker #${w['worker_id']}';
+      final batchId = b['payroll_batch_id'];
+      final startDate = _fmtDate(b['start_date']);
+      final endDate = _fmtDate(b['end_date']);
+      final generatedDate = intl.DateFormat('yyyy-MM-dd HH:mm').format(DateTime.now());
 
-      pdf.addPage(
-        pw.Page(
-          pageFormat: PdfPageFormat.a4,
-          textDirection: pw.TextDirection.ltr,
-          theme: pw.ThemeData.withFont(base: ttfRegular, bold: ttfBold),
-          build: (context) => pw.Column(
-            crossAxisAlignment: pw.CrossAxisAlignment.start,
-            children: [
-              pw.Row(
-                mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
-                children: [
-                  pw.Text('TEAM FLOW', style: pw.TextStyle(fontSize: 22, fontWeight: pw.FontWeight.bold)),
-                  pw.Text('Payslip', style: pw.TextStyle(fontSize: 14, color: PdfColors.grey700)),
-                ],
-              ),
-              pw.SizedBox(height: 4),
-              pw.Text('Batch #${b['payroll_batch_id']}  •  Period: ${_fmtDate(b['start_date'])} to ${_fmtDate(b['end_date'])}',
-                  style: const pw.TextStyle(fontSize: 10, color: PdfColors.grey600)),
-              pw.Divider(height: 24),
-              pw.Text(w['worker_name'] ?? 'Worker #${w['worker_id']}',
-                  style: pw.TextStyle(fontSize: 16, fontWeight: pw.FontWeight.bold)),
-              pw.SizedBox(height: 16),
-              _pdfRow('Regular Working Hours', '${regularHours.toStringAsFixed(2)} h'),
-              _pdfRow('Overtime Working Hours', '${overtimeHours.toStringAsFixed(2)} h'),
-              _pdfRow('Hourly Rate', '\$${hourlyRate.toStringAsFixed(2)}'),
-              _pdfRow('Overtime Hourly Rate', '\$${overtimeRate.toStringAsFixed(2)}'),
-              pw.Divider(height: 24),
-              _pdfRow('Base Salary', '\$${baseSalary.toStringAsFixed(2)}'),
-              _pdfRow('Overtime Pay', '\$${overtimePay.toStringAsFixed(2)}'),
-              pw.Divider(height: 24),
-              pw.Container(
-                padding: const pw.EdgeInsets.all(12),
-                decoration: pw.BoxDecoration(color: PdfColors.grey200, borderRadius: pw.BorderRadius.circular(8)),
-                child: pw.Row(
-                  mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
-                  children: [
-                    pw.Text('NET SALARY', style: pw.TextStyle(fontSize: 14, fontWeight: pw.FontWeight.bold)),
-                    pw.Text('\$${netSalary.toStringAsFixed(2)}',
-                        style: pw.TextStyle(fontSize: 16, fontWeight: pw.FontWeight.bold)),
-                  ],
-                ),
-              ),
-              pw.Spacer(),
-              pw.Text('Generated on ${intl.DateFormat('yyyy-MM-dd HH:mm').format(DateTime.now())}',
-                  style: const pw.TextStyle(fontSize: 8, color: PdfColors.grey500)),
-            ],
-          ),
+      final htmlContent = '''
+      <!DOCTYPE html>
+      <html lang="en">
+      <head>
+          <meta charset="UTF-8">
+          <style>
+              @import url('https://fonts.googleapis.com/css2?family=Cairo:wght@400;700&display=swap');
+              body {
+                  font-family: 'Cairo', sans-serif;
+                  color: #333;
+                  padding: 30px;
+                  margin: 0;
+                  direction: ltr;
+              }
+              .header {
+                  display: flex;
+                  justify-content: space-between;
+                  align-items: center;
+                  border-bottom: 2px solid #3f51b5;
+                  padding-bottom: 15px;
+              }
+              .logo { font-size: 24px; font-weight: bold; color: #3f51b5; }
+              .title { font-size: 16px; color: #666; }
+              .meta { font-size: 12px; color: #888; margin-top: 5px; }
+              .worker-name { font-size: 18px; font-weight: bold; margin-top: 20px; }
+              .row {
+                  display: flex;
+                  justify-content: space-between;
+                  padding: 8px 0;
+                  border-bottom: 1px solid #eee;
+                  font-size: 14px;
+              }
+              .net-box {
+                  margin-top: 30px;
+                  background-color: #f5f5f5;
+                  padding: 15px;
+                  border-radius: 8px;
+                  display: flex;
+                  justify-content: space-between;
+                  font-size: 16px;
+                  font-weight: bold;
+              }
+              .footer {
+                  margin-top: 50px;
+                  font-size: 10px;
+                  color: #aaa;
+                  text-align: center;
+              }
+          </style>
+      </head>
+      <body>
+          <div class="header">
+              <div class="logo">TEAM FLOW</div>
+              <div class="title">Payslip</div>
+          </div>
+          <div class="meta">Batch #$batchId • Period: $startDate to $endDate</div>
+          
+          <div class="worker-name">$workerName</div>
+          <br>
+          
+          <div class="row"><span>Regular Working Hours</span><span>${regularHours.toStringAsFixed(2)} h</span></div>
+          <div class="row"><span>Overtime Working Hours</span><span>${overtimeHours.toStringAsFixed(2)} h</span></div>
+          <div class="row"><span>Hourly Rate</span><span>\$${hourlyRate.toStringAsFixed(2)}</span></div>
+          <div class="row"><span>Overtime Hourly Rate</span><span>\$${overtimeRate.toStringAsFixed(2)}</span></div>
+          <div class="row"><span>Base Salary</span><span>\$${baseSalary.toStringAsFixed(2)}</span></div>
+          <div class="row"><span>Overtime Pay</span><span>\$${overtimePay.toStringAsFixed(2)}</span></div>
+          
+          <div class="net-box">
+              <span>NET SALARY</span>
+              <span>\$${netSalary.toStringAsFixed(2)}</span>
+          </div>
+          
+          <div class="footer">Generated on $generatedDate</div>
+      </body>
+      </html>
+      ''';
+
+      await Printing.layoutPdf(
+        onLayout: (format) async => await Printing.convertHtml(
+          format: format,
+          html: htmlContent,
         ),
       );
-
-      await Printing.layoutPdf(onLayout: (format) async => pdf.save());
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error exporting PDF: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
     } finally {
       if (mounted) setState(() => _isExporting = false);
     }
   }
 
-  pw.Widget _pdfRow(String label, String value) {
-    return pw.Padding(
-      padding: const pw.EdgeInsets.symmetric(vertical: 4),
-      child: pw.Row(
-        mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
-        children: [
-          pw.Text(label, style: const pw.TextStyle(fontSize: 11, color: PdfColors.grey700)),
-          pw.Text(value, style: pw.TextStyle(fontSize: 11, fontWeight: pw.FontWeight.bold)),
-        ],
-      ),
-    );
-  }
 
   @override
   Widget build(BuildContext context) {

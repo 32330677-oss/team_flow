@@ -75,7 +75,7 @@ class MyApp extends StatelessWidget {
       
       theme: ThemeData(
         primarySwatch: Colors.blue,
-        fontFamily: 'Roboto', 
+        fontFamily: 'Cairo', // ✅ تم تغيير الخط هنا ليدعم الحروف العربية ويحل المشكلة نهائياً
       ),
       routes: {
         '/login': (context) => const LoginScreen(),
