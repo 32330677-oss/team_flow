@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:dio/dio.dart';
 import 'package:team_flow/constants.dart';
-
+import '../widgets/custom_app_bar.dart';
 class AdminAttendanceScreen extends StatefulWidget {
   const AdminAttendanceScreen({super.key});
 
@@ -317,21 +317,21 @@ class _AdminAttendanceScreenState extends State<AdminAttendanceScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        title: const Text("Admin Attendance Review"),
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.settings),
-            tooltip: 'Break & Work Settings',
-            onPressed: () => _showSettingsDialog(context),
-          ),
-          IconButton(
-            icon: const Icon(Icons.refresh),
-            onPressed: _fetchData,
-            tooltip: 'Refresh',
-          ),
-        ],
-      ),
+      appBar: CustomAppBar(
+      title: "Admin Attendance Review",
+      actions: [
+        IconButton(
+          icon: const Icon(Icons.settings),
+          tooltip: 'Break & Work Settings',
+          onPressed: () => _showSettingsDialog(context),
+        ),
+        IconButton(
+          icon: const Icon(Icons.refresh),
+          onPressed: _fetchData,
+          tooltip: 'Refresh',
+        ),
+      ],
+    ),
       body: isLoading
           ? const Center(child: CircularProgressIndicator())
           : groupedAttendance.isEmpty

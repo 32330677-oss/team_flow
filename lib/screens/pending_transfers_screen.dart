@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:dio/dio.dart';
 import 'package:team_flow/constants.dart';
-
+import '../widgets/custom_app_bar.dart';
 class PendingTransfersScreen extends StatefulWidget {
   const PendingTransfersScreen({super.key});
 
@@ -137,13 +137,15 @@ class _PendingTransfersScreenState extends State<PendingTransfersScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('Pending Transfer Requests'),
-        backgroundColor: primaryColor,
-        actions: [
-          IconButton(icon: const Icon(Icons.refresh), onPressed: _fetchPending),
-        ],
-      ),
+      appBar: CustomAppBar(
+      title: 'Pending Transfer Requests',
+      actions: [
+        IconButton(
+          icon: const Icon(Icons.refresh),
+          onPressed: _fetchPending,
+        ),
+      ],
+    ),
       body: _isLoading
           ? const Center(child: CircularProgressIndicator())
           : _requests.isEmpty

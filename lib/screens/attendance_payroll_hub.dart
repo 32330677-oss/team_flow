@@ -1,19 +1,21 @@
 import 'package:flutter/material.dart';
 import 'admin_attendance_screen.dart'; 
 import 'payroll_screen.dart';
-
+import '../widgets/custom_app_bar.dart';
 class AttendancePayrollHub extends StatelessWidget {
   const AttendancePayrollHub({super.key});
 
   @override
-  Widget build(BuildContext context) {
+Widget build(BuildContext context) {
     return DefaultTabController(
       length: 2, 
       child: Scaffold(
-        appBar: AppBar(
-          title: const Text('Attendance & Payroll Management'),
-          backgroundColor: const Color(0xff1a2a6c),
+        appBar: CustomAppBar(
+          title: 'Attendance & Payroll Management',
           bottom: const TabBar(
+            labelColor: Colors.white,
+            unselectedLabelColor: Colors.white70,
+            indicatorColor: Colors.white,
             tabs: [
               Tab(icon: Icon(Icons.assignment_turned_in), text: 'Attendance'),
               Tab(icon: Icon(Icons.attach_money), text: 'Payroll'),
@@ -22,10 +24,7 @@ class AttendancePayrollHub extends StatelessWidget {
         ),
         body: const TabBarView(
           children: [
-            // Admin attendance screen
             AdminAttendanceScreen(), 
-            
-            // Payroll screen
             PayrollScreen(),
           ],
         ),

@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:dio/dio.dart';
 import 'project_contracts_screen.dart';
 import 'package:team_flow/constants.dart';
-
+import '../widgets/custom_app_bar.dart';
 class ProjectManagementScreen extends StatefulWidget {
   const ProjectManagementScreen({super.key});
 
@@ -211,10 +211,8 @@ class _ProjectManagementScreenState extends State<ProjectManagementScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('Project Management'),
-        backgroundColor: const Color(0xff1a2a6c),
-        centerTitle: true,
+      appBar: CustomAppBar(
+        title:  ('Project Management'),
       ),
       floatingActionButton: FloatingActionButton(
         onPressed: () => _showProjectDialog(),

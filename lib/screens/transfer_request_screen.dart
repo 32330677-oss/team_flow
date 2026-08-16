@@ -242,8 +242,12 @@ Future<void> _loadInitialData() async {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Worker Transfer Request'),
+        title: const Text(
+          'Worker Transfer Request',
+          style: TextStyle(color: Colors.white), // 👈 أضف هذا السطر
+        ),
         backgroundColor: primaryColor,
+        iconTheme: const IconThemeData(color: Colors.white), // 👈 وأضف هذا السطر أيضاً
       ),
       body: _isLoading
           ? const Center(child: CircularProgressIndicator())

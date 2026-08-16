@@ -2,7 +2,7 @@ import 'contract_sites_screen.dart';
 import 'package:flutter/material.dart';
 import 'package:dio/dio.dart';
 import 'package:team_flow/constants.dart';
-
+import '../widgets/custom_app_bar.dart';
 class ProjectContractsScreen extends StatefulWidget {
   final int projectId;
   final String projectName;
@@ -226,10 +226,9 @@ class _ProjectContractsScreenState extends State<ProjectContractsScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        title: Text('Contracts: ${widget.projectName}'),
-        backgroundColor: const Color(0xffb21f1f),
-      ),
+   appBar: CustomAppBar(
+      title: 'Contracts: ${widget.projectName}',
+    ),
       floatingActionButton: FloatingActionButton(
         onPressed: () => _showContractDialog(),
         backgroundColor: const Color(0xffb21f1f),

@@ -211,7 +211,7 @@ class _SupervisorManagementScreenState extends State<SupervisorManagementScreen>
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: Colors.grey[100],
-      appBar: AppBar(
+     appBar: AppBar(
         title: const Text('Supervisors Management', style: TextStyle(fontWeight: FontWeight.bold, color: Colors.white)),
         backgroundColor: const Color(0xffb21f1f),
         centerTitle: true,

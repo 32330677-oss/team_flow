@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../constants.dart';
+import '../widgets/custom_app_bar.dart';
 class WorkersScreen extends StatefulWidget {
   const WorkersScreen({Key? key}) : super(key: key);
 
@@ -259,12 +260,8 @@ void _openWorkerSheet({Map<String, dynamic>? worker}) {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: Colors.grey[100],
-      appBar: AppBar(
-        title: Text('Workers Management', style: TextStyle(fontWeight: FontWeight.bold, color: primaryColor)),
-        backgroundColor: Colors.white,
-        elevation: 0,
-        centerTitle: true,
-        iconTheme: IconThemeData(color: primaryColor),
+      appBar: CustomAppBar(
+        title: 'Workers Management',
         actions: [
           IconButton(
             icon: const Icon(Icons.refresh_rounded),

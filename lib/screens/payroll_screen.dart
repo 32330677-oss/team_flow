@@ -5,6 +5,7 @@ import 'package:printing/printing.dart';
 import 'package:team_flow/constants.dart';
 import 'package:dio/dio.dart';
 import 'package:intl/intl.dart';
+import '../widgets/custom_app_bar.dart';
 class PayrollScreen extends StatefulWidget {
   const PayrollScreen({Key? key}) : super(key: key);
 
@@ -494,9 +495,8 @@ Future<void> _exportBatchPdfReport(Map batch, List workers) async {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: const Color(0xfff4f6fb),
-      appBar: AppBar(
-        title: const Text('Payroll Management'),
-        backgroundColor: primaryColor,
+      appBar: CustomAppBar(
+        title: ('Payroll Management'),
       ),
       body: RefreshIndicator(
         onRefresh: () async {

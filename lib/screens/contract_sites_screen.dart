@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:team_flow/constants.dart';
-
+import '../widgets/custom_app_bar.dart';
 class ContractSitesScreen extends StatefulWidget {
   final int contractId;
   final String contractName;
@@ -238,10 +238,10 @@ class _ContractSitesScreenState extends State<ContractSitesScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        title: Text('Sites: ${widget.contractName}'),
-        backgroundColor: const Color(0xffb21f1f), 
-      ),
+      appBar: CustomAppBar(
+      title: 'Sites: ${widget.contractName}',
+      // تم حذف اللون الأحمر، ستأخذ اللون الأزرق الموحد تلقائياً
+    ),
       floatingActionButton: FloatingActionButton(
         onPressed: () => _showSiteDialog(),
         backgroundColor: const Color(0xffb21f1f),

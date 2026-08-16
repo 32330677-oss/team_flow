@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:dio/dio.dart';
 import '../constants.dart';
 import '../widgets/searchable_picker_sheet.dart';
-
+import '../widgets/custom_app_bar.dart';
 class WorkerAssignmentScreen extends StatefulWidget {
   const WorkerAssignmentScreen({Key? key}) : super(key: key);
 
@@ -116,10 +116,8 @@ class _WorkerAssignmentScreenState extends State<WorkerAssignmentScreen> {
 
     return Scaffold(
       backgroundColor: Colors.grey[100],
-      appBar: AppBar(
-        title: const Text('Workers & Sites Distribution', style: TextStyle(fontWeight: FontWeight.bold)),
-        backgroundColor: const Color(0xff1a2a6c),
-        centerTitle: true,
+     appBar: CustomAppBar(
+        title: 'Workers & Sites Distribution',
       ),
       body: _isLoading 
         ? const Center(child: CircularProgressIndicator()) 

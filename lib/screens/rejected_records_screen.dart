@@ -62,7 +62,7 @@ class _RejectedRecordsScreenState extends State<RejectedRecordsScreen> {
   Map<String, Map<String, List<dynamic>>> _groupRecords() {
     final Map<String, Map<String, List<dynamic>>> grouped = {};
     for (var r in _filteredRecords) {
-      final site = r['site_name'] ?? 'بدون موقع';
+      final site = r['site_name'] ?? 'No Site';
       final date = (r['record_date'] ?? '').toString().split('T').first;
       grouped.putIfAbsent(site, () => {});
       grouped[site]!.putIfAbsent(date, () => []);
@@ -109,11 +109,11 @@ class _RejectedRecordsScreenState extends State<RejectedRecordsScreen> {
       _fetchRejected();
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('تمت إعادة الإرسال'), backgroundColor: Colors.green),
+          const SnackBar(content: Text('Resubmitted successfully'), backgroundColor: Colors.green),
         );
       }
     } catch (e) {
-      String errorMsg = 'فشل إعادة الإرسال';
+      String errorMsg = 'Failed to resubmit';
       if (e is DioException && e.response?.data['message'] != null) {
         errorMsg = e.response!.data['message'];
       }
@@ -171,7 +171,6 @@ class _RejectedRecordsScreenState extends State<RejectedRecordsScreen> {
                   mainAxisSize: MainAxisSize.min,
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    // ✅ سبب الرفض بارز باللون الأحمر
                     if ((r['admin_rejection_notes'] ?? r['remarks']) != null)
                       Container(
                         width: double.infinity,
@@ -186,12 +185,12 @@ class _RejectedRecordsScreenState extends State<RejectedRecordsScreen> {
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
                             Text(
-                              'سبب الرفض',
+                              'Rejection Reason',
                               style: TextStyle(color: Colors.red.shade700, fontWeight: FontWeight.bold, fontSize: 12),
                             ),
                             const SizedBox(height: 4),
                             Text(
-                              (r['admin_rejection_notes'] ?? r['remarks'] ?? 'لا يوجد').toString(),
+                              (r['admin_rejection_notes'] ?? r['remarks'] ?? 'None').toString(),
                               style: TextStyle(color: Colors.red.shade900),
                             ),
                           ],
@@ -199,15 +198,15 @@ class _RejectedRecordsScreenState extends State<RejectedRecordsScreen> {
                       ),
                     const Divider(),
                     const SizedBox(height: 8),
-                    _timeRow('وقت الدخول', checkIn, () => pickTime(true)),
+                    _timeRow('Check-in Time', checkIn, () => pickTime(true)),
                     const SizedBox(height: 12),
-                    _timeRow('وقت الخروج', checkOut, () => pickTime(false)),
+                    _timeRow('Check-out Time', checkOut, () => pickTime(false)),
                     const SizedBox(height: 16),
                     TextField(
                       controller: remarksController,
                       maxLines: 3,
                       decoration: InputDecoration(
-                        labelText: 'الملاحظات',
+                        labelText: 'Remarks',
                         border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
                       ),
                     ),
@@ -215,7 +214,7 @@ class _RejectedRecordsScreenState extends State<RejectedRecordsScreen> {
                 ),
               ),
               actions: [
-                TextButton(onPressed: () => Navigator.pop(context), child: const Text('إلغاء')),
+                TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
                 ElevatedButton.icon(
                   onPressed: () {
                     Navigator.pop(context);
@@ -227,7 +226,7 @@ class _RejectedRecordsScreenState extends State<RejectedRecordsScreen> {
                     );
                   },
                   icon: const Icon(Icons.send, size: 18),
-                  label: const Text('إعادة إرسال'),
+                  label: const Text('Resubmit'),
                 ),
               ],
             );
@@ -255,7 +254,7 @@ class _RejectedRecordsScreenState extends State<RejectedRecordsScreen> {
     final grouped = _groupRecords();
 
     return Scaffold(
-      appBar: AppBar(title: const Text("سجلات مرفوضة")),
+      appBar: AppBar(title: const Text("Rejected Records")),
       body: Column(
         children: [
           Padding(
@@ -263,7 +262,7 @@ class _RejectedRecordsScreenState extends State<RejectedRecordsScreen> {
             child: TextField(
               controller: _searchController,
               decoration: InputDecoration(
-                hintText: 'بحث باسم العامل أو الموقع...',
+                hintText: 'Search by worker name or site...',
                 prefixIcon: const Icon(Icons.search),
                 filled: true,
                 fillColor: Colors.grey.shade100,
@@ -284,7 +283,7 @@ class _RejectedRecordsScreenState extends State<RejectedRecordsScreen> {
                           children: [
                             Icon(Icons.check_circle_outline, size: 60, color: Colors.grey.shade400),
                             const SizedBox(height: 12),
-                            Text('لا يوجد سجلات مرفوضة', style: TextStyle(color: Colors.grey.shade600)),
+                            Text('No rejected records found', style: TextStyle(color: Colors.grey.shade600)),
                           ],
                         ),
                       )
@@ -382,7 +381,6 @@ class _RejectedRecordsScreenState extends State<RejectedRecordsScreen> {
                                                       ),
                                                     ],
                                                   ),
-                                                  // ✅ سبب الرفض بارز في البطاقة نفسها أيضاً
                                                   if ((r['admin_rejection_notes'] ?? r['remarks']) != null)
                                                     Container(
                                                       width: double.infinity,
@@ -393,7 +391,7 @@ class _RejectedRecordsScreenState extends State<RejectedRecordsScreen> {
                                                         borderRadius: BorderRadius.circular(8),
                                                       ),
                                                       child: Text(
-                                                        'سبب الرفض: ${r['admin_rejection_notes'] ?? r['remarks'] ?? 'لا يوجد'}',
+                                                        'Rejection Reason: ${r['admin_rejection_notes'] ?? r['remarks'] ?? 'None'}',
                                                         style: TextStyle(color: Colors.red.shade900, fontSize: 12),
                                                       ),
                                                     ),
@@ -402,7 +400,7 @@ class _RejectedRecordsScreenState extends State<RejectedRecordsScreen> {
                                                     child: TextButton.icon(
                                                       onPressed: () => _openEditDialog(Map<String, dynamic>.from(r)),
                                                       icon: const Icon(Icons.edit, size: 16),
-                                                      label: const Text('تعديل وإعادة إرسال'),
+                                                      label: const Text('Edit & Resubmit'),
                                                     ),
                                                   ),
                                                 ],

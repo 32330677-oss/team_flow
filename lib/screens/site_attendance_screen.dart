@@ -46,30 +46,32 @@ class _SiteAttendanceScreenState extends State<SiteAttendanceScreen> {
   // additional fields (like leave_type) can be merged into the request
   // payload without duplicating this method for every action.
   // -------------------------------------------------------------------
-  Future<void> _handleAction(String endpoint, int workerId, {Map<String, dynamic>? extraData}) async {
-    setState(() => _isLoading = true);
-    try {
-      final Map<String, dynamic> payload = {
-        'worker_id': workerId,
-        'site_id': widget.siteId,
-      };
-      if (extraData != null) {
-        payload.addAll(extraData);
-      }
-
-      await ApiConfig.dio.post(endpoint, data: payload);
-      await _fetchWorkers();
-    } on DioException catch (e) {
-      if (!mounted) return;
-      setState(() => _isLoading = false);
-      final msg = e.response?.data['message'] ?? 'Connection error';
-      _showToast(msg, Colors.red);
-    } catch (e) {
-      if (!mounted) return;
-      setState(() => _isLoading = false);
-      _showToast('Connection error', Colors.red);
+// frontend/lib/screens/site_attendance_screen.dart
+// 1. Updated the generalized helper to accept and merge extra fields
+Future<void> _handleAction(String endpoint, int workerId, {Map<String, dynamic>? extraData}) async {
+  setState(() => _isLoading = true);
+  try {
+    final Map<String, dynamic> payload = {
+      'worker_id': workerId,
+      'site_id': widget.siteId,
+    };
+    if (extraData != null) {
+      payload.addAll(extraData);
     }
+
+    await ApiConfig.dio.post(endpoint, data: payload);
+    await _fetchWorkers();
+  } on DioException catch (e) {
+    if (!mounted) return;
+    setState(() => _isLoading = false);
+    final msg = e.response?.data['message'] ?? 'Connection error';
+    _showToast(msg, Colors.red);
+  } catch (e) {
+    if (!mounted) return;
+    setState(() => _isLoading = false);
+    _showToast('Connection error', Colors.red);
   }
+}
 
   void _showToast(String message, Color color) {
     ScaffoldMessenger.of(context).showSnackBar(
@@ -86,49 +88,48 @@ class _SiteAttendanceScreenState extends State<SiteAttendanceScreen> {
   // 2) Actually forwards the chosen leave_type to the backend via
   //    _handleAction's extraData parameter (this was previously ignored).
   // -------------------------------------------------------------------
-  Future<void> _startLeaveDialog(int workerId) async {
-    final type = await showModalBottomSheet<String>(
-      context: context,
-      backgroundColor: Colors.white,
-      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(24))),
-      builder: (ctx) => SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.all(20.0),
-          child: Wrap(
-            runSpacing: 12,
-            children: [
-              Center(
-                child: Container(
-                  width: 40,
-                  height: 4,
-                  decoration: BoxDecoration(color: Colors.grey[300], borderRadius: BorderRadius.circular(10)),
-                ),
+Future<void> _startLeaveDialog(int workerId) async {
+  final type = await showModalBottomSheet<String>(
+    context: context,
+    backgroundColor: Colors.white,
+    shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(24))),
+    builder: (ctx) => SafeArea(
+      child: Padding(
+        padding: const EdgeInsets.all(20.0),
+        child: Wrap(
+          runSpacing: 12,
+          children: [
+            Center(
+              child: Container(
+                width: 40,
+                height: 4,
+                decoration: BoxDecoration(color: Colors.grey[300], borderRadius: BorderRadius.circular(10)),
               ),
-              const SizedBox(height: 8),
-              const Text(
-                'Select Break / Leave Type',
-                style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Color(0xff1a2a6c)),
-              ),
-              const Divider(),
-              // Field-level options ONLY. 'Management' is deliberately omitted.
-              _buildLeaveOption(ctx, 'Rest', 'Rest Break', Icons.free_breakfast, Colors.blue),
-              _buildLeaveOption(ctx, 'Sick', 'Sick Leave', Icons.sick, Colors.red),
-              _buildLeaveOption(ctx, 'Annual', 'Annual Leave', Icons.beach_access, Colors.orange),
-            ],
-          ),
+            ),
+            const SizedBox(height: 8),
+            const Text(
+              'Select Break / Leave Type',
+              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Color(0xff1a2a6c)),
+            ),
+            const Divider(),
+            _buildLeaveOption(ctx, 'Rest', 'Rest Break', Icons.free_breakfast, Colors.blue),
+            _buildLeaveOption(ctx, 'Sick', 'Sick Leave', Icons.sick, Colors.red),
+            _buildLeaveOption(ctx, 'Annual', 'Annual Leave', Icons.beach_access, Colors.orange),
+          ],
         ),
       ),
-    );
+    ),
+  );
 
-    if (type == null) return;
+  if (type == null) return;
 
-    // Forward the actually selected leave_type to the backend.
-    _handleAction(
-      '/attendance/leave/start',
-      workerId,
-      extraData: {'leave_type': type},
-    );
-  }
+  // Safely forward the selected leave type in the request
+  _handleAction(
+    '/attendance/leave/start',
+    workerId,
+    extraData: {'leave_type': type},
+  );
+}
 
   Widget _buildLeaveOption(BuildContext ctx, String value, String title, IconData icon, Color color) {
     return ListTile(

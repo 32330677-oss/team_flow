@@ -121,7 +121,7 @@ class _LoginScreenState extends State<LoginScreen>
         }
       });
     } else {
-      String errorMsg = result?['message'] ?? "Failed to connect to the server";
+      String errorMsg = result?['message'] ?? "InCorrect Password or Username";
       _showSnack(errorMsg, Colors.red);
     }
   }

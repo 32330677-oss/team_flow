@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'workers_screen.dart'; // شاشة العمال الحالية لديك
 import 'supervisor_management_screen.dart'; // شاشة المشرفين التي سنبنيها
-
+import '../widgets/custom_app_bar.dart';
 class HRManagementScreen extends StatelessWidget {
   const HRManagementScreen({Key? key}) : super(key: key);
 
@@ -9,15 +9,9 @@ class HRManagementScreen extends StatelessWidget {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: Colors.grey[100],
-      appBar: AppBar(
-        title: const Text(
-          'HR Management',
-          style: TextStyle(fontWeight: FontWeight.bold, color: Colors.white),
-        ),
-        backgroundColor: const Color(0xff1a2a6c),
-        centerTitle: true,
-        elevation: 0,
-      ),
+      appBar: const CustomAppBar(
+      title: 'HR Management',
+    ),
       body: Padding(
         padding: const EdgeInsets.all(20.0),
         child: Column(
