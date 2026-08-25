@@ -1,7 +1,8 @@
-import 'package:flutter/material.dart';
 import 'package:dio/dio.dart';
+import 'package:flutter/material.dart';
 import 'package:team_flow/constants.dart';
 import '../widgets/custom_app_bar.dart';
+
 class AdminAttendanceScreen extends StatefulWidget {
   const AdminAttendanceScreen({super.key});
 
@@ -10,9 +11,10 @@ class AdminAttendanceScreen extends StatefulWidget {
 }
 
 class _AdminAttendanceScreenState extends State<AdminAttendanceScreen> {
-  Map<String, List<dynamic>> groupedAttendance = {};
-  final Set<int> _selectedIds = {};
-  bool isLoading = true;
+  final Set<int> _selectedIds = <int>{};
+  Map<String, List<Map<String, dynamic>>> _grouped = {};
+  bool _loading = true;
+  bool _working = false;
 
   @override
   void initState() {
@@ -21,477 +23,482 @@ class _AdminAttendanceScreenState extends State<AdminAttendanceScreen> {
   }
 
   Future<void> _fetchData() async {
-    setState(() {
-      isLoading = true;
-      groupedAttendance.clear();
-      _selectedIds.clear();
-    });
-
+    if (mounted) setState(() => _loading = true);
     try {
       final response = await ApiConfig.dio.get('/admin/attendance/pending');
-      
-      Map<String, List<dynamic>> tempGrouped = {};
-      for (var item in response.data['data']) {
-        String rawDate = item['record_date']?.toString() ?? "1970-01-01";
-        String date = rawDate.substring(0, 10);
+      final raw = response.data is Map ? response.data['data'] : null;
+      final grouped = <String, List<Map<String, dynamic>>>{};
 
-        if (!tempGrouped.containsKey(date)) {
-          tempGrouped[date] = [];
+      if (raw is List) {
+        for (final value in raw) {
+          if (value is! Map) continue;
+          final item = Map<String, dynamic>.from(value);
+          final rawDate = '${item['record_date'] ?? '1970-01-01'}';
+          final date = rawDate.length >= 10 ? rawDate.substring(0, 10) : rawDate;
+          grouped.putIfAbsent(date, () => <Map<String, dynamic>>[]).add(item);
         }
-        tempGrouped[date]!.add(item);
       }
 
+      final sorted = grouped.keys.toList()..sort((a, b) => b.compareTo(a));
+      final ordered = <String, List<Map<String, dynamic>>>{};
+      for (final date in sorted) {
+        ordered[date] = grouped[date]!;
+      }
+
+      if (!mounted) return;
       setState(() {
-        groupedAttendance = tempGrouped;
-        isLoading = false;
+        _grouped = ordered;
+        _selectedIds.clear();
+        _loading = false;
       });
-    } catch (e) {
-      print("Error fetching data: $e");
-      setState(() => isLoading = false);
-      _showSnackBar('Failed to fetch data', Colors.red);
+    } on DioException catch (e) {
+      if (!mounted) return;
+      setState(() => _loading = false);
+      _showMessage(_errorMessage(e, 'Failed to load attendance records.'), false);
+    } catch (_) {
+      if (!mounted) return;
+      setState(() => _loading = false);
+      _showMessage('Failed to load attendance records.', false);
     }
   }
 
-  Future<void> _reviewMultiple(List<int> ids, String status, {String? note}) async {
-    if (ids.isEmpty) return;
-    setState(() => isLoading = true);
+  String _errorMessage(DioException e, String fallback) {
+    final data = e.response?.data;
+    if (data is Map && data['message'] != null) return '${data['message']}';
+    return fallback;
+  }
 
-    try {
-      for (int id in ids) {
+  List<int> _idsForDate(List<Map<String, dynamic>> items) {
+    return items
+        .map((item) => int.tryParse('${item['attendance_id']}'))
+        .whereType<int>()
+        .toList();
+  }
+
+  Future<void> _reviewSelected(List<int> ids, String status, {String? note}) async {
+    if (ids.isEmpty || _working) return;
+    setState(() => _working = true);
+
+    final succeeded = <int>[];
+    final failed = <int>[];
+    for (final id in ids) {
+      try {
         await ApiConfig.dio.post('/admin/attendance/review', data: {
           'attendance_id': id,
           'status': status,
           'admin_note': note,
         });
+        succeeded.add(id);
+      } catch (_) {
+        failed.add(id);
       }
-
-      _showSnackBar('Selected records processed successfully', Colors.green);
-      await _fetchData();
-    } on DioException catch (e) {
-      String errorMessage = 'An unexpected error occurred';
-      if (e.response != null && e.response!.data['message'] != null) {
-        errorMessage = e.response!.data['message'];
-      }
-      _showSnackBar(errorMessage, Colors.red);
-    } catch (e) {
-      _showSnackBar('Server connection error', Colors.red);
-    } finally {
-      if (mounted) setState(() => isLoading = false);
     }
+
+    if (!mounted) return;
+    setState(() => _working = false);
+    if (failed.isEmpty) {
+      _showMessage('${succeeded.length} record(s) processed successfully.', true);
+    } else {
+      _showMessage('${succeeded.length} succeeded, ${failed.length} failed.', false);
+    }
+    await _fetchData();
   }
 
-  void _showSnackBar(String message, Color color) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(message), backgroundColor: color),
-    );
-  }
-
-  Future<String?> _showRejectDialog(BuildContext context) {
-    TextEditingController controller = TextEditingController();
-    return showDialog<String>(
+  Future<String?> _askRejectionReason() async {
+    final controller = TextEditingController();
+    final result = await showDialog<String>(
       context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text("Rejection Reason"),
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Reject attendance record'),
         content: TextField(
           controller: controller,
+          maxLines: 3,
+          autofocus: true,
           decoration: const InputDecoration(
-            hintText: "Enter rejection reason for supervisor...",
+            labelText: 'Reason',
+            hintText: 'Explain what the supervisor must correct',
             border: OutlineInputBorder(),
           ),
-          maxLines: 3,
         ),
         actions: [
           TextButton(
-            onPressed: () => Navigator.pop(ctx),
-            child: const Text("Cancel", style: TextStyle(color: Colors.grey)),
+            onPressed: () => Navigator.pop(dialogContext),
+            child: const Text('Cancel'),
           ),
-          ElevatedButton(
-            style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
-            onPressed: () => Navigator.pop(ctx, controller.text),
-            child: const Text("Confirm Reject", style: TextStyle(color: Colors.white)),
-          )
+          FilledButton(
+            style: FilledButton.styleFrom(backgroundColor: Colors.red.shade700),
+            onPressed: () {
+              final value = controller.text.trim();
+              if (value.isNotEmpty) Navigator.pop(dialogContext, value);
+            },
+            child: const Text('Reject'),
+          ),
         ],
       ),
     );
+    controller.dispose();
+    return result;
   }
 
-  // >>> تمت إضافة دالة منح ساعات الإجازة الإدارية هنا بنجاح <<<
   Future<void> _showManagementLeaveDialog(int attendanceId) async {
-    final hoursController = TextEditingController();
-    final reasonController = TextEditingController();
+    final hours = TextEditingController();
+    final reason = TextEditingController();
     final result = await showDialog<bool>(
       context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Grant Management Leave Hours'),
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Management leave'),
         content: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
             TextField(
-              controller: hoursController,
-              keyboardType: TextInputType.number,
-              decoration: const InputDecoration(labelText: 'Hours'),
+              controller: hours,
+              keyboardType: const TextInputType.numberWithOptions(decimal: true),
+              decoration: const InputDecoration(labelText: 'Hours', border: OutlineInputBorder()),
             ),
+            const SizedBox(height: 12),
             TextField(
-              controller: reasonController,
-              decoration: const InputDecoration(labelText: 'Reason'),
+              controller: reason,
+              maxLines: 2,
+              decoration: const InputDecoration(labelText: 'Reason', border: OutlineInputBorder()),
             ),
           ],
         ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
-          ElevatedButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Save')),
+          TextButton(onPressed: () => Navigator.pop(dialogContext, false), child: const Text('Cancel')),
+          FilledButton(onPressed: () => Navigator.pop(dialogContext, true), child: const Text('Save')),
         ],
       ),
     );
-    if (result != true) return;
+    final hoursValue = double.tryParse(hours.text.trim());
+    final reasonValue = reason.text.trim();
+    hours.dispose();
+    reason.dispose();
+    if (result != true || hoursValue == null || hoursValue < 0 || hoursValue > 24) {
+      if (result == true && mounted) _showMessage('Hours must be a number between 0 and 24.', false);
+      return;
+    }
+
     try {
       await ApiConfig.dio.patch('/attendance/$attendanceId/management-leave', data: {
-        'hours': double.tryParse(hoursController.text) ?? 0,
-        'reason': reasonController.text,
+        'hours': hoursValue,
+        'reason': reasonValue,
       });
-      _showSnackBar('Management hours recorded', Colors.green);
-      _fetchData();
-    } catch (e) {
-      _showSnackBar('Failed to record hours', Colors.red);
+      if (!mounted) return;
+      _showMessage('Management leave saved.', true);
+      await _fetchData();
+    } on DioException catch (e) {
+      if (mounted) _showMessage(_errorMessage(e, 'Failed to save management leave.'), false);
     }
   }
 
-  // نافذة الإعدادات السريعة لأوقات الدوام والاستراحات
-  Future<void> _showSettingsDialog(BuildContext context) async {
-    TimeOfDay? lunchStart;
-    TimeOfDay? lunchEnd;
-    TextEditingController workMinutesController = TextEditingController();
-    bool isFetchingSettings = true;
-
-    String timeToString(TimeOfDay time) {
-      final hours = time.hour.toString().padLeft(2, '0');
-      final minutes = time.minute.toString().padLeft(2, '0');
-      return '$hours:$minutes';
-    }
-
-    TimeOfDay parseTimeString(String? timeStr) {
-      if (timeStr == null || timeStr.isEmpty) {
-        return const TimeOfDay(hour: 12, minute: 0);
+  Future<void> _showSettingsDialog() async {
+    bool lunchPaid = false;
+    int minutes = 480;
+    try {
+      final response = await ApiConfig.dio.get('/admin/attendance/settings/breaks');
+      final data = response.data is Map ? response.data['data'] : null;
+      if (data is Map) {
+        lunchPaid = '${data['is_lunch_paid']}'.toLowerCase() == 'true';
+        minutes = int.tryParse('${data['standard_work_minutes']}') ?? 480;
       }
-      try {
-        final parts = timeStr.split(':');
-        if (parts.length >= 2) {
-          return TimeOfDay(hour: int.parse(parts[0]), minute: int.parse(parts[1]));
-        }
-      } catch (_) {}
-      return const TimeOfDay(hour: 12, minute: 0);
+    } catch (_) {
+      if (mounted) _showMessage('Failed to load settings.', false);
+      return;
     }
+    if (!mounted) return;
 
-    showDialog(
+    final minutesController = TextEditingController(text: '$minutes');
+    await showDialog<void>(
       context: context,
-      builder: (ctx) {
-        return StatefulBuilder(
-          builder: (context, setStateDialog) {
-            if (isFetchingSettings) {
-              ApiConfig.dio.get('/admin/attendance/settings/breaks').then((res) {
-                if (res.data['status'] == 'success') {
-                  final data = res.data['data'];
-                  lunchStart = parseTimeString(data['lunch_start_time'] ?? '12:00');
-                  lunchEnd = parseTimeString(data['lunch_end_time'] ?? '13:00');
-                  workMinutesController.text = data['standard_work_minutes']?.toString() ?? '480';
-                  setStateDialog(() => isFetchingSettings = false);
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (context, setDialogState) => AlertDialog(
+          title: const Text('Attendance settings'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              SwitchListTile.adaptive(
+                contentPadding: EdgeInsets.zero,
+                title: const Text('Lunch is paid'),
+                value: lunchPaid,
+                onChanged: (value) => setDialogState(() => lunchPaid = value),
+              ),
+              TextField(
+                controller: minutesController,
+                keyboardType: TextInputType.number,
+                decoration: const InputDecoration(
+                  labelText: 'Standard work minutes',
+                  border: OutlineInputBorder(),
+                ),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(dialogContext), child: const Text('Cancel')),
+            FilledButton(
+              onPressed: () async {
+                final value = int.tryParse(minutesController.text.trim());
+                if (value == null || value <= 0 || value > 1440) {
+                  _showMessage('Minutes must be between 1 and 1440.', false);
+                  return;
                 }
-              }).catchError((_) {
-                setStateDialog(() => isFetchingSettings = false);
-              });
-            }
+                try {
+                  await ApiConfig.dio.put('/admin/attendance/settings/breaks', data: {
+                    'is_lunch_paid': lunchPaid,
+                    'standard_work_minutes': value,
+                  });
+                  if (dialogContext.mounted) Navigator.pop(dialogContext);
+                  if (mounted) _showMessage('Settings updated.', true);
+                } on DioException catch (e) {
+                  if (mounted) _showMessage(_errorMessage(e, 'Failed to update settings.'), false);
+                }
+              },
+              child: const Text('Save'),
+            ),
+          ],
+        ),
+      ),
+    );
+    minutesController.dispose();
+  }
 
-            return AlertDialog(
-              title: const Text("Break & Work Settings"),
-              content: isFetchingSettings
-                  ? const SizedBox(height: 100, child: Center(child: CircularProgressIndicator()))
-                  : SingleChildScrollView(
-                      child: Column(
-                        mainAxisSize: MainAxisSize.min,
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          const Text("Lunch Break Time Window", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
-                          const SizedBox(height: 8),
-                          ListTile(
-                            tileColor: Colors.grey.shade100,
-                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                            title: Text("Start Time: ${lunchStart != null ? lunchStart!.format(context) : 'Select'}"),
-                            trailing: const Icon(Icons.access_time),
-                            onTap: () async {
-                              final picked = await showTimePicker(
-                                context: context,
-                                initialTime: lunchStart ?? const TimeOfDay(hour: 12, minute: 0),
-                              );
-                              if (picked != null) {
-                                setStateDialog(() => lunchStart = picked);
-                              }
-                            },
-                          ),
-                          const SizedBox(height: 8),
-                          ListTile(
-                            tileColor: Colors.grey.shade100,
-                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                            title: Text("End Time: ${lunchEnd != null ? lunchEnd!.format(context) : 'Select'}"),
-                            trailing: const Icon(Icons.access_time),
-                            onTap: () async {
-                              final picked = await showTimePicker(
-                                context: context,
-                                initialTime: lunchEnd ?? const TimeOfDay(hour: 13, minute: 0),
-                              );
-                              if (picked != null) {
-                                setStateDialog(() => lunchEnd = picked);
-                              }
-                            },
-                          ),
-                          const SizedBox(height: 16),
-                          TextField(
-                            controller: workMinutesController,
-                            keyboardType: TextInputType.number,
-                            decoration: const InputDecoration(
-                              labelText: 'Standard Work Minutes (e.g. 480)',
-                              border: OutlineInputBorder(),
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-              actions: [
-                TextButton(
-                  onPressed: () => Navigator.pop(ctx),
-                  child: const Text("Cancel", style: TextStyle(color: Colors.grey)),
-                ),
-                ElevatedButton(
-                  style: ElevatedButton.styleFrom(backgroundColor: Colors.blue),
-                  onPressed: () async {
-                    if (lunchStart != null && lunchEnd != null) {
-                      int startMinutes = lunchStart!.hour * 60 + lunchStart!.minute;
-                      int endMinutes = lunchEnd!.hour * 60 + lunchEnd!.minute;
+  void _showMessage(String message, bool success) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(SnackBar(
+        content: Text(message),
+        backgroundColor: success ? Colors.green.shade700 : Colors.red.shade700,
+        behavior: SnackBarBehavior.floating,
+      ));
+  }
 
-                      if (endMinutes <= startMinutes) {
-                        _showSnackBar('Error: Lunch end time must be after start time!', Colors.red);
-                        return;
-                      }
-                    }
-
-                    try {
-                      await ApiConfig.dio.put('/admin/attendance/settings/breaks', data: {
-                        'lunch_start_time': lunchStart != null ? timeToString(lunchStart!) : null,
-                        'lunch_end_time': lunchEnd != null ? timeToString(lunchEnd!) : null,
-                        'standard_work_minutes': int.tryParse(workMinutesController.text) ?? 480,
-                      });
-                      Navigator.pop(ctx);
-                      _showSnackBar('Settings updated successfully', Colors.green);
-                    } catch (e) {
-                      String errorMsg = 'Failed to update settings';
-                      if (e is DioException && e.response?.data != null) {
-                        if (e.response?.data is Map && e.response?.data['message'] != null) {
-                          errorMsg = e.response?.data['message'];
-                        }
-                      }
-                      _showSnackBar(errorMsg, Colors.red);
-                    }
-                  },
-                  child: const Text("Save Changes", style: TextStyle(color: Colors.white)),
-                ),
-              ],
-            );
-          },
-        );
-      },
+  Widget _summaryCard(String label, String value, IconData icon, Color color) {
+    return Card(
+      elevation: 0,
+      color: color.withOpacity(.08),
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Row(
+          children: [
+            CircleAvatar(backgroundColor: color.withOpacity(.15), child: Icon(icon, color: color)),
+            const SizedBox(width: 12),
+            Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Text(value, style: const TextStyle(fontSize: 22, fontWeight: FontWeight.w800)),
+              Text(label, style: TextStyle(color: Colors.grey.shade700)),
+            ])),
+          ],
+        ),
+      ),
     );
   }
 
-  void _toggleSelectAllForDate(String date, List<dynamic> items, bool? value) {
-    setState(() {
-      for (var item in items) {
-        int id = item['attendance_id'];
-        if (value == true) {
-          _selectedIds.add(id);
-        } else {
-          _selectedIds.remove(id);
-        }
-      }
-    });
+  Widget _timeCell(String label, dynamic value) {
+    final text = value == null ? '--' : '${value}'.replaceFirst('T', ' ');
+    return Expanded(
+      child: Container(
+        padding: const EdgeInsets.all(10),
+        decoration: BoxDecoration(color: Colors.grey.shade50, borderRadius: BorderRadius.circular(10)),
+        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Text(label, style: TextStyle(fontSize: 11, color: Colors.grey.shade600)),
+          const SizedBox(height: 3),
+          Text(text.length > 16 ? text.substring(11, 16) : text, style: const TextStyle(fontWeight: FontWeight.w700)),
+        ]),
+      ),
+    );
+  }
+
+  Widget _statusChip(String status) {
+    final rejected = status == 'Rejected';
+    final color = rejected ? Colors.red : Colors.orange.shade800;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      decoration: BoxDecoration(color: color.withOpacity(.10), borderRadius: BorderRadius.circular(30)),
+      child: Text(status, style: TextStyle(color: color, fontWeight: FontWeight.w700, fontSize: 12)),
+    );
+  }
+
+  Widget _recordCard(Map<String, dynamic> item) {
+    final id = int.tryParse('${item['attendance_id']}');
+    if (id == null) return const SizedBox.shrink();
+    final status = '${item['status'] ?? item['attendance_status'] ?? 'Submitted'}';
+    final rejected = status == 'Rejected';
+    final selected = _selectedIds.contains(id);
+
+    return Card(
+      margin: const EdgeInsets.only(bottom: 10),
+      elevation: 0,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(16),
+        side: BorderSide(color: selected ? Colors.indigo : Colors.grey.shade200, width: selected ? 1.5 : 1),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(14),
+        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Checkbox(value: selected, onChanged: (v) => setState(() => v == true ? _selectedIds.add(id) : _selectedIds.remove(id))),
+            Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Text('${item['full_name'] ?? 'Worker'}', style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w800)),
+              const SizedBox(height: 3),
+              Text('${item['site_name'] ?? 'Unknown site'}', style: TextStyle(color: Colors.grey.shade600)),
+            ])),
+            _statusChip(status),
+          ]),
+          const Divider(height: 22),
+          Row(children: [
+            _timeCell('Check-in', item['check_in_time']),
+            const SizedBox(width: 10),
+            _timeCell('Check-out', item['check_out_time']),
+            const SizedBox(width: 10),
+            _timeCell('Hours', item['total_working_hours'] ?? '--'),
+          ]),
+          if (rejected && item['admin_rejection_notes'] != null) ...[
+            const SizedBox(height: 12),
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(10),
+              decoration: BoxDecoration(color: Colors.red.shade50, borderRadius: BorderRadius.circular(10)),
+              child: Text('${item['admin_rejection_notes']}', style: TextStyle(color: Colors.red.shade800)),
+            ),
+          ],
+          const SizedBox(height: 12),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              if (!rejected)
+                OutlinedButton.icon(
+                  onPressed: _working ? null : () => _reviewSelected([id], 'Approved'),
+                  icon: const Icon(Icons.check, size: 18),
+                  label: const Text('Approve'),
+                  style: OutlinedButton.styleFrom(foregroundColor: Colors.green.shade700),
+                ),
+              OutlinedButton.icon(
+                onPressed: _working ? null : () async {
+                  final note = await _askRejectionReason();
+                  if (note != null) await _reviewSelected([id], 'Rejected', note: note);
+                },
+                icon: const Icon(Icons.close, size: 18),
+                label: const Text('Reject'),
+                style: OutlinedButton.styleFrom(foregroundColor: Colors.red.shade700),
+              ),
+              PopupMenuButton<String>(
+                tooltip: 'More actions',
+                onSelected: (value) {
+                  if (value == 'management') _showManagementLeaveDialog(id);
+                },
+                itemBuilder: (_) => const [
+                  PopupMenuItem(value: 'management', child: Text('Management leave hours')),
+                ],
+                child: OutlinedButton.icon(
+                  onPressed: null,
+                  icon: const Icon(Icons.more_horiz, size: 18),
+                  label: const Text('More'),
+                ),
+              ),
+            ],
+          ),
+        ]),
+      ),
+    );
+  }
+
+  Widget _daySection(String date, List<Map<String, dynamic>> items) {
+    final ids = _idsForDate(items);
+    final allSelected = ids.isNotEmpty && ids.every(_selectedIds.contains);
+    final selected = ids.where(_selectedIds.contains).toList();
+
+    return Card(
+      elevation: 0,
+      margin: const EdgeInsets.only(bottom: 18),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18), side: BorderSide(color: Colors.grey.shade200)),
+      child: ExpansionTile(
+        initiallyExpanded: true,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
+        tilePadding: const EdgeInsets.symmetric(horizontal: 18, vertical: 4),
+        title: Row(children: [
+          Checkbox(
+            value: allSelected,
+            tristate: true,
+            onChanged: (value) => setState(() {
+              if (value == true) {
+                _selectedIds.addAll(ids);
+              } else {
+                _selectedIds.removeAll(ids);
+              }
+            }),
+          ),
+          Expanded(child: Text(date, style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 17))),
+          Text('${items.length} records', style: TextStyle(color: Colors.grey.shade600, fontSize: 12)),
+        ]),
+        subtitle: selected.isEmpty ? null : Padding(
+          padding: const EdgeInsets.only(left: 58, bottom: 8),
+          child: Wrap(spacing: 8, runSpacing: 8, children: [
+            FilledButton.icon(
+              onPressed: _working ? null : () => _reviewSelected(selected, 'Approved'),
+              icon: const Icon(Icons.check, size: 18),
+              label: Text('Approve ${selected.length}'),
+              style: FilledButton.styleFrom(backgroundColor: Colors.green.shade700),
+            ),
+            FilledButton.icon(
+              onPressed: _working ? null : () async {
+                final note = await _askRejectionReason();
+                if (note != null) await _reviewSelected(selected, 'Rejected', note: note);
+              },
+              icon: const Icon(Icons.close, size: 18),
+              label: Text('Reject ${selected.length}'),
+              style: FilledButton.styleFrom(backgroundColor: Colors.red.shade700),
+            ),
+          ]),
+        ),
+        children: [Padding(
+          padding: const EdgeInsets.fromLTRB(14, 0, 14, 14),
+          child: Column(children: items.map(_recordCard).toList()),
+        )],
+      ),
+    );
   }
 
   @override
   Widget build(BuildContext context) {
+    final allItems = _grouped.values.expand((items) => items).toList();
+    final pending = allItems.where((i) => '${i['status']}' == 'Submitted').length;
+    final rejected = allItems.where((i) => '${i['status']}' == 'Rejected').length;
+
     return Scaffold(
       appBar: CustomAppBar(
-      title: "Admin Attendance Review",
-      actions: [
-        IconButton(
-          icon: const Icon(Icons.settings),
-          tooltip: 'Break & Work Settings',
-          onPressed: () => _showSettingsDialog(context),
-        ),
-        IconButton(
-          icon: const Icon(Icons.refresh),
-          onPressed: _fetchData,
-          tooltip: 'Refresh',
-        ),
-      ],
-    ),
-      body: isLoading
+        title: 'Admin Attendance Review',
+        actions: [
+          IconButton(onPressed: _showSettingsDialog, icon: const Icon(Icons.tune), tooltip: 'Settings'),
+          IconButton(onPressed: _fetchData, icon: const Icon(Icons.refresh), tooltip: 'Refresh'),
+        ],
+      ),
+      body: _loading
           ? const Center(child: CircularProgressIndicator())
-          : groupedAttendance.isEmpty
-              ? const Center(
-                  child: Text(
-                    "No pending records to review 🎉",
-                    style: TextStyle(fontSize: 16, color: Colors.grey),
-                  ),
-                )
-              : ListView(
-                  padding: const EdgeInsets.all(8.0),
-                  children: groupedAttendance.keys.map((date) {
-                    List<dynamic> dayItems = groupedAttendance[date]!;
-                    
-                    bool isDayAllSelected = dayItems.isNotEmpty &&
-                        dayItems.every((item) => _selectedIds.contains(item['attendance_id']));
-                    
-                    List<int> daySelectedIds = dayItems
-                        .where((item) => _selectedIds.contains(item['attendance_id']))
-                        .map<int>((item) => item['attendance_id'] as int)
-                        .toList();
-
-                    return Card(
-                      elevation: 3,
-                      margin: const EdgeInsets.symmetric(vertical: 8),
-                      child: ExpansionTile(
-                        initiallyExpanded: true,
-                        title: Row(
-                          children: [
-                            Checkbox(
-                              value: isDayAllSelected,
-                              onChanged: (val) => _toggleSelectAllForDate(date, dayItems, val),
-                            ),
-                            Expanded(
-                              child: Text(
-                                "Date: $date",
-                                style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
-                                overflow: TextOverflow.ellipsis,
-                              ),
-                            ),
-                          ],
-                        ),
-                        subtitle: daySelectedIds.isNotEmpty
-                            ? Padding(
-                                padding: const EdgeInsets.only(left: 48.0, bottom: 8.0, right: 8.0),
-                                child: Wrap(
-                                  spacing: 8.0,
-                                  runSpacing: 4.0,
-                                  children: [
-                                    ElevatedButton.icon(
-                                      style: ElevatedButton.styleFrom(backgroundColor: Colors.green),
-                                      icon: const Icon(Icons.check, color: Colors.white, size: 18),
-                                      label: Text("Approve (${daySelectedIds.length})", style: const TextStyle(color: Colors.white)),
-                                      onPressed: () => _reviewMultiple(daySelectedIds, 'Approved'),
-                                    ),
-                                    ElevatedButton.icon(
-                                      style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
-                                      icon: const Icon(Icons.cancel, color: Colors.white, size: 18),
-                                      label: Text("Reject (${daySelectedIds.length})", style: const TextStyle(color: Colors.white)),
-                                      onPressed: () async {
-                                        String? note = await _showRejectDialog(context);
-                                        if (note != null && note.trim().isNotEmpty) {
-                                          _reviewMultiple(daySelectedIds, 'Rejected', note: note);
-                                        }
-                                      },
-                                    ),
-                                  ],
-                                ),
-                              )
-                            : null,
-                        children: dayItems.map((item) {
-                          int id = item['attendance_id'];
-                          bool isSelected = _selectedIds.contains(id);
-                          bool isRejected = item['status'] == 'Rejected';
-
-                          return Container(
-                            margin: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                            padding: const EdgeInsets.all(8),
-                            decoration: BoxDecoration(
-                              color: isRejected ? Colors.red.withOpacity(0.05) : Colors.grey.withOpacity(0.05),
-                              borderRadius: BorderRadius.circular(8),
-                              border: Border.all(
-                                color: isSelected ? Colors.blue : (isRejected ? Colors.red.shade200 : Colors.grey.shade300),
-                                width: isSelected ? 1.5 : 1,
-                              ),
-                            ),
-                            child: ListTile(
-                              contentPadding: const EdgeInsets.symmetric(horizontal: 4.0),
-                              leading: Checkbox(
-                                value: isSelected,
-                                onChanged: (bool? val) {
-                                  setState(() {
-                                    if (val == true) {
-                                      _selectedIds.add(id);
-                                    } else {
-                                      _selectedIds.remove(id);
-                                    }
-                                  });
-                                },
-                              ),
-                              title: Text(
-                                item['full_name'] ?? 'Worker',
-                                style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
-                                overflow: TextOverflow.ellipsis,
-                              ),
-                              subtitle: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  const SizedBox(height: 2),
-                                  Text("Site: ${item['site_name']}", style: const TextStyle(fontSize: 12), overflow: TextOverflow.ellipsis),
-                                  Text("Status: ${item['status']}", style: const TextStyle(fontSize: 12)),
-                                  if (isRejected && item['admin_rejection_notes'] != null)
-                                    Text(
-                                      "Note: ${item['admin_rejection_notes']}",
-                                      style: const TextStyle(color: Colors.red, fontSize: 11),
-                                      overflow: TextOverflow.ellipsis,
-                                    ),
-                                ],
-                              ),
-                              trailing: Row(
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  // >>> تمت إضافة زر منح ساعات الإجازة الإدارية هنا في الـ trailing <<<
-                                  IconButton(
-                                    constraints: const BoxConstraints(),
-                                    padding: const EdgeInsets.symmetric(horizontal: 4),
-                                    icon: const Icon(Icons.more_time, color: Colors.blue, size: 26),
-                                    onPressed: () => _showManagementLeaveDialog(id),
-                                    tooltip: 'Grant Management Hours',
-                                  ),
-                                  const SizedBox(width: 4),
-                                  IconButton(
-                                    constraints: const BoxConstraints(),
-                                    padding: const EdgeInsets.symmetric(horizontal: 4),
-                                    icon: const Icon(Icons.check_circle, color: Colors.green, size: 26),
-                                    onPressed: () => _reviewMultiple([id], 'Approved'),
-                                    tooltip: 'Approve Single',
-                                  ),
-                                  const SizedBox(width: 4),
-                                  IconButton(
-                                    constraints: const BoxConstraints(),
-                                    padding: const EdgeInsets.symmetric(horizontal: 4),
-                                    icon: const Icon(Icons.cancel, color: Colors.red, size: 26),
-                                    onPressed: () async {
-                                      String? note = await _showRejectDialog(context);
-                                      if (note != null && note.trim().isNotEmpty) {
-                                        _reviewMultiple([id], 'Rejected', note: note);
-                                      }
-                                    },
-                                    tooltip: 'Reject Single',
-                                  ),
-                                ],
-                              ),
-                            ),
-                          );
-                        }).toList(),
-                      ),
-                    );
-                  }).toList(),
-                ),
+          : RefreshIndicator(
+              onRefresh: _fetchData,
+              child: _grouped.isEmpty
+                  ? ListView(children: const [SizedBox(height: 220), Center(child: Text('No attendance records to review.'))])
+                  : ListView(
+                      padding: const EdgeInsets.fromLTRB(16, 18, 16, 30),
+                      children: [
+                        LayoutBuilder(builder: (context, constraints) {
+                          final cards = [
+                            _summaryCard('Submitted', '$pending', Icons.pending_actions, Colors.orange),
+                            _summaryCard('Rejected', '$rejected', Icons.warning_amber, Colors.red),
+                            _summaryCard('Total records', '${allItems.length}', Icons.people_alt_outlined, Colors.indigo),
+                          ];
+                          return constraints.maxWidth < 650
+                              ? Column(children: cards.map((card) => Padding(padding: const EdgeInsets.only(bottom: 8), child: card)).toList())
+                              : Row(children: [Expanded(child: cards[0]), const SizedBox(width: 10), Expanded(child: cards[1]), const SizedBox(width: 10), Expanded(child: cards[2])]);
+                        }),
+                        const SizedBox(height: 10),
+                        ..._grouped.entries.map((entry) => _daySection(entry.key, entry.value)),
+                      ],
+                    ),
+            ),
+      bottomNavigationBar: _working
+          ? const LinearProgressIndicator(minHeight: 3)
+          : null,
     );
   }
 }

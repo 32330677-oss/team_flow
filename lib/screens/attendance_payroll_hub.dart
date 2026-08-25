@@ -1,14 +1,15 @@
 import 'package:flutter/material.dart';
-import 'admin_attendance_screen.dart'; 
+import 'admin_attendance_screen.dart';
 import 'payroll_screen.dart';
 import '../widgets/custom_app_bar.dart';
+
 class AttendancePayrollHub extends StatelessWidget {
   const AttendancePayrollHub({super.key});
 
   @override
-Widget build(BuildContext context) {
+  Widget build(BuildContext context) {
     return DefaultTabController(
-      length: 2, 
+      length: 2,
       child: Scaffold(
         appBar: CustomAppBar(
           title: 'Attendance & Payroll Management',
@@ -24,7 +25,7 @@ Widget build(BuildContext context) {
         ),
         body: const TabBarView(
           children: [
-            AdminAttendanceScreen(), 
+            AdminAttendanceScreen(),
             PayrollScreen(),
           ],
         ),

@@ -1,11 +1,16 @@
 // payroll_screen.dart
 import 'package:flutter/material.dart';
-import 'package:intl/intl.dart' as intl;
-import 'package:printing/printing.dart';
 import 'package:team_flow/constants.dart';
 import 'package:dio/dio.dart';
 import 'package:intl/intl.dart';
+import 'payroll_export_service.dart';
 import '../widgets/custom_app_bar.dart';
+
+String formatSyp(dynamic value) {
+  final amount = double.tryParse(value?.toString() ?? '0') ?? 0;
+  return '${NumberFormat('#,##0', 'en_US').format(amount)} ل.س';
+}
+
 class PayrollScreen extends StatefulWidget {
   const PayrollScreen({Key? key}) : super(key: key);
 
@@ -315,9 +320,9 @@ Future<void> _selectDate(TextEditingController controller, {bool isStartDate = f
                     ),
                   ),
                   IconButton(
-                    icon: const Icon(Icons.picture_as_pdf, color: dangerColor),
-                    tooltip: 'Export Batch PDF Report',
-                    onPressed: () => _exportBatchPdfReport(batch, workers),
+                    icon: const Icon(Icons.table_view, color: dangerColor),
+                    tooltip: 'Export Excel Report',
+                    onPressed: () => _exportBatchExcel(batch, workers),
                   ),
                   const SizedBox(width: 8),
                   _statusChip(batch['status']?.toString() ?? 'Pending'),
@@ -352,7 +357,7 @@ Future<void> _selectDate(TextEditingController controller, {bool isStartDate = f
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text('Total Workers: ${batch['total_workers'] ?? 0}', style: const TextStyle(fontWeight: FontWeight.w600)),
-                        Text('Total Amount: \$${batch['total_amount'] ?? 0}',
+                        Text('Total Amount: ${formatSyp(batch['total_amount'])}',
                             style: const TextStyle(fontWeight: FontWeight.bold, color: primaryColor, fontSize: 16)),
                       ],
                     ),
@@ -377,80 +382,34 @@ Future<void> _selectDate(TextEditingController controller, {bool isStartDate = f
   }
 
 // استبدل الدالة القديمة بالكامل بهذه — لا حاجة لـ pw.Document ولا PdfGoogleFonts هنا
-Future<void> _exportBatchPdfReport(Map batch, List workers) async {
-  try {
-    final startDate = _formatDate(batch['start_date']);
-    final endDate = _formatDate(batch['end_date']);
-    final batchId = batch['payroll_batch_id'];
-
-    final rowsHtml = workers.map((w) {
-      final name = (w['worker_name'] ?? 'Worker #${w['worker_id']}').toString();
-      return '''
-        <tr>
-          <td class="name-cell" dir="rtl">$name</td>
-          <td>${w['regular_hours_worked'] ?? 0}</td>
-          <td>\$${w['hourly_rate_snapshot'] ?? 0}</td>
-          <td>${w['overtime_hours_worked'] ?? 0}</td>
-          <td>\$${w['overtime_hourly_rate_snapshot'] ?? 0}</td>
-          <td>\$${w['base_salary'] ?? 0}</td>
-          <td>\$${w['overtime_pay'] ?? 0}</td>
-          <td class="net">\$${w['net_salary'] ?? 0}</td>
-        </tr>
-      ''';
-    }).join();
-
-    final htmlContent = '''
-    <!DOCTYPE html>
-    <html lang="ar">
-    <head>
-      <meta charset="UTF-8">
-      <style>
-        @import url('https://fonts.googleapis.com/css2?family=Cairo:wght@400;700&display=swap');
-        body { font-family: 'Cairo', sans-serif; padding: 24px; color:#222; }
-        .header { display:flex; justify-content:space-between; align-items:center;
-                  border-bottom:2px solid #1a2a6c; padding-bottom:12px; }
-        .logo { font-size:20px; font-weight:700; color:#1a2a6c; }
-        .meta { font-size:11px; color:#777; margin-top:6px; }
-        table { width:100%; border-collapse:collapse; margin-top:16px; font-size:11px; }
-        th { background:#1a2a6c; color:#fff; padding:8px; text-align:center; }
-        td { padding:7px; text-align:center; border-bottom:1px solid #eee; }
-        .name-cell { text-align:right; font-weight:600; }
-        .net { font-weight:700; color:#1a2a6c; }
-        .summary { margin-top:16px; background:#f2f3f7; padding:12px; border-radius:6px;
-                   display:flex; justify-content:space-between; font-weight:700; }
-      </style>
-    </head>
-    <body>
-      <div class="header">
-        <div class="logo">TEAM FLOW</div>
-        <div>Comprehensive Payroll Report</div>
-      </div>
-      <div class="meta">Batch #$batchId &nbsp;•&nbsp; Period: $startDate to $endDate</div>
-      <table>
-        <thead>
-          <tr>
-            <th>Worker Name</th><th>Reg Hours</th><th>Hourly Rate</th>
-            <th>OT Hours</th><th>OT Rate</th><th>Base Salary</th>
-            <th>OT Pay</th><th>Net Salary</th>
-          </tr>
-        </thead>
-        <tbody>$rowsHtml</tbody>
-      </table>
-      <div class="summary">
-        <span>Total Workers: ${workers.length}</span>
-        <span>Total Amount: \$${batch['total_amount'] ?? 0}</span>
-      </div>
-    </body>
-    </html>
-    ''';
-
-    await Printing.layoutPdf(
-      onLayout: (format) async => Printing.convertHtml(format: format, html: htmlContent),
-    );
-  } catch (e) {
-    _showSnack('Error exporting batch report: $e', dangerColor);
+Future<void> _exportBatchExcel(Map batch, List workers) async {
+    final batchId = int.tryParse('${batch['payroll_batch_id']}');
+    if (batchId == null) {
+      _showSnack('Invalid payroll batch.', dangerColor);
+      return;
+    }
+    try {
+      final response = await ApiConfig.dio.get<List<int>>(
+        '/admin/payroll/batch/$batchId/export.xlsx',
+        options: Options(responseType: ResponseType.bytes),
+      );
+      final bytes = response.data;
+      if (bytes == null || bytes.isEmpty) throw Exception('Empty Excel response');
+      await PayrollExportService.exportBytes(
+        bytes,
+        'payroll_batch_$batchId.xlsx',
+      );
+      if (mounted) _showSnack('Excel payroll file is ready.', Colors.green);
+    } on DioException catch (e) {
+      final data = e.response?.data;
+      final message = data is Map && data['message'] != null
+          ? data['message'].toString()
+          : 'Failed to export Excel payroll file.';
+      _showSnack(message, dangerColor);
+    } catch (_) {
+      _showSnack('Failed to export Excel payroll file.', dangerColor);
+    }
   }
-}
   Future<void> _confirmMarkPaid(int batchId) async {
     final confirm = await showDialog<bool>(
       context: context,
@@ -566,15 +525,15 @@ Future<void> _exportBatchPdfReport(Map batch, List workers) async {
                                     Text('Batch #${batch['payroll_batch_id']}', style: const TextStyle(fontWeight: FontWeight.bold)),
                                     const Spacer(),
                                     IconButton(
-                                      icon: const Icon(Icons.picture_as_pdf, color: dangerColor, size: 20),
-                                      tooltip: 'Export PDF',
+                                      icon: const Icon(Icons.table_view, color: dangerColor, size: 20),
+                                      tooltip: 'Export Excel',
                                       onPressed: () async {
                                         try {
                                           final res = await ApiConfig.dio.get('/admin/payroll/batch/${batch['payroll_batch_id']}');
                                           final rData = res.data;
-                                          _exportBatchPdfReport(rData['batch'] ?? {}, rData['workers'] ?? []);
+                                          _exportBatchExcel(rData['batch'] ?? {}, rData['workers'] ?? []);
                                         } catch (e) {
-                                          _showSnack('Could not load PDF data', dangerColor);
+                                          _showSnack('Could not load Excel data', dangerColor);
                                         }
                                       },
                                     ),
@@ -582,7 +541,7 @@ Future<void> _exportBatchPdfReport(Map batch, List workers) async {
                                 ),
                                 subtitle: Text(
                                   'Period: ${_formatDate(batch['start_date'])} → ${_formatDate(batch['end_date'])}\n'
-                                  'Workers: ${batch['total_workers']} • Total: \$${batch['total_amount']} • By: ${batch['generated_by'] ?? 'Admin'}',
+                                  'Workers: ${batch['total_workers']} • Total: ${formatSyp(batch['total_amount'])} • By: ${batch['generated_by'] ?? 'Admin'}',
                                 ),
                                 isThreeLine: true,
                                 trailing: _statusChip(batch['status']?.toString() ?? 'Pending'),
@@ -741,7 +700,7 @@ class _WorkerPayrollCard extends StatelessWidget {
               children: [
                 _miniStat('Regular', '${worker['regular_hours_worked']} h', Colors.blueGrey),
                 _miniStat('Overtime', '${worker['overtime_hours_worked']} h', Colors.orange.shade800),
-                _miniStat('Net Pay', '\$${worker['net_salary']}', Colors.green.shade700, bold: true),
+                _miniStat('Net Pay', formatSyp(worker['net_salary']), Colors.green.shade700, bold: true),
               ],
             ),
           ],
@@ -782,123 +741,6 @@ class _PayslipDialogState extends State<_PayslipDialog> {
 
   double _num(dynamic v) => double.tryParse(v?.toString() ?? '0') ?? 0;
 
-Future<void> _exportPdf() async {
-    setState(() => _isExporting = true);
-    try {
-      final w = widget.worker;
-      final b = widget.batch;
-
-      final regularHours = _num(w['regular_hours_worked']);
-      final overtimeHours = _num(w['overtime_hours_worked']);
-      final hourlyRate = _num(w['hourly_rate_snapshot']);
-      final overtimeRate = _num(w['overtime_hourly_rate_snapshot']);
-      final baseSalary = _num(w['base_salary']);
-      final overtimePay = _num(w['overtime_pay']);
-      final netSalary = _num(w['net_salary']);
-      final workerName = w['worker_name'] ?? 'Worker #${w['worker_id']}';
-      final batchId = b['payroll_batch_id'];
-      final startDate = _fmtDate(b['start_date']);
-      final endDate = _fmtDate(b['end_date']);
-      final generatedDate = intl.DateFormat('yyyy-MM-dd HH:mm').format(DateTime.now());
-
-      final htmlContent = '''
-      <!DOCTYPE html>
-      <html lang="en">
-      <head>
-          <meta charset="UTF-8">
-          <style>
-              @import url('https://fonts.googleapis.com/css2?family=Cairo:wght@400;700&display=swap');
-              body {
-                  font-family: 'Cairo', sans-serif;
-                  color: #333;
-                  padding: 30px;
-                  margin: 0;
-                  direction: ltr;
-              }
-              .header {
-                  display: flex;
-                  justify-content: space-between;
-                  align-items: center;
-                  border-bottom: 2px solid #3f51b5;
-                  padding-bottom: 15px;
-              }
-              .logo { font-size: 24px; font-weight: bold; color: #3f51b5; }
-              .title { font-size: 16px; color: #666; }
-              .meta { font-size: 12px; color: #888; margin-top: 5px; }
-              .worker-name { font-size: 18px; font-weight: bold; margin-top: 20px; }
-              .row {
-                  display: flex;
-                  justify-content: space-between;
-                  padding: 8px 0;
-                  border-bottom: 1px solid #eee;
-                  font-size: 14px;
-              }
-              .net-box {
-                  margin-top: 30px;
-                  background-color: #f5f5f5;
-                  padding: 15px;
-                  border-radius: 8px;
-                  display: flex;
-                  justify-content: space-between;
-                  font-size: 16px;
-                  font-weight: bold;
-              }
-              .footer {
-                  margin-top: 50px;
-                  font-size: 10px;
-                  color: #aaa;
-                  text-align: center;
-              }
-          </style>
-      </head>
-      <body>
-          <div class="header">
-              <div class="logo">TEAM FLOW</div>
-              <div class="title">Payslip</div>
-          </div>
-          <div class="meta">Batch #$batchId • Period: $startDate to $endDate</div>
-          
-          <div class="worker-name">$workerName</div>
-          <br>
-          
-          <div class="row"><span>Regular Working Hours</span><span>${regularHours.toStringAsFixed(2)} h</span></div>
-          <div class="row"><span>Overtime Working Hours</span><span>${overtimeHours.toStringAsFixed(2)} h</span></div>
-          <div class="row"><span>Hourly Rate</span><span>\$${hourlyRate.toStringAsFixed(2)}</span></div>
-          <div class="row"><span>Overtime Hourly Rate</span><span>\$${overtimeRate.toStringAsFixed(2)}</span></div>
-          <div class="row"><span>Base Salary</span><span>\$${baseSalary.toStringAsFixed(2)}</span></div>
-          <div class="row"><span>Overtime Pay</span><span>\$${overtimePay.toStringAsFixed(2)}</span></div>
-          
-          <div class="net-box">
-              <span>NET SALARY</span>
-              <span>\$${netSalary.toStringAsFixed(2)}</span>
-          </div>
-          
-          <div class="footer">Generated on $generatedDate</div>
-      </body>
-      </html>
-      ''';
-
-      await Printing.layoutPdf(
-        onLayout: (format) async => await Printing.convertHtml(
-          format: format,
-          html: htmlContent,
-        ),
-      );
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Error exporting PDF: $e'),
-            backgroundColor: Colors.red,
-          ),
-        );
-      }
-    } finally {
-      if (mounted) setState(() => _isExporting = false);
-    }
-  }
-
-
   @override
   Widget build(BuildContext context) {
     final w = widget.worker;
@@ -937,8 +779,8 @@ Future<void> _exportPdf() async {
             _infoRow('Period', '${_fmtDate(b['start_date'])} to ${_fmtDate(b['end_date'])}'),
             _infoRow('Regular Hours', '${regularHours.toStringAsFixed(2)} h'),
             _infoRow('Overtime Hours', '${overtimeHours.toStringAsFixed(2)} h'),
-            _infoRow('Base Salary', '\$${_num(w['base_salary']).toStringAsFixed(2)}'),
-            _infoRow('Overtime Pay', '\$${_num(w['overtime_pay']).toStringAsFixed(2)}'),
+            _infoRow('Base Salary', formatSyp(w['base_salary'])),
+            _infoRow('Overtime Pay', formatSyp(w['overtime_pay'])),
             const Divider(height: 20),
             Container(
               padding: const EdgeInsets.all(12),
@@ -947,25 +789,22 @@ Future<void> _exportPdf() async {
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
                   const Text('Net Salary', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15)),
-                  Text('\$${_num(w['net_salary']).toStringAsFixed(2)}',
+                  Text(formatSyp(w['net_salary']),
                       style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: Color(0xff1a2a6c))),
                 ],
               ),
             ),
             const SizedBox(height: 20),
-            SizedBox(
+            Container(
               width: double.infinity,
-              height: 44,
-              child: ElevatedButton.icon(
-                onPressed: _isExporting ? null : _exportPdf,
-                icon: _isExporting
-                    ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
-                    : const Icon(Icons.print, color: Colors.white, size: 18),
-                label: Text(_isExporting ? 'Exporting...' : 'Export Payslip PDF', style: const TextStyle(color: Colors.white)),
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: const Color(0xff1a2a6c),
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-                ),
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: Colors.blueGrey.shade50,
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: const Text(
+                'This is a read-only payroll summary. Export the complete batch from the Excel button.',
+                style: TextStyle(color: Colors.blueGrey),
               ),
             ),
           ],

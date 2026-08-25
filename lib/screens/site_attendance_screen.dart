@@ -18,6 +18,10 @@ class _SiteAttendanceScreenState extends State<SiteAttendanceScreen> {
   bool _isLoading = true;
   List<dynamic> _workers = [];
   List<dynamic> _mySitesForTransfer = [];
+  bool _applyLunchToAll = false;
+  TimeOfDay? _defaultLunchStart;
+  TimeOfDay? _defaultLunchEnd;
+  final Map<int, Map<String, TimeOfDay>> _lunchOverrides = {};
 
   @override
   void initState() {
@@ -26,6 +30,7 @@ class _SiteAttendanceScreenState extends State<SiteAttendanceScreen> {
   }
 
   Future<void> _fetchWorkers() async {
+    if (!mounted) return;
     setState(() => _isLoading = true);
     try {
       final response = await ApiConfig.dio.get('/attendance/sites/${widget.siteId}/workers');
@@ -42,36 +47,36 @@ class _SiteAttendanceScreenState extends State<SiteAttendanceScreen> {
   }
 
   // -------------------------------------------------------------------
-  // UPDATED: _handleAction now accepts an optional extraData map so that
-  // additional fields (like leave_type) can be merged into the request
-  // payload without duplicating this method for every action.
+  // UNCHANGED: _handleAction still accepts an optional extraData map so
+  // additional fields (leave_type, check_in_time, check_out_time...) can
+  // be merged into the request payload without duplicating this method.
   // -------------------------------------------------------------------
-// frontend/lib/screens/site_attendance_screen.dart
-// 1. Updated the generalized helper to accept and merge extra fields
-Future<void> _handleAction(String endpoint, int workerId, {Map<String, dynamic>? extraData}) async {
-  setState(() => _isLoading = true);
-  try {
-    final Map<String, dynamic> payload = {
-      'worker_id': workerId,
-      'site_id': widget.siteId,
-    };
-    if (extraData != null) {
-      payload.addAll(extraData);
-    }
+  Future<void> _handleAction(String endpoint, int workerId, {Map<String, dynamic>? extraData}) async {
+    if (!mounted) return;
+    setState(() => _isLoading = true);
+    try {
+      final Map<String, dynamic> payload = {
+        'worker_id': workerId,
+        'site_id': widget.siteId,
+      };
+      if (extraData != null) {
+        payload.addAll(extraData);
+      }
 
-    await ApiConfig.dio.post(endpoint, data: payload);
-    await _fetchWorkers();
-  } on DioException catch (e) {
-    if (!mounted) return;
-    setState(() => _isLoading = false);
-    final msg = e.response?.data['message'] ?? 'Connection error';
-    _showToast(msg, Colors.red);
-  } catch (e) {
-    if (!mounted) return;
-    setState(() => _isLoading = false);
-    _showToast('Connection error', Colors.red);
+      await ApiConfig.dio.post(endpoint, data: payload);
+      await _fetchWorkers();
+    } on DioException catch (e) {
+      if (!mounted) return;
+      setState(() => _isLoading = false);
+      final data = e.response?.data;
+      final msg = data is Map && data['message'] != null ? data['message'].toString() : 'Connection error';
+      _showToast(msg, Colors.red);
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _isLoading = false);
+      _showToast('Connection error', Colors.red);
+    }
   }
-}
 
   void _showToast(String message, Color color) {
     ScaffoldMessenger.of(context).showSnackBar(
@@ -80,13 +85,77 @@ Future<void> _handleAction(String endpoint, int workerId, {Map<String, dynamic>?
   }
 
   // -------------------------------------------------------------------
-  // UPDATED: The leave/break selection sheet now:
-  // 1) Only shows field-appropriate types: Rest, Sick, Annual.
-  //    'Management' is intentionally EXCLUDED here — it is exclusively
-  //    set by an Admin through the separate management-leave endpoint
-  //    in the admin dashboard, never from this supervisor-facing screen.
-  // 2) Actually forwards the chosen leave_type to the backend via
-  //    _handleAction's extraData parameter (this was previously ignored).
+  // NEW: Opens a time picker for Check-In, then converts the selected
+  // time (combined with today's date, since record_date stays CURDATE()
+  // on the backend) into a UTC ISO string and forwards it via extraData.
+  // Same pattern used for check_in_time/check_out_time in
+  // rejected_records_screen.dart's _resubmit flow.
+  // -------------------------------------------------------------------
+Future<void> _performCheckIn(int workerId) async {
+  final pickedTime = await showTimePicker(
+    context: context,
+    initialTime: TimeOfDay.now(),
+    helpText: 'Select Check-In Time',
+  );
+  if (pickedTime == null) return;
+
+  final now = DateTime.now();
+  final selectedDateTime = DateTime(
+    now.year, now.month, now.day, pickedTime.hour, pickedTime.minute,
+  );
+
+  // NOTE: no .toUtc() here. We send the literal wall-clock time the
+  // Supervisor picked, exactly as-is, to avoid the timezone double-shift.
+  _handleAction(
+    '/attendance/checkin',
+    workerId,
+    extraData: {'check_in_time': selectedDateTime.toIso8601String()},
+  );
+}
+
+Future<void> _performCheckOut(int workerId) async {
+  final pickedTime = await showTimePicker(
+    context: context,
+    initialTime: TimeOfDay.now(),
+    helpText: 'Select Check-Out Time',
+  );
+  if (pickedTime == null) return;
+
+  final now = DateTime.now();
+  final selectedDateTime = DateTime(
+    now.year, now.month, now.day, pickedTime.hour, pickedTime.minute,
+  );
+
+  await _handleAction(
+    '/attendance/checkout',
+    workerId,
+    extraData: {'check_out_time': selectedDateTime.toIso8601String()},
+  );
+}
+
+
+// NEW: manual end-of-break time picker, mirrors _performCheckOut.
+Future<void> _performEndLeave(int workerId) async {
+  final pickedTime = await showTimePicker(
+    context: context,
+    initialTime: TimeOfDay.now(),
+    helpText: 'Select Break End Time',
+  );
+  if (pickedTime == null) return;
+
+  final now = DateTime.now();
+  final selectedDateTime = DateTime(
+    now.year, now.month, now.day, pickedTime.hour, pickedTime.minute,
+  );
+
+  await _handleAction(
+    '/attendance/leave/end',
+    workerId,
+    extraData: {'leave_end_time': selectedDateTime.toIso8601String()},
+  );
+}
+  // -------------------------------------------------------------------
+  // UNCHANGED: leave/break type selection sheet.
   // -------------------------------------------------------------------
 Future<void> _startLeaveDialog(int workerId) async {
   final type = await showModalBottomSheet<String>(
@@ -115,6 +184,7 @@ Future<void> _startLeaveDialog(int workerId) async {
             _buildLeaveOption(ctx, 'Rest', 'Rest Break', Icons.free_breakfast, Colors.blue),
             _buildLeaveOption(ctx, 'Sick', 'Sick Leave', Icons.sick, Colors.red),
             _buildLeaveOption(ctx, 'Annual', 'Annual Leave', Icons.beach_access, Colors.orange),
+            _buildLeaveOption(ctx, 'Lunch', 'Lunch Break', Icons.lunch_dining, Colors.purple),
           ],
         ),
       ),
@@ -122,12 +192,28 @@ Future<void> _startLeaveDialog(int workerId) async {
   );
 
   if (type == null) return;
+  if (!mounted) return;
 
-  // Safely forward the selected leave type in the request
-  _handleAction(
+  // NEW: ask for the break start time before submitting.
+  final pickedTime = await showTimePicker(
+    context: context,
+    initialTime: TimeOfDay.now(),
+    helpText: 'Select Break Start Time',
+  );
+  if (pickedTime == null) return;
+
+  final now = DateTime.now();
+  final selectedDateTime = DateTime(
+    now.year, now.month, now.day, pickedTime.hour, pickedTime.minute,
+  );
+
+  await _handleAction(
     '/attendance/leave/start',
     workerId,
-    extraData: {'leave_type': type},
+    extraData: {
+      'leave_type': type,
+      'leave_start_time': selectedDateTime.toIso8601String(),
+    },
   );
 }
 
@@ -227,6 +313,8 @@ Future<void> _startLeaveDialog(int workerId) async {
                             });
                             if (!mounted) return;
                             Navigator.pop(sheetContext);
+                            await _fetchWorkers();
+                            if (!mounted) return;
                             _showToast('Transfer request submitted successfully', Colors.green);
                           } on DioException catch (e) {
                             setModalState(() => isSubmitting = false);
@@ -250,6 +338,73 @@ Future<void> _startLeaveDialog(int workerId) async {
         ),
       ),
     );
+  }
+
+
+  String _timeText(TimeOfDay? time) => time == null ? '' : '${time.hour.toString().padLeft(2, '0')}:${time.minute.toString().padLeft(2, '0')}';
+
+  String _attendanceTimeText(dynamic value) {
+    if (value == null || value.toString().isEmpty) return '--:--';
+    final match = RegExp(r'(?:T| )(\d{2}:\d{2})').firstMatch(value.toString());
+    return match?.group(1) ?? value.toString();
+  }
+
+  Future<TimeOfDay?> _pickLunchTime(String title, TimeOfDay? initial) async {
+    return showTimePicker(context: context, initialTime: initial ?? TimeOfDay.now(), helpText: title);
+  }
+
+  Future<void> _chooseDefaultLunchStart() async {
+    final value = await _pickLunchTime('Select Lunch Start', _defaultLunchStart);
+    if (value != null && mounted) setState(() => _defaultLunchStart = value);
+  }
+
+  Future<void> _chooseDefaultLunchEnd() async {
+    final value = await _pickLunchTime('Select Lunch End', _defaultLunchEnd);
+    if (value != null && mounted) setState(() => _defaultLunchEnd = value);
+  }
+
+  Future<void> _editWorkerLunch(int workerId) async {
+    final current = _lunchOverrides[workerId];
+    final start = await _pickLunchTime('Select Worker Lunch Start', current?['start'] ?? _defaultLunchStart);
+    if (start == null || !mounted) return;
+    final end = await _pickLunchTime('Select Worker Lunch End', current?['end'] ?? _defaultLunchEnd);
+    if (end == null || !mounted) return;
+    setState(() {
+      _lunchOverrides[workerId] = {'start': start, 'end': end};
+    });
+  }
+
+  Future<void> _saveLunchTimes() async {
+    if (_defaultLunchStart == null || _defaultLunchEnd == null) {
+      _showToast('Select the default lunch start and end time first.', Colors.orange);
+      return;
+    }
+    final overrides = <String, dynamic>{};
+    for (final entry in _lunchOverrides.entries) {
+      overrides[entry.key.toString()] = {
+        'start_time': _timeText(entry.value['start']),
+        'end_time': _timeText(entry.value['end']),
+      };
+    }
+    setState(() => _isLoading = true);
+    try {
+      final response = await ApiConfig.dio.post('/attendance/lunch/bulk', data: {
+        'siteId': widget.siteId,
+        'date': DateFormat('yyyy-MM-dd').format(DateTime.now()),
+        'default_start_time': _timeText(_defaultLunchStart),
+        'default_end_time': _timeText(_defaultLunchEnd),
+        'overrides': overrides,
+      });
+      await _fetchWorkers();
+      if (mounted && response.data['status'] == 'success') {
+        _showToast('Lunch times saved successfully.', Colors.green);
+      }
+    } on DioException catch (e) {
+      if (!mounted) return;
+      setState(() => _isLoading = false);
+      final data = e.response?.data;
+      _showToast(data is Map && data['message'] != null ? data['message'].toString() : 'Failed to save lunch times.', Colors.red);
+    }
   }
 
   Future<void> _submitDay() async {
@@ -388,6 +543,36 @@ Future<void> _startLeaveDialog(int workerId) async {
                     ),
                   ),
                 ),
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+                  child: Card(
+                    elevation: 0,
+                    child: Padding(
+                      padding: const EdgeInsets.all(12),
+                      child: Column(
+                        children: [
+                          CheckboxListTile(
+                            contentPadding: EdgeInsets.zero,
+                            title: const Text('Apply same lunch time to all workers', style: TextStyle(fontWeight: FontWeight.bold)),
+                            value: _applyLunchToAll,
+                            onChanged: (value) => setState(() => _applyLunchToAll = value ?? false),
+                          ),
+                          if (_applyLunchToAll) ...[
+                            Row(
+                              children: [
+                                Expanded(child: OutlinedButton(onPressed: _chooseDefaultLunchStart, child: Text('Start: ${_timeText(_defaultLunchStart).isEmpty ? '--:--' : _timeText(_defaultLunchStart)}'))),
+                                const SizedBox(width: 8),
+                                Expanded(child: OutlinedButton(onPressed: _chooseDefaultLunchEnd, child: Text('End: ${_timeText(_defaultLunchEnd).isEmpty ? '--:--' : _timeText(_defaultLunchEnd)}'))),
+                              ],
+                            ),
+                            const SizedBox(height: 8),
+                            SizedBox(width: double.infinity, child: ElevatedButton(onPressed: _saveLunchTimes, child: const Text('Save Lunch Times'))),
+                          ],
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
                 Expanded(
                   child: _workers.isEmpty
                       ? Center(
@@ -405,7 +590,11 @@ Future<void> _startLeaveDialog(int workerId) async {
                           itemCount: _workers.length,
                           itemBuilder: (context, index) {
                             final worker = _workers[index];
-                            final bool isCheckedIn = worker['attendance_id'] != null;
+                            final bool hasCheckIn = worker['check_in_time'] != null;
+                            final bool hasCheckOut = worker['check_out_time'] != null;
+                            final bool isSubmitted = worker['workflow_status'] == 'Submitted';
+                            final bool isAbsent = worker['attendance_status'] == 'Absent';
+                            final bool isCheckedIn = hasCheckIn;
                             final bool isOnBreak = worker['current_leave_id'] != null;
 
                             return Container(
@@ -463,9 +652,32 @@ Future<void> _startLeaveDialog(int workerId) async {
                                     ),
                                     const Padding(padding: EdgeInsets.symmetric(vertical: 12), child: Divider(height: 1)),
                                     Row(
+                                      children: [
+                                        Expanded(child: Text('Check-in: ${_attendanceTimeText(worker['check_in_time'])}', style: TextStyle(fontSize: 12, color: Colors.grey.shade700))),
+                                        Expanded(child: Text('Check-out: ${_attendanceTimeText(worker['check_out_time'])}', style: TextStyle(fontSize: 12, color: Colors.grey.shade700))),
+                                      ],
+                                    ),
+                                    const SizedBox(height: 8),
+                                    Row(
+                                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                      children: [
+                                        Expanded(child: Text(
+                                          'Lunch: ${_lunchOverrides[worker['worker_id']] == null ? 'Use default' : '${_timeText(_lunchOverrides[worker['worker_id']]!['start'])} - ${_timeText(_lunchOverrides[worker['worker_id']]!['end'])}'}',
+                                          style: TextStyle(fontSize: 12, color: Colors.grey.shade700),
+                                        )),
+                                        TextButton.icon(
+                                          onPressed: () => _editWorkerLunch(worker['worker_id']),
+                                          icon: const Icon(Icons.edit, size: 14),
+                                          label: const Text('Edit lunch'),
+                                        ),
+                                      ],
+                                    ),
+                                    const SizedBox(height: 4),
+                                    Row(
                                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                                       children: [
                                         Container(
+
                                           padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
                                           decoration: BoxDecoration(
                                             color: !isCheckedIn
@@ -483,13 +695,21 @@ Future<void> _startLeaveDialog(int workerId) async {
                                                     ? Icons.remove_circle_outline
                                                     : isOnBreak
                                                         ? Icons.pause_circle_filled
-                                                        : Icons.check_circle,
+                                                        : hasCheckOut
+                                                            ? Icons.logout
+                                                            : isAbsent
+                                                                ? Icons.event_busy
+                                                                : Icons.check_circle,
                                                 size: 14,
                                                 color: !isCheckedIn
                                                     ? Colors.grey
                                                     : isOnBreak
                                                         ? Colors.orange
-                                                        : Colors.green,
+                                                        : hasCheckOut
+                                                            ? Colors.blue
+                                                            : isAbsent
+                                                                ? Colors.red
+                                                                : Colors.green,
                                               ),
                                               const SizedBox(width: 6),
                                               Text(
@@ -497,7 +717,11 @@ Future<void> _startLeaveDialog(int workerId) async {
                                                     ? 'Not Checked In'
                                                     : isOnBreak
                                                         ? 'On Break'
-                                                        : 'Checked In',
+                                                        : hasCheckOut
+                                                            ? 'Checked Out'
+                                                            : isAbsent
+                                                                ? 'Absent'
+                                                                : 'Checked In',
                                                 style: TextStyle(
                                                   fontSize: 12,
                                                   fontWeight: FontWeight.w600,
@@ -505,15 +729,19 @@ Future<void> _startLeaveDialog(int workerId) async {
                                                       ? Colors.grey.shade700
                                                       : isOnBreak
                                                           ? Colors.orange.shade800
-                                                          : Colors.green.shade800,
+                                                          : hasCheckOut
+                                                              ? Colors.blue.shade800
+                                                              : isAbsent
+                                                                  ? Colors.red.shade800
+                                                                  : Colors.green.shade800,
                                                 ),
                                               ),
                                             ],
                                           ),
                                         ),
-                                        !isCheckedIn
+                                        !hasCheckIn
                                             ? ElevatedButton.icon(
-                                                onPressed: () => _handleAction('/attendance/checkin', worker['worker_id']),
+                                                onPressed: () => _performCheckIn(worker['worker_id']),
                                                 icon: const Icon(Icons.login, size: 14, color: Colors.white),
                                                 label: const Text('Check In', style: TextStyle(color: Colors.white, fontSize: 12)),
                                                 style: ElevatedButton.styleFrom(
@@ -526,16 +754,13 @@ Future<void> _startLeaveDialog(int workerId) async {
                                             : Row(
                                                 children: [
                                                   OutlinedButton.icon(
-                                                    onPressed: () {
-                                                      if (isOnBreak) {
-                                                        // Ending a break/leave never needs a leave_type.
-                                                        _handleAction('/attendance/leave/end', worker['worker_id']);
-                                                      } else {
-                                                        // Starting a break opens the type-selection sheet,
-                                                        // which forwards the chosen leave_type itself.
-                                                        _startLeaveDialog(worker['worker_id']);
-                                                      }
-                                                    },
+                                                    onPressed: (hasCheckOut || isSubmitted) ? null : () async {
+  if (isOnBreak) {
+    await _performEndLeave(worker['worker_id']);
+  } else {
+    await _startLeaveDialog(worker['worker_id']);
+  }
+},
                                                     icon: Icon(isOnBreak ? Icons.play_arrow : Icons.pause, size: 14, color: isOnBreak ? Colors.green : Colors.orange),
                                                     label: Text(isOnBreak ? 'End' : 'Break', style: TextStyle(fontSize: 12, color: isOnBreak ? Colors.green : Colors.orange)),
                                                     style: OutlinedButton.styleFrom(
@@ -546,7 +771,7 @@ Future<void> _startLeaveDialog(int workerId) async {
                                                   ),
                                                   const SizedBox(width: 8),
                                                   ElevatedButton.icon(
-                                                    onPressed: () => _handleAction('/attendance/checkout', worker['worker_id']),
+                                                    onPressed: (hasCheckOut || isSubmitted) ? null : () => _performCheckOut(worker['worker_id']),
                                                     icon: const Icon(Icons.logout, size: 14, color: Colors.white),
                                                     label: const Text('Checkout', style: TextStyle(color: Colors.white, fontSize: 12)),
                                                     style: ElevatedButton.styleFrom(
