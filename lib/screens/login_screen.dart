@@ -14,11 +14,6 @@ class LoginScreen extends StatefulWidget {
 
 class _LoginScreenState extends State<LoginScreen>
     with SingleTickerProviderStateMixin {
-  // ---------------------------------------------------------------------
-  // Kept exactly as in the original file: same controllers, same service,
-  // same state variables, same storage keys and same auth/navigation logic.
-  // Only the UI layer below has been redesigned.
-  // ---------------------------------------------------------------------
   final TextEditingController _emailController = TextEditingController();
   final TextEditingController _passwordController = TextEditingController();
   final AuthService _authService = AuthService();

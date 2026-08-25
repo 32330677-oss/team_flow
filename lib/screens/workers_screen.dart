@@ -1,6 +1,11 @@
 import 'package:flutter/material.dart';
+import 'package:dio/dio.dart';
+import 'package:image_picker/image_picker.dart';
+import 'dart:io';
 import '../constants.dart';
 import '../widgets/custom_app_bar.dart';
+import 'WorkerProfileScreen.dart';
+
 class WorkersScreen extends StatefulWidget {
   const WorkersScreen({Key? key}) : super(key: key);
 
@@ -9,6 +14,24 @@ class WorkersScreen extends StatefulWidget {
 }
 
 class _WorkersScreenState extends State<WorkersScreen> {
+  XFile? _selectedPersonalPhoto;
+  XFile? _selectedIdPhoto;
+  final ImagePicker _picker = ImagePicker();
+
+  // دالة اختيار الصورة
+  Future<void> _pickImage(bool isPersonal) async {
+    final XFile? image = await _picker.pickImage(source: ImageSource.gallery);
+    if (image != null) {
+      setState(() {
+        if (isPersonal) {
+          _selectedPersonalPhoto = image;
+        } else {
+          _selectedIdPhoto = image;
+        }
+      });
+    }
+  }
+
   final Color primaryColor = const Color(0xFF2563EB);
 
   List<dynamic> _workers = [];
@@ -17,13 +40,16 @@ class _WorkersScreenState extends State<WorkersScreen> {
   
   final TextEditingController _searchController = TextEditingController();
 
-  // Controllers for Add/Edit
   final _codeController = TextEditingController();
   final _nameController = TextEditingController();
   final _phoneController = TextEditingController();
   final _nationalityController = TextEditingController();
   final _positionController = TextEditingController();
   final _notesController = TextEditingController();
+  final _mothersNameController = TextEditingController();
+  final _birthDateController = TextEditingController();
+  final _birthPlaceController = TextEditingController();
+  final _locationController = TextEditingController();
 
   @override
   void initState() {
@@ -41,6 +67,10 @@ class _WorkersScreenState extends State<WorkersScreen> {
     _nationalityController.dispose();
     _positionController.dispose();
     _notesController.dispose();
+    _mothersNameController.dispose();
+    _birthDateController.dispose();
+    _birthPlaceController.dispose();
+    _locationController.dispose();
     super.dispose();
   }
 
@@ -65,6 +95,21 @@ class _WorkersScreenState extends State<WorkersScreen> {
     }
   }
 
+  Future<void> _selectBirthDate(BuildContext context) async {
+    final DateTime? picked = await showDatePicker(
+      context: context,
+      initialDate: DateTime(2000),
+      firstDate: DateTime(1950),
+      lastDate: DateTime.now(),
+    );
+    
+    if (picked != null) {
+      setState(() {
+        _birthDateController.text = "${picked.year}-${picked.month.toString().padLeft(2, '0')}-${picked.day.toString().padLeft(2, '0')}";
+      });
+    }
+  }
+
   void _filterWorkers() {
     final query = _searchController.text.toLowerCase();
     setState(() {
@@ -77,28 +122,51 @@ class _WorkersScreenState extends State<WorkersScreen> {
     });
   }
 
- Future<void> _saveWorker({String? workerUniqueId}) async {
-    final code = _codeController.text.trim();
+// دالة الحفظ المحدثة لتتوافق مع الويب والموبايل بدون أخطاء
+  Future<void> _saveWorker({String? workerUniqueId}) async {
     final name = _nameController.text.trim();
 
-    if (code.isEmpty || name.isEmpty) {
-      _showSnackBar('Please fill in the required fields (ID & Name)', Colors.orange);
+    if (name.isEmpty) {
+      _showSnackBar('Please fill in the worker name', Colors.orange);
       return;
     }
 
     try {
-      final data = {
-        'worker_unique_id': code,
+      // إعداد خريطة البيانات الأساسية
+      final Map<String, dynamic> mapData = {
         'full_name': name,
         'phone_number': _phoneController.text.trim(),
         'nationality': _nationalityController.text.trim(),
         'job_position': _positionController.text.trim(),
         'notes': _notesController.text.trim(),
+        'mothers_name': _mothersNameController.text.trim(),
+        'birth_date': _birthDateController.text.trim().isEmpty ? null : _birthDateController.text.trim(),
+        'birth_place': _birthPlaceController.text.trim(),
+        'location': _locationController.text.trim(),
       };
 
+      // معالجة الصورة الشخصية (متوافقة مع الويب والموبايل)
+      if (_selectedPersonalPhoto != null) {
+        final bytes = await _selectedPersonalPhoto!.readAsBytes();
+        mapData['personal_photo'] = MultipartFile.fromBytes(
+          bytes,
+          filename: _selectedPersonalPhoto!.name,
+        );
+      }
+
+      // معالجة صورة الهوية (متوافقة مع الويب والموبايل)
+      if (_selectedIdPhoto != null) {
+        final bytes = await _selectedIdPhoto!.readAsBytes();
+        mapData['id_photo'] = MultipartFile.fromBytes(
+          bytes,
+          filename: _selectedIdPhoto!.name,
+        );
+      }
+
+      FormData formData = FormData.fromMap(mapData);
+
       if (workerUniqueId != null) {
-        // إرسال طلب تعديل PUT مع الـ worker_unique_id القديم أو الحالي
-        final response = await ApiConfig.dio.put('/workers/$workerUniqueId', data: data);
+        final response = await ApiConfig.dio.put('/workers/$workerUniqueId', data: formData);
         if (response.statusCode == 200) {
           Navigator.pop(context);
           _clearControllers();
@@ -106,17 +174,17 @@ class _WorkersScreenState extends State<WorkersScreen> {
           _showSnackBar('Worker updated successfully', Colors.green);
         }
       } else {
-        // إرسال طلب إضافة POST جديد
-        final response = await ApiConfig.dio.post('/workers', data: data);
+        final response = await ApiConfig.dio.post('/workers', data: formData);
         if (response.statusCode == 201) {
           Navigator.pop(context);
           _clearControllers();
           _fetchWorkers();
-          _showSnackBar('Worker added successfully', Colors.green);
+          _showSnackBar('Worker added successfully with auto ID', Colors.green);
         }
       }
     } catch (e) {
-      _showSnackBar('Operation failed: Check if Worker ID is unique', Colors.red);
+      print("🚨 SAVE WORKER ERROR: $e"); // طباعة الخطأ الحقيقي للتتبع
+      _showSnackBar('Operation failed: ${e.toString()}', Colors.red);
     }
   }
 
@@ -133,7 +201,11 @@ class _WorkersScreenState extends State<WorkersScreen> {
     }
   }
 
-void _openWorkerSheet({Map<String, dynamic>? worker}) {
+  void _openWorkerSheet({Map<String, dynamic>? worker}) {
+    // تصفير الصور المختارة عند فتح النافذة الجديدة
+    _selectedPersonalPhoto = null;
+    _selectedIdPhoto = null;
+
     if (worker != null) {
       _codeController.text = worker['worker_unique_id']?.toString() ?? '';
       _nameController.text = worker['full_name']?.toString() ?? '';
@@ -141,78 +213,126 @@ void _openWorkerSheet({Map<String, dynamic>? worker}) {
       _nationalityController.text = worker['nationality']?.toString() ?? '';
       _positionController.text = worker['job_position']?.toString() ?? '';
       _notesController.text = worker['notes']?.toString() ?? '';
+      _mothersNameController.text = worker['mothers_name']?.toString() ?? '';
+      _birthDateController.text = worker['birth_date']?.toString().split('T')[0] ?? '';
+      _birthPlaceController.text = worker['birth_place']?.toString() ?? '';
+      _locationController.text = worker['location']?.toString() ?? '';
     } else {
       _clearControllers();
     }
 
     final isEditing = worker != null;
-   final String? workerUniqueId= worker?['worker_unique_id']; // التقاط الـ ID الرقمي الصحيح من البيانات القادمة من الباكيند
+    final String? workerUniqueId = worker?['worker_unique_id'];
 
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.white,
       shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(24))),
-      builder: (context) => Padding(
-        padding: EdgeInsets.only(
-          bottom: MediaQuery.of(context).viewInsets.bottom,
-          top: 24, left: 24, right: 24,
-        ),
-        child: SingleChildScrollView(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Center(child: Container(width: 40, height: 4, decoration: BoxDecoration(color: Colors.grey[300], borderRadius: BorderRadius.circular(10)))),
-              const SizedBox(height: 16),
-              Text(
-                isEditing ? 'Edit Worker Details' : 'Add New Worker',
-                style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: primaryColor),
-              ),
-              const SizedBox(height: 20),
-              TextField(
-                controller: _codeController,
-                decoration: InputDecoration(labelText: 'Worker ID *', prefixIcon: Icon(Icons.badge_rounded, color: primaryColor)),
-              ),
-              const SizedBox(height: 12),
-              TextField(
-                controller: _nameController,
-                decoration: InputDecoration(labelText: 'Full Name *', prefixIcon: Icon(Icons.person_rounded, color: primaryColor)),
-              ),
-              const SizedBox(height: 12),
-              TextField(
-                controller: _phoneController,
-                keyboardType: TextInputType.phone,
-                decoration: InputDecoration(labelText: 'Phone Number', prefixIcon: Icon(Icons.phone_rounded, color: primaryColor)),
-              ),
-              const SizedBox(height: 12),
-              TextField(
-                controller: _nationalityController,
-                decoration: InputDecoration(labelText: 'Nationality', prefixIcon: Icon(Icons.flag_rounded, color: primaryColor)),
-              ),
-              const SizedBox(height: 12),
-              TextField(
-                controller: _positionController,
-                decoration: InputDecoration(labelText: 'Job Position', prefixIcon: Icon(Icons.work_rounded, color: primaryColor)),
-              ),
-              const SizedBox(height: 12),
-              TextField(
-                controller: _notesController,
-                maxLines: 2,
-                decoration: InputDecoration(labelText: 'Notes', prefixIcon: Icon(Icons.note_rounded, color: primaryColor)),
-              ),
-              const SizedBox(height: 24),
-              ElevatedButton(
-                onPressed: () => _saveWorker(workerUniqueId: workerUniqueId), // تمرير الـ workerId لـ دالة الحفظ
-                style: ElevatedButton.styleFrom(
-                  minimumSize: const Size.fromHeight(50),
-                  backgroundColor: primaryColor,
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      builder: (context) => StatefulBuilder(
+        builder: (context, setModalState) => Padding(
+          padding: EdgeInsets.only(
+            bottom: MediaQuery.of(context).viewInsets.bottom,
+            top: 24, left: 24, right: 24,
+          ),
+          child: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Center(child: Container(width: 40, height: 4, decoration: BoxDecoration(color: Colors.grey[300], borderRadius: BorderRadius.circular(10)))),
+                const SizedBox(height: 16),
+                Text(
+                  isEditing ? 'Edit Worker Details' : 'Add New Worker',
+                  style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: primaryColor),
                 ),
-                child: Text(isEditing ? 'Save Changes' : 'Add Worker', style: const TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold)),
-              ),
-              const SizedBox(height: 20),
-            ],
+                const SizedBox(height: 20),
+                
+                if (isEditing) ...[
+                  TextField(
+                    controller: _codeController,
+                    readOnly: true,
+                    decoration: InputDecoration(
+                      labelText: 'Worker ID (Auto-generated)',
+                      prefixIcon: Icon(Icons.badge_rounded, color: primaryColor),
+                      filled: true,
+                      fillColor: Colors.grey.shade100,
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                ],
+
+                TextField(controller: _nameController, decoration: InputDecoration(labelText: 'Full Name *', prefixIcon: Icon(Icons.person_rounded, color: primaryColor))),
+                const SizedBox(height: 12),
+                TextField(controller: _mothersNameController, decoration: InputDecoration(labelText: "Mother's Name", prefixIcon: Icon(Icons.family_restroom_rounded, color: primaryColor))),
+                const SizedBox(height: 12),
+                TextField(controller: _phoneController, keyboardType: TextInputType.phone, decoration: InputDecoration(labelText: 'Phone Number', prefixIcon: Icon(Icons.phone_rounded, color: primaryColor))),
+                const SizedBox(height: 12),
+                TextField(controller: _nationalityController, decoration: InputDecoration(labelText: 'Nationality', prefixIcon: Icon(Icons.flag_rounded, color: primaryColor))),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: _birthDateController,
+                  readOnly: true,
+                  onTap: () => _selectBirthDate(context),
+                  decoration: InputDecoration(
+                    labelText: 'Birth Date',
+                    hintText: 'YYYY-MM-DD',
+                    prefixIcon: Icon(Icons.calendar_today_rounded, color: primaryColor),
+                    suffixIcon: Icon(Icons.arrow_drop_down_rounded, color: primaryColor),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                TextField(controller: _birthPlaceController, decoration: InputDecoration(labelText: 'Birth Place', prefixIcon: Icon(Icons.location_city_rounded, color: primaryColor))),
+                const SizedBox(height: 12),
+                TextField(controller: _locationController, decoration: InputDecoration(labelText: 'Current Location / Address', prefixIcon: Icon(Icons.place_rounded, color: primaryColor))),
+                const SizedBox(height: 12),
+                TextField(controller: _positionController, decoration: InputDecoration(labelText: 'Job Position', prefixIcon: Icon(Icons.work_rounded, color: primaryColor))),
+                const SizedBox(height: 16),
+
+                // أزرار اختيار الصور بدل الحقول النصية القديمة
+                Row(
+                  children: [
+                    Expanded(
+                      child: OutlinedButton.icon(
+                        onPressed: () async {
+                          await _pickImage(true);
+                          setModalState(() {}); // لتحديث شكل الزر في الـ BottomSheet
+                        },
+                        icon: Icon(Icons.person_add_alt_1, color: primaryColor),
+                        label: Text(_selectedPersonalPhoto == null ? 'Personal Photo' : 'Photo Selected',
+                            style: TextStyle(fontSize: 12, color: primaryColor)),
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: OutlinedButton.icon(
+                        onPressed: () async {
+                          await _pickImage(false);
+                          setModalState(() {}); // لتحديث شكل الزر في الـ BottomSheet
+                        },
+                        icon: Icon(Icons.badge_outlined, color: primaryColor),
+                        label: Text(_selectedIdPhoto == null ? 'ID Photo' : 'Photo Selected',
+                            style: TextStyle(fontSize: 12, color: primaryColor)),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 12),
+
+                TextField(controller: _notesController, maxLines: 2, decoration: InputDecoration(labelText: 'Notes', prefixIcon: Icon(Icons.note_rounded, color: primaryColor))),
+                const SizedBox(height: 24),
+                ElevatedButton(
+                  onPressed: () => _saveWorker(workerUniqueId: workerUniqueId),
+                  style: ElevatedButton.styleFrom(
+                    minimumSize: const Size.fromHeight(50),
+                    backgroundColor: primaryColor,
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                  ),
+                  child: Text(isEditing ? 'Save Changes' : 'Add Worker', style: const TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold)),
+                ),
+                const SizedBox(height: 20),
+              ],
+            ),
           ),
         ),
       ),
@@ -248,6 +368,12 @@ void _openWorkerSheet({Map<String, dynamic>? worker}) {
     _nationalityController.clear();
     _positionController.clear();
     _notesController.clear();
+    _mothersNameController.clear();
+    _birthDateController.clear();
+    _birthPlaceController.clear();
+    _locationController.clear();
+    _selectedPersonalPhoto = null;
+    _selectedIdPhoto = null;
   }
 
   void _showSnackBar(String message, Color bgColor) {
@@ -339,11 +465,32 @@ void _openWorkerSheet({Map<String, dynamic>? worker}) {
                               margin: const EdgeInsets.only(bottom: 10),
                               shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
                               child: ListTile(
+                                onTap: () {
+                                  Navigator.push(
+                                    context,
+                                    MaterialPageRoute(
+                                      builder: (context) => WorkerProfileScreen(worker: worker),
+                                    ),
+                                  );
+                                },
                                 contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
                                 leading: CircleAvatar(
-                                  backgroundColor: isActive ? primaryColor.withOpacity(0.1) : Colors.grey.shade200,
-                                  child: Icon(Icons.person, color: isActive ? primaryColor : Colors.grey),
-                                ),
+  backgroundColor: isActive ? primaryColor.withOpacity(0.1) : Colors.grey.shade200,
+  
+  // 1. هنا نضع شرطاً صارماً: هل الحقل موجود؟ وهل هو نص؟ وهل يبدأ بـ http؟
+  backgroundImage: (worker['personal_photo'] != null && 
+                    worker['personal_photo'].toString().trim().isNotEmpty &&
+                    worker['personal_photo'].toString().startsWith('http'))
+      ? NetworkImage(worker['personal_photo'].toString())
+      : null,
+      
+  // 2. إذا لم يتحقق الشرط، نعرض أيقونة شخص افتراضية بكل بساطة
+  child: (worker['personal_photo'] == null || 
+          worker['personal_photo'].toString().trim().isEmpty || 
+          !worker['personal_photo'].toString().startsWith('http'))
+      ? Icon(Icons.person, color: isActive ? primaryColor : Colors.grey)
+      : null,
+),
                                 title: Text(
                                   worker['full_name'] ?? '',
                                   style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),

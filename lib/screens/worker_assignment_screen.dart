@@ -3,6 +3,8 @@ import 'package:dio/dio.dart';
 import '../constants.dart';
 import '../widgets/searchable_picker_sheet.dart';
 import '../widgets/custom_app_bar.dart';
+import '../widgets/app_data_table.dart';
+
 class WorkerAssignmentScreen extends StatefulWidget {
   const WorkerAssignmentScreen({Key? key}) : super(key: key);
 
@@ -45,11 +47,15 @@ class _WorkerAssignmentScreenState extends State<WorkerAssignmentScreen> {
     bool? confirm = await showDialog(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text('Confirm'),
+        title: const Text('Confirm', style: TextStyle(fontWeight: FontWeight.bold)),
         content: const Text('Are you sure you want to end this worker assignment?'),
         actions: [
           TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
-          ElevatedButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Confirm')),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(backgroundColor: AppColors.danger),
+            onPressed: () => Navigator.pop(ctx, true), 
+            child: const Text('Confirm', style: TextStyle(color: Colors.white)),
+          ),
         ],
       ),
     );
@@ -61,7 +67,64 @@ class _WorkerAssignmentScreenState extends State<WorkerAssignmentScreen> {
       _loadData(); 
       _showSnackBar('Assignment ended successfully', Colors.blue);
     } catch (e) {
-      _showSnackBar('Failed to end assignment', Colors.red);
+      _showSnackBar('Failed to end assignment', AppColors.danger);
+    }
+  }
+
+  // دالة نقل العامل لموقع جديد
+  Future<void> _transferWorker(Map<String, dynamic> assignment) async {
+    final currentSiteId = int.tryParse(assignment['site_id']?.toString() ?? '0') ?? 0;
+    final workerId = int.tryParse(assignment['worker_id']?.toString() ?? '0') ?? 0;
+    final workerName = assignment['worker_name'] ?? 'Worker';
+
+    // فلترة المواقع لإظهار المواقع الأخرى عدا الموقع الحالي
+    final availableSites = _sites.where((s) {
+      final sId = int.tryParse(s['site_id']?.toString() ?? '0') ?? 0;
+      return sId != currentSiteId;
+    }).toList();
+
+    if (availableSites.isEmpty) {
+      _showSnackBar('No other available sites to transfer to', Colors.orange);
+      return;
+    }
+
+    // فتح شاشة بحث واختيار الموقع الجديد
+    final pickedSite = await SearchablePickerSheet.show<dynamic>(
+      context,
+      title: 'Transfer $workerName to New Site',
+      items: availableSites,
+      labelBuilder: (s) => s['site_name'] ?? '',
+    );
+
+    if (pickedSite == null) return;
+
+    final newSiteId = int.tryParse(pickedSite['site_id'].toString());
+    final assignmentId = int.tryParse(assignment['assignment_id']?.toString() ?? '0');
+
+    if (newSiteId == null || assignmentId == null) return;
+
+    // إظهار مؤشر تحميل أو تنفيذ النقل
+    try {
+      // 1. حذف القديم أو تعديله حسب الـ API لديك (الطريقة القياسية: حذف التعيين القديم وإنشاء جديد أو استدعاء مسار النقل)
+      // هنا سنقوم بحذف التعيين القديم وإنشاء التعيين الجديد في الموقع الجديد مباشرة لضمان سلامة الـ API
+      await ApiConfig.dio.delete('/assignments/$assignmentId');
+      
+      final response = await ApiConfig.dio.post('/assignments', data: {
+        'worker_id': workerId,
+        'site_id': newSiteId,
+      });
+
+      if (response.statusCode == 201 || response.statusCode == 200) {
+        _loadData();
+        _showSnackBar('Worker transferred successfully!', Colors.green.shade700);
+      }
+    } on DioException catch (e) {
+      final errorMessage = e.response?.data is Map
+          ? (e.response?.data['message'] ?? 'Failed to transfer worker')
+          : 'Failed to transfer worker';
+      _showSnackBar(errorMessage, AppColors.danger);
+    } catch (e) {
+      _showSnackBar('Connection error during transfer', AppColors.danger);
     }
   }
 
@@ -79,10 +142,12 @@ class _WorkerAssignmentScreenState extends State<WorkerAssignmentScreen> {
   }
 
   List<dynamic> _getWorkersForSite(int siteId) {
-    return _assignments.where((item) => item['site_id'] == siteId).toList();
+    return _assignments.where((item) {
+      final sId = int.tryParse(item['site_id']?.toString() ?? '0') ?? 0;
+      return sId == siteId;
+    }).toList();
   }
 
-  // فتح نافذة الإضافة كـ Stateful Bottom Sheet مستقلة لضمان استجابة الأزرار
   void _openAddSheet() {
     showModalBottomSheet(
       context: context,
@@ -93,7 +158,7 @@ class _WorkerAssignmentScreenState extends State<WorkerAssignmentScreen> {
         sites: _sites,
         onAssigned: () {
           _loadData();
-          _showSnackBar('Assignment saved successfully!', Colors.green);
+          _showSnackBar('Assignment saved successfully!', Colors.green.shade700);
         },
       ),
     );
@@ -104,10 +169,10 @@ class _WorkerAssignmentScreenState extends State<WorkerAssignmentScreen> {
     final filteredSites = _sites.where((site) {
       final siteName = site['site_name'].toString().toLowerCase();
       final siteId = int.tryParse(site['site_id']?.toString() ?? '0') ?? 0;
-      final workersInSite = _getWorkersForSite(siteId);
+      final siteWorkers = _getWorkersForSite(siteId);
       
       final matchesSiteName = siteName.contains(_searchQuery.toLowerCase());
-      final matchesWorkerName = workersInSite.any((w) => 
+      final matchesWorkerName = siteWorkers.any((w) => 
         w['worker_name'].toString().toLowerCase().contains(_searchQuery.toLowerCase())
       );
 
@@ -116,7 +181,7 @@ class _WorkerAssignmentScreenState extends State<WorkerAssignmentScreen> {
 
     return Scaffold(
       backgroundColor: Colors.grey[100],
-     appBar: CustomAppBar(
+      appBar: const CustomAppBar(
         title: 'Workers & Sites Distribution',
       ),
       body: _isLoading 
@@ -127,9 +192,9 @@ class _WorkerAssignmentScreenState extends State<WorkerAssignmentScreen> {
                 padding: const EdgeInsets.all(12),
                 child: Row(
                   children: [
-                    _buildStatCard('Sites', _sites.length.toString(), const Color(0xff1a2a6c)),
+                    _buildStatCard('Sites', _sites.length.toString(), AppColors.primary),
                     const SizedBox(width: 10),
-                    _buildStatCard('Assignments', _assignments.length.toString(), Colors.blue),
+                    _buildStatCard('Assignments', _assignments.length.toString(), Colors.blue.shade700),
                   ],
                 ),
               ),
@@ -147,54 +212,89 @@ class _WorkerAssignmentScreenState extends State<WorkerAssignmentScreen> {
                   ),
                 ),
               ),
+              const SizedBox(height: 10),
               Expanded(
-                child: ListView.builder(
-                  padding: const EdgeInsets.all(12),
-                  itemCount: filteredSites.length,
-                  itemBuilder: (context, index) {
-                    final site = filteredSites[index];
-                    final siteId = int.tryParse(site['site_id']?.toString() ?? '0') ?? 0;
-                    final siteWorkers = _getWorkersForSite(siteId);
+                child: filteredSites.isEmpty
+                    ? const Center(child: Text('No sites found', style: TextStyle(color: Colors.grey, fontSize: 16)))
+                    : ListView.builder(
+                        padding: const EdgeInsets.all(12),
+                        itemCount: filteredSites.length,
+                        itemBuilder: (context, index) {
+                          final site = filteredSites[index];
+                          final siteId = int.tryParse(site['site_id']?.toString() ?? '0') ?? 0;
+                          final siteWorkers = _getWorkersForSite(siteId);
 
-                    return Card(
-                      elevation: 0,
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(15),
-                        side: BorderSide(color: Colors.grey.shade200),
-                      ),
-                      margin: const EdgeInsets.symmetric(vertical: 6, horizontal: 12),
-                      child: ExpansionTile(
-                        leading: CircleAvatar(
-                          backgroundColor: const Color(0xff1a2a6c).withOpacity(0.1),
-                          child: const Icon(Icons.business, color: Color(0xff1a2a6c)),
-                        ),
-                        title: Text(site['site_name'], style: const TextStyle(fontWeight: FontWeight.bold)),
-                        subtitle: Text('Workers Count: ${siteWorkers.length}'),
-                        children: siteWorkers.map((assignment) {
-                          return Container(
-                            decoration: BoxDecoration(
-                              color: Colors.grey.shade50,
-                              border: Border(top: BorderSide(color: Colors.grey.shade200)),
-                            ),
-                            child: ListTile(
-                              leading: const Icon(Icons.person_outline, color: Colors.grey),
-                              title: Text(assignment['worker_name'] ?? 'Worker'),
-                              trailing: IconButton(
-                                icon: const Icon(Icons.delete_forever, color: Colors.redAccent),
-                                onPressed: () => _deleteAssignment(assignment['assignment_id']),
+                          // تحويل العمال إلى صفوف جدول مع إضافة زر النقل (Transfer) وزر الحذف
+                          final rows = List.generate(siteWorkers.length, (wIndex) {
+                            final assignment = siteWorkers[wIndex];
+                            return DataRow(
+                              cells: [
+                                DataCell(Text('${wIndex + 1}')),
+                                DataCell(
+                                  Row(
+                                    children: [
+                                      const Icon(Icons.person_outline, size: 16, color: Colors.grey),
+                                      const SizedBox(width: 8),
+                                      Text(assignment['worker_name'] ?? 'N/A', style: const TextStyle(fontWeight: FontWeight.w500)),
+                                    ],
+                                  ),
+                                ),
+                                DataCell(
+                                  Row(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      // زر النقل (Transfer)
+                                      IconButton(
+                                        icon: const Icon(Icons.swap_horiz, color: Colors.blue, size: 20),
+                                        tooltip: 'Transfer Worker',
+                                        onPressed: () => _transferWorker(assignment),
+                                      ),
+                                      // زر الحذف (End Assignment)
+                                      IconButton(
+                                        icon: const Icon(Icons.delete_forever, color: AppColors.danger, size: 20),
+                                        tooltip: 'End Assignment',
+                                        onPressed: () => _deleteAssignment(assignment['assignment_id']),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ],
+                            );
+                          });
+
+                          return Padding(
+                            padding: const EdgeInsets.only(bottom: 16),
+                            child: AppDataTableCard(
+                              title: site['site_name'] ?? 'Unknown Site',
+                              icon: Icons.business,
+                              accentColor: AppColors.primary,
+                              emptyMessage: 'No workers assigned to this site yet.',
+                              trailing: Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                                decoration: BoxDecoration(
+                                  color: Colors.blue.shade50,
+                                  borderRadius: BorderRadius.circular(10),
+                                ),
+                                child: Text(
+                                  'Workers: ${siteWorkers.length}',
+                                  style: TextStyle(color: Colors.blue.shade900, fontWeight: FontWeight.bold, fontSize: 12),
+                                ),
                               ),
+                              columns: const [
+                                DataColumn(label: Text('#')),
+                                DataColumn(label: Text('Worker Name')),
+                                DataColumn(label: Text('Actions')),
+                              ],
+                              rows: rows,
                             ),
                           );
-                        }).toList(),
+                        },
                       ),
-                    );
-                  },
-                ),
               ),
             ],
           ),
       floatingActionButton: FloatingActionButton(
-        backgroundColor: const Color(0xff1a2a6c),
+        backgroundColor: AppColors.primary,
         onPressed: _openAddSheet,
         child: const Icon(Icons.person_add_alt_1, color: Colors.white),
       ),
@@ -221,7 +321,6 @@ class _WorkerAssignmentScreenState extends State<WorkerAssignmentScreen> {
   }
 }
 
-// ويدجت منفصل خاص بنافذة الإضافة لضمان استجابة الأزرار وحالة الحقول بشكل مثالي
 class _AddAssignmentSheet extends StatefulWidget {
   final List<dynamic> workers;
   final List<dynamic> sites;
@@ -243,10 +342,10 @@ class _AddAssignmentSheetState extends State<_AddAssignmentSheet> {
   Map<String, dynamic>? _selectedWorkerObj;
   Map<String, dynamic>? _selectedSiteObj;
   bool _isSubmitting = false;
-  String? _errorMessage; // متغير لحفظ وإظهار الخطأ داخل النافذة مباشرة
+  String? _errorMessage;
 
   Future<void> _submit() async {
-    setState(() => _errorMessage = null); // إعادة تعيين الخطأ عند المحاولة الجديدة
+    setState(() => _errorMessage = null);
 
     if (_selectedWorkerId == null || _selectedSiteId == null) {
       setState(() => _errorMessage = 'Please select both worker and site first');
@@ -314,7 +413,7 @@ class _AddAssignmentSheetState extends State<_AddAssignmentSheet> {
                 setState(() {
                   _selectedWorkerObj = picked;
                   _selectedWorkerId = int.tryParse(picked['worker_id'].toString());
-                  _errorMessage = null; // إزالة الخطأ عند الاختيار
+                  _errorMessage = null;
                 });
               }
             },
@@ -347,7 +446,7 @@ class _AddAssignmentSheetState extends State<_AddAssignmentSheet> {
                 setState(() {
                   _selectedSiteObj = picked;
                   _selectedSiteId = int.tryParse(picked['site_id'].toString());
-                  _errorMessage = null; // إزالة الخطأ عند الاختيار
+                  _errorMessage = null;
                 });
               }
             },
@@ -366,7 +465,6 @@ class _AddAssignmentSheetState extends State<_AddAssignmentSheet> {
             ),
           ),
 
-          // عرض رسالة الخطأ بوضوح داخل النافذة المنبثقة مباشرة إن وجدت
           if (_errorMessage != null) ...[
             const SizedBox(height: 16),
             Container(
@@ -378,7 +476,7 @@ class _AddAssignmentSheetState extends State<_AddAssignmentSheet> {
               ),
               child: Row(
                 children: [
-                  const Icon(Icons.error_outline, color: Colors.red, size: 22),
+                  const Icon(Icons.error_outline, color: AppColors.danger, size: 22),
                   const SizedBox(width: 10),
                   Expanded(
                     child: Text(
@@ -394,7 +492,7 @@ class _AddAssignmentSheetState extends State<_AddAssignmentSheet> {
           const SizedBox(height: 24),
           ElevatedButton(
             style: ElevatedButton.styleFrom(
-              backgroundColor: const Color(0xff1a2a6c),
+              backgroundColor: AppColors.primary,
               padding: const EdgeInsets.symmetric(vertical: 15),
               shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10))
             ),
