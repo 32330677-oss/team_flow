@@ -172,14 +172,14 @@ class _ProjectContractsScreenState extends State<ProjectContractsScreen> {
                 TextFormField(
                   controller: _rateController,
                   keyboardType: TextInputType.number,
-                  decoration: const InputDecoration(labelText: 'Hourly Rate *', border: OutlineInputBorder(), prefixText: '\$ '),
+                  decoration: const InputDecoration(labelText: 'Hourly Rate *', border: OutlineInputBorder(), prefixText: 'ل.س '),
                   validator: (value) => value == null || value.isEmpty ? 'Please enter hourly rate' : null,
                 ),
                 const SizedBox(height: 12),
                 TextFormField(
                   controller: _overtimeRateController,
                   keyboardType: TextInputType.number,
-                  decoration: const InputDecoration(labelText: 'Overtime Hourly Rate *', border: OutlineInputBorder(), prefixText: '\$ '),
+                  decoration: const InputDecoration(labelText: 'Overtime Hourly Rate *', border: OutlineInputBorder(), prefixText: 'ل.س '),
                   validator: (value) => value == null || value.isEmpty ? 'Please enter overtime rate' : null,
                 ),
                 const SizedBox(height: 20),

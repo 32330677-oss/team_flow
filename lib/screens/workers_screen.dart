@@ -140,10 +140,14 @@ class _WorkersScreenState extends State<WorkersScreen> {
         'job_position': _positionController.text.trim(),
         'notes': _notesController.text.trim(),
         'mothers_name': _mothersNameController.text.trim(),
-        'birth_date': _birthDateController.text.trim().isEmpty ? null : _birthDateController.text.trim(),
         'birth_place': _birthPlaceController.text.trim(),
         'location': _locationController.text.trim(),
       };
+
+      final birthDate = _birthDateController.text.trim();
+      if (birthDate.isNotEmpty) {
+        mapData['birth_date'] = birthDate;
+      }
 
       // معالجة الصورة الشخصية (متوافقة مع الويب والموبايل)
       if (_selectedPersonalPhoto != null) {

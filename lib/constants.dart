@@ -36,7 +36,8 @@ class ApiConfig {
   // فحص ما إذا كان الخطأ 401، والتأكد أن الطلب لم يكن لصفحة تسجيل الدخول
   bool isLoginRequest = error.requestOptions.path.contains('/login');
 
-  if (error.response?.statusCode == 401 && !isLoginRequest) {
+  final status = error.response?.statusCode;
+if ((status == 401 || status == 403) && !isLoginRequest) {
     // حذف كافة بيانات الجلسة المخزنة فقط إذا لم يكن الطلب هو تسجيل الدخول
     await storage.delete(key: 'jwt_token');
     await storage.delete(key: 'user_role');

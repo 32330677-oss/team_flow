@@ -220,8 +220,8 @@ class _RejectedRecordsScreenState extends State<RejectedRecordsScreen> {
                     Navigator.pop(context);
                     _resubmit(
                       r['attendance_id'],
-                      checkIn?.toUtc().toIso8601String(),
-                      checkOut?.toUtc().toIso8601String(),
+                      checkIn == null ? null : DateFormat('yyyy-MM-dd HH:mm:ss').format(checkIn!),
+                      checkOut == null ? null : DateFormat('yyyy-MM-dd HH:mm:ss').format(checkOut!),
                       remarksController.text,
                     );
                   },

@@ -58,7 +58,7 @@ class _LoginScreenState extends State<LoginScreen>
   // ---------------------------------------------------------------------
   void _handleLogin() async {
     final email = _emailController.text.trim();
-    final password = _passwordController.text.trim();
+    final password = _passwordController.text;
 
     if (email.isEmpty || password.isEmpty) {
       _showSnack("Please fill in all fields", Colors.orange);
@@ -194,7 +194,7 @@ class _LoginScreenState extends State<LoginScreen>
                         _buildLoginCard(),
                         const SizedBox(height: 20),
                         Text(
-                          'Team Flow © ${DateTime.now().year}',
+                          'ASIK ENGINEERING CONSTRUCTION © ${DateTime.now().year}',
                           style: TextStyle(
                             color: Colors.white.withOpacity(0.55),
                             fontSize: 12,
@@ -220,43 +220,67 @@ class _LoginScreenState extends State<LoginScreen>
     );
   }
 
-  Widget _buildLogo() {
-    return Column(
-      children: [
-        Container(
-          padding: const EdgeInsets.all(18),
-          decoration: BoxDecoration(
-            shape: BoxShape.circle,
-            color: Colors.white.withOpacity(0.12),
-            border: Border.all(color: Colors.white.withOpacity(0.25), width: 1.4),
-          ),
-          child: const Icon(
-            Icons.group_work_rounded,
-            size: 56,
-            color: Colors.white,
-          ),
+Widget _buildLogo() {
+  return Column(
+    mainAxisSize: MainAxisSize.min,
+    children: [
+      Container(
+  width: 280,
+  height: 125,
+  padding: const EdgeInsets.all(4),
+  decoration: BoxDecoration(
+    color: Colors.white,
+    borderRadius: BorderRadius.circular(14),
+    boxShadow: [
+      BoxShadow(
+        color: Colors.black.withOpacity(0.18),
+        blurRadius: 16,
+        offset: const Offset(0, 7),
+      ),
+    ],
+  ),
+  child: ClipRRect(
+    borderRadius: BorderRadius.circular(10),
+    child: Image.asset(
+      'assets/images/logo.png',
+      fit: BoxFit.cover,
+      alignment: Alignment.center,
+      errorBuilder: (context, error, stackTrace) {
+        return const Icon(
+          Icons.business_rounded,
+          size: 55,
+          color: _primaryDark,
+        );
+      },
+    ),
+  ),
+),
+
+      const SizedBox(height: 10),
+      const Text(
+        'ASIK ENGINEERING CONSTRUCTION',
+        textAlign: TextAlign.center,
+        style: TextStyle(
+          fontSize: 24,
+          fontWeight: FontWeight.w800,
+          color: Colors.white,
+          letterSpacing: 0.8,
         ),
-        const SizedBox(height: 16),
-        const Text(
-          "TEAM FLOW",
-          style: TextStyle(
-            fontSize: 30,
-            fontWeight: FontWeight.w800,
-            color: Colors.white,
-            letterSpacing: 3,
-          ),
+      ),
+      const SizedBox(height: 3),
+      Text(
+        'Workers Management System',
+        textAlign: TextAlign.center,
+        style: TextStyle(
+          fontSize: 13,
+          color: Colors.white.withOpacity(0.82),
         ),
-        const SizedBox(height: 6),
-        Text(
-          "Manage your team and workflow with ease",
-          style: TextStyle(
-            fontSize: 14,
-            color: Colors.white.withOpacity(0.8),
-          ),
-        ),
-      ],
-    );
-  }
+      ),
+    ],
+  );
+}
+
+
 
   Widget _buildLoginCard() {
     return Container(
@@ -288,7 +312,7 @@ class _LoginScreenState extends State<LoginScreen>
           ),
           const SizedBox(height: 4),
           Text(
-            "Enter your credentials to continue",
+            "Enter your info to continue",
             textAlign: TextAlign.center,
             style: TextStyle(fontSize: 13, color: Colors.grey.shade600),
           ),

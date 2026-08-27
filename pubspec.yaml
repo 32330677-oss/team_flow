@@ -39,3 +39,6 @@ flutter:
     - family: Cairo
       fonts:
         - asset: assets/Cairo.ttf
+
+  assets:
+    - assets/images/logo.png

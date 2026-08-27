@@ -217,9 +217,9 @@ class _SupervisorDashboardState extends State<SupervisorDashboard> {
                                               ),
                                               const SizedBox(height: 4),
                                               Text(
-                                                site['location_description'] ?? 'Tap to manage workers and attendance',
-                                                style: TextStyle(color: Colors.grey.shade600, fontSize: 13, fontWeight: FontWeight.w500),
-                                              ),
+  site['location'] ?? 'Tap to manage workers and attendance',
+  style: TextStyle(color: Colors.grey.shade600, fontSize: 13, fontWeight: FontWeight.w500),
+),
                                             ],
                                           ),
                                         ),

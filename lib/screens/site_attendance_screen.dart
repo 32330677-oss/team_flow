@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:team_flow/constants.dart';
 import 'package:dio/dio.dart';
+import '../widgets/app_data_table.dart';
 import 'rejected_records_screen.dart';
 import 'package:intl/intl.dart';
 
@@ -84,6 +85,74 @@ class _SiteAttendanceScreenState extends State<SiteAttendanceScreen> {
     );
   }
 
+  Future<void> _showAttendanceStatusDialog(int workerId, {String? currentStatus}) async {
+    final selectedStatus = await showDialog<String>(
+      context: context,
+      builder: (dialogContext) => SimpleDialog(
+        title: const Text('Set Worker Status'),
+        children: [
+          _statusOption(dialogContext, 'Absent', 'Absent', Icons.person_off, Colors.red),
+          _statusOption(dialogContext, 'Sick', 'Sick Leave', Icons.sick, Colors.orange),
+          _statusOption(dialogContext, 'Vacation', 'Annual Leave', Icons.beach_access, Colors.blue),
+          _statusOption(dialogContext, 'Holiday', 'Holiday', Icons.event, Colors.purple),
+        ],
+      ),
+    );
+
+    if (selectedStatus == null || !mounted) return;
+    await _handleAction(
+      '/attendance/status',
+      workerId,
+      extraData: {
+        'attendance_status': selectedStatus,
+        'remarks': '$selectedStatus - recorded by supervisor',
+      },
+    );
+  }
+
+  Widget _statusOption(BuildContext context, String value, String label, IconData icon, Color color) {
+    return SimpleDialogOption(
+      onPressed: () => Navigator.pop(context, value),
+      child: Row(
+        children: [
+          Icon(icon, color: color),
+          const SizedBox(width: 12),
+          Text(label, style: const TextStyle(fontSize: 15)),
+        ],
+      ),
+    );
+  }
+
+  // Sends a local wall-clock datetime without UTC conversion. The date is
+  // selected explicitly so a night shift can end after midnight.
+  Future<String?> _pickLocalDateTime({required String helpText, DateTime? initial}) async {
+    final seed = initial ?? DateTime.now();
+    final selectedDate = await showDatePicker(
+      context: context,
+      initialDate: DateTime(seed.year, seed.month, seed.day),
+      firstDate: DateTime(seed.year, seed.month, seed.day).subtract(const Duration(days: 1)),
+      lastDate: DateTime(seed.year, seed.month, seed.day).add(const Duration(days: 2)),
+      helpText: 'Select date',
+    );
+    if (selectedDate == null || !mounted) return null;
+
+    final selectedTime = await showTimePicker(
+      context: context,
+      initialTime: TimeOfDay.fromDateTime(seed),
+      helpText: helpText,
+    );
+    if (selectedTime == null) return null;
+
+    // Deliberately omit Z/toUtc(): backend stores supervisor-selected local time.
+    return DateFormat('yyyy-MM-dd HH:mm:ss').format(DateTime(
+      selectedDate.year,
+      selectedDate.month,
+      selectedDate.day,
+      selectedTime.hour,
+      selectedTime.minute,
+    ));
+  }
+
   // -------------------------------------------------------------------
   // NEW: Opens a time picker for Check-In, then converts the selected
   // time (combined with today's date, since record_date stays CURDATE()
@@ -92,66 +161,37 @@ class _SiteAttendanceScreenState extends State<SiteAttendanceScreen> {
   // rejected_records_screen.dart's _resubmit flow.
   // -------------------------------------------------------------------
 Future<void> _performCheckIn(int workerId) async {
-  final pickedTime = await showTimePicker(
-    context: context,
-    initialTime: TimeOfDay.now(),
-    helpText: 'Select Check-In Time',
-  );
-  if (pickedTime == null) return;
+  final selectedDateTime = await _pickLocalDateTime(helpText: 'Select Check-In Time');
+  if (selectedDateTime == null) return;
 
-  final now = DateTime.now();
-  final selectedDateTime = DateTime(
-    now.year, now.month, now.day, pickedTime.hour, pickedTime.minute,
-  );
-
-  // NOTE: no .toUtc() here. We send the literal wall-clock time the
-  // Supervisor picked, exactly as-is, to avoid the timezone double-shift.
-  _handleAction(
+  await _handleAction(
     '/attendance/checkin',
     workerId,
-    extraData: {'check_in_time': selectedDateTime.toIso8601String()},
+    extraData: {'check_in_time': selectedDateTime},
   );
 }
 
 Future<void> _performCheckOut(int workerId) async {
-  final pickedTime = await showTimePicker(
-    context: context,
-    initialTime: TimeOfDay.now(),
-    helpText: 'Select Check-Out Time',
-  );
-  if (pickedTime == null) return;
-
-  final now = DateTime.now();
-  final selectedDateTime = DateTime(
-    now.year, now.month, now.day, pickedTime.hour, pickedTime.minute,
-  );
+  final selectedDateTime = await _pickLocalDateTime(helpText: 'Select Check-Out Date and Time');
+  if (selectedDateTime == null) return;
 
   await _handleAction(
     '/attendance/checkout',
     workerId,
-    extraData: {'check_out_time': selectedDateTime.toIso8601String()},
+    extraData: {'check_out_time': selectedDateTime},
   );
 }
 
 
 // NEW: manual end-of-break time picker, mirrors _performCheckOut.
 Future<void> _performEndLeave(int workerId) async {
-  final pickedTime = await showTimePicker(
-    context: context,
-    initialTime: TimeOfDay.now(),
-    helpText: 'Select Break End Time',
-  );
-  if (pickedTime == null) return;
-
-  final now = DateTime.now();
-  final selectedDateTime = DateTime(
-    now.year, now.month, now.day, pickedTime.hour, pickedTime.minute,
-  );
+  final selectedDateTime = await _pickLocalDateTime(helpText: 'Select Break End Date and Time');
+  if (selectedDateTime == null) return;
 
   await _handleAction(
     '/attendance/leave/end',
     workerId,
-    extraData: {'leave_end_time': selectedDateTime.toIso8601String()},
+    extraData: {'leave_end_time': selectedDateTime},
   );
 }
   // -------------------------------------------------------------------
@@ -182,8 +222,6 @@ Future<void> _startLeaveDialog(int workerId) async {
             ),
             const Divider(),
             _buildLeaveOption(ctx, 'Rest', 'Rest Break', Icons.free_breakfast, Colors.blue),
-            _buildLeaveOption(ctx, 'Sick', 'Sick Leave', Icons.sick, Colors.red),
-            _buildLeaveOption(ctx, 'Annual', 'Annual Leave', Icons.beach_access, Colors.orange),
             _buildLeaveOption(ctx, 'Lunch', 'Lunch Break', Icons.lunch_dining, Colors.purple),
           ],
         ),
@@ -194,25 +232,16 @@ Future<void> _startLeaveDialog(int workerId) async {
   if (type == null) return;
   if (!mounted) return;
 
-  // NEW: ask for the break start time before submitting.
-  final pickedTime = await showTimePicker(
-    context: context,
-    initialTime: TimeOfDay.now(),
-    helpText: 'Select Break Start Time',
-  );
-  if (pickedTime == null) return;
-
-  final now = DateTime.now();
-  final selectedDateTime = DateTime(
-    now.year, now.month, now.day, pickedTime.hour, pickedTime.minute,
-  );
+  // Select the calendar date explicitly so breaks can cross midnight safely.
+  final selectedDateTime = await _pickLocalDateTime(helpText: 'Select Break Start Date and Time');
+  if (selectedDateTime == null) return;
 
   await _handleAction(
     '/attendance/leave/start',
     workerId,
     extraData: {
       'leave_type': type,
-      'leave_start_time': selectedDateTime.toIso8601String(),
+      'leave_start_time': selectedDateTime,
     },
   );
 }
@@ -452,6 +481,192 @@ Future<void> _startLeaveDialog(int workerId) async {
     }
   }
 
+
+  Widget _buildWorkersTable() {
+    if (_workers.isEmpty) {
+      return Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(Icons.assignment_turned_in, size: 56, color: Colors.grey.shade400),
+            const SizedBox(height: 10),
+            const Text(
+              'All workers accounted for or none available!',
+              style: TextStyle(fontSize: 14, color: Colors.grey, fontWeight: FontWeight.w500),
+            ),
+          ],
+        ),
+      );
+    }
+
+    final rows = _workers.map<DataRow>((worker) {
+      final workerId = int.parse(worker['worker_id'].toString());
+      final hasCheckIn = worker['check_in_time'] != null;
+      final hasCheckOut = worker['check_out_time'] != null;
+      final workflowStatus = worker['workflow_status']?.toString();
+      final attendanceStatus = worker['attendance_status']?.toString();
+      final isSubmitted = workflowStatus == 'Submitted';
+      final isDraft = workflowStatus == null || workflowStatus == 'Draft';
+      final isRejected = workflowStatus == 'Rejected';
+      final isOnBreak = worker['current_leave_id'] != null;
+
+      final status = isRejected
+          ? 'Rejected'
+          : attendanceStatus == 'Absent'
+              ? 'Absent'
+              : attendanceStatus == 'Sick'
+                  ? 'Sick Leave'
+                  : attendanceStatus == 'Vacation'
+                      ? 'Annual Leave'
+                      : attendanceStatus == 'Holiday'
+                          ? 'Holiday'
+                          : isOnBreak
+                              ? 'On Break'
+                              : hasCheckOut
+                                  ? 'Checked Out'
+                                  : hasCheckIn
+                                      ? 'Checked In'
+                                      : 'Not Checked In';
+
+      final statusColor = isRejected
+          ? Colors.red
+          : status == 'Absent'
+              ? Colors.red
+              : status == 'Sick Leave'
+                  ? Colors.orange
+                  : status == 'Annual Leave'
+                  ? Colors.blue
+                      : status == 'Holiday'
+                          ? Colors.purple
+              : status == 'On Break'
+                  ? Colors.orange
+                  : status == 'Checked In'
+                      ? Colors.green
+                      : status == 'Checked Out'
+                          ? Colors.blue
+                          : Colors.grey;
+
+      return DataRow(cells: [
+        DataCell(
+          SizedBox(
+            width: 180,
+            child: Row(
+              children: [
+                CircleAvatar(
+                  radius: 16,
+                  backgroundColor: const Color(0xff1a2a6c).withOpacity(0.10),
+                  child: Text(
+                    (worker['full_name'] ?? 'W').toString().substring(0, 1).toUpperCase(),
+                    style: const TextStyle(color: Color(0xff1a2a6c), fontWeight: FontWeight.bold),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    worker['full_name']?.toString() ?? 'Worker',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+        DataCell(
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
+            decoration: BoxDecoration(
+              color: statusColor.withOpacity(0.10),
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: Text(
+              status,
+              style: TextStyle(fontSize: 11, fontWeight: FontWeight.w700, color: statusColor),
+            ),
+          ),
+        ),
+        DataCell(Text(_attendanceTimeText(worker['check_in_time']))),
+        DataCell(Text(_attendanceTimeText(worker['check_out_time']))),
+        DataCell(
+          PopupMenuButton<String>(
+            tooltip: 'Worker actions',
+            icon: const Icon(Icons.more_horiz, color: Color(0xff1a2a6c)),
+            onSelected: (action) async {
+              switch (action) {
+                case 'status':
+                  await _showAttendanceStatusDialog(workerId, currentStatus: attendanceStatus);
+                  break;
+                case 'checkin':
+                  await _performCheckIn(workerId);
+                  break;
+                case 'break':
+                  if (isOnBreak) {
+                    await _performEndLeave(workerId);
+                  } else {
+                    await _startLeaveDialog(workerId);
+                  }
+                  break;
+                case 'checkout':
+                  await _performCheckOut(workerId);
+                  break;
+                case 'lunch':
+                  await _editWorkerLunch(workerId);
+                  break;
+                case 'transfer':
+                  await _openTransferSheet(worker);
+                  break;
+              }
+            },
+            itemBuilder: (_) => [
+              PopupMenuItem(
+                value: 'status',
+                enabled: !hasCheckIn && isDraft,
+                child: Text(attendanceStatus == null ? 'Set status' : 'Edit status'),
+              ),
+              PopupMenuItem(
+                value: 'checkin',
+                enabled: !hasCheckIn && !isRejected && isDraft,
+                child: const Text('Check In'),
+              ),
+              PopupMenuItem(
+                value: 'break',
+                enabled: hasCheckIn && !hasCheckOut && !isSubmitted && !isRejected,
+                child: Text(isOnBreak ? 'End Break' : 'Start Break'),
+              ),
+              PopupMenuItem(
+                value: 'checkout',
+                enabled: hasCheckIn && !hasCheckOut && !isSubmitted && !isRejected,
+                child: const Text('Check Out'),
+              ),
+              const PopupMenuDivider(),
+              const PopupMenuItem(value: 'lunch', child: Text('Edit Lunch')),
+              const PopupMenuItem(value: 'transfer', child: Text('Transfer Worker')),
+            ],
+          ),
+        ),
+      ]);
+    }).toList();
+
+    return SingleChildScrollView(
+      padding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
+      child: AppDataTableCard(
+        title: 'Workers Attendance',
+        subtitle: '${_workers.length} workers',
+        icon: Icons.groups_rounded,
+        accentColor: const Color(0xff1a2a6c),
+        padding: const EdgeInsets.all(12),
+        columns: const [
+          DataColumn(label: Text('Worker')),
+          DataColumn(label: Text('Status')),
+          DataColumn(label: Text('Check In')),
+          DataColumn(label: Text('Check Out')),
+          DataColumn(label: Text('Actions')),
+        ],
+        rows: rows,
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     String formattedDate = DateFormat('yyyy/MM/dd').format(DateTime.now());
@@ -573,225 +788,7 @@ Future<void> _startLeaveDialog(int workerId) async {
                     ),
                   ),
                 ),
-                Expanded(
-                  child: _workers.isEmpty
-                      ? Center(
-                          child: Column(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            children: [
-                              Icon(Icons.assignment_turned_in, size: 64, color: Colors.grey.shade400),
-                              const SizedBox(height: 12),
-                              const Text('All workers accounted for or none available!', style: TextStyle(fontSize: 15, color: Colors.grey, fontWeight: FontWeight.w500)),
-                            ],
-                          ),
-                        )
-                      : ListView.builder(
-                          padding: const EdgeInsets.symmetric(horizontal: 16),
-                          itemCount: _workers.length,
-                          itemBuilder: (context, index) {
-                            final worker = _workers[index];
-                            final bool hasCheckIn = worker['check_in_time'] != null;
-                            final bool hasCheckOut = worker['check_out_time'] != null;
-                            final bool isSubmitted = worker['workflow_status'] == 'Submitted';
-                            final bool isAbsent = worker['attendance_status'] == 'Absent';
-                            final bool isCheckedIn = hasCheckIn;
-                            final bool isOnBreak = worker['current_leave_id'] != null;
-
-                            return Container(
-                              margin: const EdgeInsets.only(bottom: 12),
-                              decoration: BoxDecoration(
-                                color: Colors.white,
-                                borderRadius: BorderRadius.circular(16),
-                                boxShadow: [
-                                  BoxShadow(color: Colors.black.withOpacity(0.04), blurRadius: 8, offset: const Offset(0, 2)),
-                                ],
-                              ),
-                              child: Padding(
-                                padding: const EdgeInsets.all(16.0),
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    Row(
-                                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                                      children: [
-                                        Expanded(
-                                          child: Row(
-                                            children: [
-                                              CircleAvatar(
-                                                backgroundColor: const Color(0xff1a2a6c).withOpacity(0.1),
-                                                child: Text(
-                                                  (worker['full_name'] ?? 'W')[0].toUpperCase(),
-                                                  style: const TextStyle(color: Color(0xff1a2a6c), fontWeight: FontWeight.bold),
-                                                ),
-                                              ),
-                                              const SizedBox(width: 12),
-                                              Expanded(
-                                                child: Column(
-                                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                                  children: [
-                                                    Text(
-                                                      worker['full_name'] ?? 'Worker',
-                                                      style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Color(0xff2d3748)),
-                                                    ),
-                                                    Text(
-                                                      worker['job_position'] ?? 'Worker',
-                                                      style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
-                                                    ),
-                                                  ],
-                                                ),
-                                              ),
-                                            ],
-                                          ),
-                                        ),
-                                        IconButton(
-                                          icon: const Icon(Icons.swap_horiz_rounded, color: Colors.deepOrange),
-                                          tooltip: 'Transfer Worker',
-                                          onPressed: () => _openTransferSheet(worker),
-                                        ),
-                                      ],
-                                    ),
-                                    const Padding(padding: EdgeInsets.symmetric(vertical: 12), child: Divider(height: 1)),
-                                    Row(
-                                      children: [
-                                        Expanded(child: Text('Check-in: ${_attendanceTimeText(worker['check_in_time'])}', style: TextStyle(fontSize: 12, color: Colors.grey.shade700))),
-                                        Expanded(child: Text('Check-out: ${_attendanceTimeText(worker['check_out_time'])}', style: TextStyle(fontSize: 12, color: Colors.grey.shade700))),
-                                      ],
-                                    ),
-                                    const SizedBox(height: 8),
-                                    Row(
-                                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                                      children: [
-                                        Expanded(child: Text(
-                                          'Lunch: ${_lunchOverrides[worker['worker_id']] == null ? 'Use default' : '${_timeText(_lunchOverrides[worker['worker_id']]!['start'])} - ${_timeText(_lunchOverrides[worker['worker_id']]!['end'])}'}',
-                                          style: TextStyle(fontSize: 12, color: Colors.grey.shade700),
-                                        )),
-                                        TextButton.icon(
-                                          onPressed: () => _editWorkerLunch(worker['worker_id']),
-                                          icon: const Icon(Icons.edit, size: 14),
-                                          label: const Text('Edit lunch'),
-                                        ),
-                                      ],
-                                    ),
-                                    const SizedBox(height: 4),
-                                    Row(
-                                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                                      children: [
-                                        Container(
-
-                                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                                          decoration: BoxDecoration(
-                                            color: !isCheckedIn
-                                                ? Colors.grey.shade100
-                                                : isOnBreak
-                                                    ? Colors.orange.shade50
-                                                    : Colors.green.shade50,
-                                            borderRadius: BorderRadius.circular(8),
-                                          ),
-                                          child: Row(
-                                            mainAxisSize: MainAxisSize.min,
-                                            children: [
-                                              Icon(
-                                                !isCheckedIn
-                                                    ? Icons.remove_circle_outline
-                                                    : isOnBreak
-                                                        ? Icons.pause_circle_filled
-                                                        : hasCheckOut
-                                                            ? Icons.logout
-                                                            : isAbsent
-                                                                ? Icons.event_busy
-                                                                : Icons.check_circle,
-                                                size: 14,
-                                                color: !isCheckedIn
-                                                    ? Colors.grey
-                                                    : isOnBreak
-                                                        ? Colors.orange
-                                                        : hasCheckOut
-                                                            ? Colors.blue
-                                                            : isAbsent
-                                                                ? Colors.red
-                                                                : Colors.green,
-                                              ),
-                                              const SizedBox(width: 6),
-                                              Text(
-                                                !isCheckedIn
-                                                    ? 'Not Checked In'
-                                                    : isOnBreak
-                                                        ? 'On Break'
-                                                        : hasCheckOut
-                                                            ? 'Checked Out'
-                                                            : isAbsent
-                                                                ? 'Absent'
-                                                                : 'Checked In',
-                                                style: TextStyle(
-                                                  fontSize: 12,
-                                                  fontWeight: FontWeight.w600,
-                                                  color: !isCheckedIn
-                                                      ? Colors.grey.shade700
-                                                      : isOnBreak
-                                                          ? Colors.orange.shade800
-                                                          : hasCheckOut
-                                                              ? Colors.blue.shade800
-                                                              : isAbsent
-                                                                  ? Colors.red.shade800
-                                                                  : Colors.green.shade800,
-                                                ),
-                                              ),
-                                            ],
-                                          ),
-                                        ),
-                                        !hasCheckIn
-                                            ? ElevatedButton.icon(
-                                                onPressed: () => _performCheckIn(worker['worker_id']),
-                                                icon: const Icon(Icons.login, size: 14, color: Colors.white),
-                                                label: const Text('Check In', style: TextStyle(color: Colors.white, fontSize: 12)),
-                                                style: ElevatedButton.styleFrom(
-                                                  backgroundColor: const Color(0xff1a2a6c),
-                                                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                                                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                                                  elevation: 0,
-                                                ),
-                                              )
-                                            : Row(
-                                                children: [
-                                                  OutlinedButton.icon(
-                                                    onPressed: (hasCheckOut || isSubmitted) ? null : () async {
-  if (isOnBreak) {
-    await _performEndLeave(worker['worker_id']);
-  } else {
-    await _startLeaveDialog(worker['worker_id']);
-  }
-},
-                                                    icon: Icon(isOnBreak ? Icons.play_arrow : Icons.pause, size: 14, color: isOnBreak ? Colors.green : Colors.orange),
-                                                    label: Text(isOnBreak ? 'End' : 'Break', style: TextStyle(fontSize: 12, color: isOnBreak ? Colors.green : Colors.orange)),
-                                                    style: OutlinedButton.styleFrom(
-                                                      side: BorderSide(color: isOnBreak ? Colors.green : Colors.orange),
-                                                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
-                                                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                                                    ),
-                                                  ),
-                                                  const SizedBox(width: 8),
-                                                  ElevatedButton.icon(
-                                                    onPressed: (hasCheckOut || isSubmitted) ? null : () => _performCheckOut(worker['worker_id']),
-                                                    icon: const Icon(Icons.logout, size: 14, color: Colors.white),
-                                                    label: const Text('Checkout', style: TextStyle(color: Colors.white, fontSize: 12)),
-                                                    style: ElevatedButton.styleFrom(
-                                                      backgroundColor: Colors.red.shade600,
-                                                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-                                                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                                                      elevation: 0,
-                                                    ),
-                                                  ),
-                                                ],
-                                              ),
-                                      ],
-                                    ),
-                                  ],
-                                ),
-                              ),
-                            );
-                          },
-                        ),
-                ),
+                Expanded(child: _buildWorkersTable()),
                 Container(
                   padding: const EdgeInsets.all(16.0),
                   color: Colors.white,

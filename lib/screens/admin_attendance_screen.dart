@@ -199,7 +199,7 @@ class _AdminAttendanceScreenState extends State<AdminAttendanceScreen> {
       final data = response.data is Map ? response.data['data'] : null;
       if (data is Map) {
         lunchPaid = '${data['is_lunch_paid']}'.toLowerCase() == 'true';
-        minutes = int.tryParse('${data['standard_work_minutes']}') ?? 480;
+        minutes = int.tryParse('${data['standard_work_minutes']}') ?? 600;
       }
     } catch (_) {
       if (mounted) _showMessage('Failed to load settings.', false);

@@ -36,6 +36,8 @@ class _PayrollScreenState extends State<PayrollScreen> {
   List<dynamic> _sites = [];
   
   int? _selectedSiteId;
+  DateTime? _dailyAttendanceDate;
+  bool _isExportingDailyAttendance = false;
 
   @override
   void initState() {
@@ -168,6 +170,58 @@ Future<void> _generatePayroll() async {
       _showSnack(errorMessage, Colors.orange[800]!);
     } finally {
       setState(() => _isGenerating = false);
+    }
+  }
+
+  Future<void> _selectDailyAttendanceDate() async {
+    final picked = await showDatePicker(
+      context: context,
+      initialDate: _dailyAttendanceDate ?? DateTime.now(),
+      firstDate: DateTime(2020),
+      lastDate: DateTime(2035),
+      helpText: 'Select attendance date',
+    );
+    if (picked != null && mounted) {
+      setState(() => _dailyAttendanceDate = picked);
+    }
+  }
+
+  Future<void> _exportDailyAttendance() async {
+    final selected = _dailyAttendanceDate;
+    if (selected == null) {
+      _showSnack('Select an attendance date first.', Colors.orange);
+      return;
+    }
+
+    final date = DateFormat('yyyy-MM-dd').format(selected);
+    setState(() => _isExportingDailyAttendance = true);
+    try {
+      final response = await ApiConfig.dio.get(
+        '/admin/payroll/daily-attendance/export.xlsx',
+        queryParameters: {
+          'date': date,
+          if (_selectedSiteId != null) 'site_id': _selectedSiteId,
+        },
+        options: Options(responseType: ResponseType.bytes),
+      );
+      final bytes = response.data is List<int>
+          ? List<int>.from(response.data as List<int>)
+          : <int>[];
+      if (bytes.isEmpty) throw Exception('Empty attendance report');
+      await PayrollExportService.exportBytes(bytes, 'daily_attendance_$date.xlsx');
+      if (mounted) _showSnack('Daily attendance report exported.', Colors.green);
+    } on DioException catch (e) {
+      if (mounted) {
+        final data = e.response?.data;
+        final message = data is Map && data['message'] != null
+            ? data['message'].toString()
+            : 'Failed to export daily attendance report.';
+        _showSnack(message, dangerColor);
+      }
+    } catch (_) {
+      if (mounted) _showSnack('Failed to export daily attendance report.', dangerColor);
+    } finally {
+      if (mounted) setState(() => _isExportingDailyAttendance = false);
     }
   }
 
@@ -657,6 +711,30 @@ Future<void> _exportBatchExcel(Map batch, List workers) async {
                 shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
               ),
             ),
+          ),
+          const SizedBox(height: 10),
+          Row(
+            children: [
+              Expanded(
+                child: OutlinedButton.icon(
+                  onPressed: _isExportingDailyAttendance ? null : _selectDailyAttendanceDate,
+                  icon: const Icon(Icons.calendar_month),
+                  label: Text(_dailyAttendanceDate == null
+                      ? 'Daily Attendance Date'
+                      : DateFormat('yyyy-MM-dd').format(_dailyAttendanceDate!)),
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: OutlinedButton.icon(
+                  onPressed: _isExportingDailyAttendance ? null : _exportDailyAttendance,
+                  icon: _isExportingDailyAttendance
+                      ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2))
+                      : const Icon(Icons.print_outlined),
+                  label: const Text('Print Daily Attendance'),
+                ),
+              ),
+            ],
           ),
         ],
       ),
