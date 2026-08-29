@@ -18,28 +18,41 @@ class MyApp extends StatelessWidget {
   const MyApp({super.key});
 
   // دالة لفحص حالة تسجيل الدخول وتحديد الشاشة الافتتاحية
+// دالة لفحص حالة تسجيل الدخول وتحديد الشاشة الافتتاحية (نسخة آمنة)
   Future<Widget> _checkLoginStatus() async {
     const storage = FlutterSecureStorage();
     
-    // قراءة التوكن والـ Role من الذاكرة الآمنة
-    String? token = await storage.read(key: 'jwt_token');
-    String? role = await storage.read(key: 'user_role');
+    try {
+      // قراءة التوكن والـ Role من الذاكرة الآمنة
+      String? token = await storage.read(key: 'jwt_token');
+      String? role = await storage.read(key: 'user_role');
 
-    // إذا كان التوكن موجوداً
-    if (token != null && token.isNotEmpty) {
-      if (role == 'Admin') {
-        // 1️⃣ توجيه الأدمن مباشرة
-        return const AdminDashboardScreen();
-      } else if (role == 'Supervisor') {
-        // 2️⃣ توجيه المشرف مباشرة مع جلب بياناته المخزنة
-        String? userIdRaw = await storage.read(key: 'user_id') ?? '0';
-        String? userName = await storage.read(key: 'user_name') ?? 'Supervisor';
-        
-        return SupervisorDashboard(
-          supervisorId: int.parse(userIdRaw),
-          supervisorName: userName,
-        );
+      // إذا كان التوكن موجوداً
+      if (token != null && token.isNotEmpty) {
+        if (role == 'Admin') {
+          return const AdminDashboardScreen();
+        } else if (role == 'Supervisor') {
+          // قراءة الـ user_id ومعالجته بلطف باستخدام int.tryParse لمنع الـ Crash
+          String? userIdRaw = await storage.read(key: 'user_id');
+          int? supervisorId = userIdRaw != null ? int.tryParse(userIdRaw) : null;
+          
+          // إذا كانت البيانات تالفة (التوكن موجود لكن الـ ID ليس رقماً صالحاً)
+          if (supervisorId == null) {
+            await storage.deleteAll(); // تنظيف الذاكرة التالفة
+            return const LoginScreen();
+          }
+
+          String? userName = await storage.read(key: 'user_name') ?? 'Supervisor';
+          
+          return SupervisorDashboard(
+            supervisorId: supervisorId,
+            supervisorName: userName,
+          );
+        }
       }
+    } catch (e) {
+      // لو حدث أي خطأ غير متوقع في قراءة التخزين، نمسح البيانات ونرجع لصفحة اللوجن بأمان
+      await storage.deleteAll();
     }
     
     // في حال عدم وجود توكن أو أي حالة أخرى، نذهب لصفحة اللوجن

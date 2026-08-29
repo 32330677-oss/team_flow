@@ -17,6 +17,8 @@ class SiteAttendanceScreen extends StatefulWidget {
 
 class _SiteAttendanceScreenState extends State<SiteAttendanceScreen> {
   bool _isLoading = true;
+  String _recordDate = DateFormat('yyyy-MM-dd').format(DateTime.now());
+  final Set<int> _selectedWorkerIds = <int>{};
   List<dynamic> _workers = [];
   List<dynamic> _mySitesForTransfer = [];
   bool _applyLunchToAll = false;
@@ -34,7 +36,10 @@ class _SiteAttendanceScreenState extends State<SiteAttendanceScreen> {
     if (!mounted) return;
     setState(() => _isLoading = true);
     try {
-      final response = await ApiConfig.dio.get('/attendance/sites/${widget.siteId}/workers');
+      final response = await ApiConfig.dio.get(
+        '/attendance/sites/${widget.siteId}/workers',
+        queryParameters: {'record_date': _recordDate},
+      );
       if (!mounted) return;
       setState(() {
         _workers = response.data['data'] ?? [];
@@ -59,6 +64,7 @@ class _SiteAttendanceScreenState extends State<SiteAttendanceScreen> {
       final Map<String, dynamic> payload = {
         'worker_id': workerId,
         'site_id': widget.siteId,
+        'record_date': _recordDate,
       };
       if (extraData != null) {
         payload.addAll(extraData);
@@ -76,6 +82,87 @@ class _SiteAttendanceScreenState extends State<SiteAttendanceScreen> {
       if (!mounted) return;
       setState(() => _isLoading = false);
       _showToast('Connection error', Colors.red);
+    }
+  }
+
+  Future<void> _chooseAttendanceDate() async {
+    final current = DateTime.parse(_recordDate);
+    final selected = await showDatePicker(
+      context: context,
+      initialDate: current,
+      firstDate: DateTime(2020),
+      lastDate: DateTime(2100),
+      helpText: 'Select attendance date',
+    );
+    if (selected == null || !mounted) return;
+
+    setState(() {
+      _recordDate = DateFormat('yyyy-MM-dd').format(selected);
+    });
+    await _fetchWorkers();
+  }
+
+  void _setRecordDateFromManualDateTime(String value) {
+    final parsed = DateTime.tryParse(value);
+    if (parsed == null) return;
+    final nextDate = DateFormat('yyyy-MM-dd').format(parsed);
+    if (nextDate != _recordDate && mounted) {
+      setState(() => _recordDate = nextDate);
+    }
+  }
+
+  bool _canBulkCheckIn(Map worker) {
+    final workflow = worker['workflow_status']?.toString();
+    return workflow == null || workflow == 'Draft';
+  }
+
+  bool _canBulkCheckOut(Map worker) {
+    final workflow = worker['workflow_status']?.toString();
+    return workflow == 'Draft' && worker['check_in_time'] != null && worker['check_out_time'] == null;
+  }
+
+  List<int> _eligibleSelectedWorkerIds(bool checkIn) {
+    return _workers.where((worker) {
+      final id = int.tryParse(worker['worker_id'].toString());
+      if (id == null || !_selectedWorkerIds.contains(id)) return false;
+      return checkIn ? _canBulkCheckIn(worker) && worker['check_in_time'] == null : _canBulkCheckOut(worker);
+    }).map<int>((worker) => int.parse(worker['worker_id'].toString())).toList();
+  }
+
+  Future<void> _bulkAttendanceAction({required bool checkIn}) async {
+    final workerIds = _eligibleSelectedWorkerIds(checkIn);
+    if (workerIds.isEmpty) {
+      _showToast(checkIn ? 'Select workers who are not checked in.' : 'Select workers who are checked in and not checked out.', Colors.orange);
+      return;
+    }
+    final selectedDateTime = await _pickLocalDateTime(helpText: checkIn ? 'Select Bulk Check-In Time' : 'Select Bulk Check-Out Time');
+    if (selectedDateTime == null) return;
+    if (checkIn) _setRecordDateFromManualDateTime(selectedDateTime);
+
+    setState(() => _isLoading = true);
+    try {
+      final response = await ApiConfig.dio.post(
+        checkIn ? '/attendance/bulk/checkin' : '/attendance/bulk/checkout',
+        data: {
+          'site_id': widget.siteId,
+          'record_date': _recordDate,
+          'worker_ids': workerIds,
+          checkIn ? 'check_in_time' : 'check_out_time': selectedDateTime,
+        },
+      );
+      final data = response.data is Map ? response.data as Map : <String, dynamic>{};
+      final successful = (data['successful'] as List?)?.length ?? 0;
+      final failed = (data['failed'] as List?)?.length ?? 0;
+      if (mounted) {
+        setState(() => _selectedWorkerIds.removeAll(workerIds));
+        _showToast(failed == 0 ? '$successful workers updated successfully.' : '$successful updated, $failed failed.', failed == 0 ? Colors.green : Colors.orange);
+      }
+      await _fetchWorkers();
+    } on DioException catch (e) {
+      if (!mounted) return;
+      setState(() => _isLoading = false);
+      final data = e.response?.data;
+      _showToast(data is Map && data['message'] != null ? data['message'].toString() : 'Bulk attendance action failed.', Colors.red);
     }
   }
 
@@ -126,7 +213,7 @@ class _SiteAttendanceScreenState extends State<SiteAttendanceScreen> {
   // Sends a local wall-clock datetime without UTC conversion. The date is
   // selected explicitly so a night shift can end after midnight.
   Future<String?> _pickLocalDateTime({required String helpText, DateTime? initial}) async {
-    final seed = initial ?? DateTime.now();
+    final seed = initial ?? DateTime.parse(_recordDate);
     final selectedDate = await showDatePicker(
       context: context,
       initialDate: DateTime(seed.year, seed.month, seed.day),
@@ -154,15 +241,13 @@ class _SiteAttendanceScreenState extends State<SiteAttendanceScreen> {
   }
 
   // -------------------------------------------------------------------
-  // NEW: Opens a time picker for Check-In, then converts the selected
-  // time (combined with today's date, since record_date stays CURDATE()
-  // on the backend) into a UTC ISO string and forwards it via extraData.
-  // Same pattern used for check_in_time/check_out_time in
-  // rejected_records_screen.dart's _resubmit flow.
+  // Opens a manual picker and sends a literal local wall-clock datetime.
+  // The selected shift date is propagated separately as record_date.
   // -------------------------------------------------------------------
 Future<void> _performCheckIn(int workerId) async {
   final selectedDateTime = await _pickLocalDateTime(helpText: 'Select Check-In Time');
   if (selectedDateTime == null) return;
+  _setRecordDateFromManualDateTime(selectedDateTime);
 
   await _handleAction(
     '/attendance/checkin',
@@ -419,7 +504,7 @@ Future<void> _startLeaveDialog(int workerId) async {
     try {
       final response = await ApiConfig.dio.post('/attendance/lunch/bulk', data: {
         'siteId': widget.siteId,
-        'date': DateFormat('yyyy-MM-dd').format(DateTime.now()),
+        'date': _recordDate,
         'default_start_time': _timeText(_defaultLunchStart),
         'default_end_time': _timeText(_defaultLunchEnd),
         'overrides': overrides,
@@ -464,7 +549,13 @@ Future<void> _startLeaveDialog(int workerId) async {
 
     setState(() => _isLoading = true);
     try {
-      final response = await ApiConfig.dio.post('/attendance/submit', data: {'siteId': widget.siteId});
+      final response = await ApiConfig.dio.post(
+        '/attendance/submit',
+        data: {
+          'siteId': widget.siteId,
+          'record_date': _recordDate,
+        },
+      );
       if (response.data['status'] == 'success') {
         await _fetchWorkers();
         if (!mounted) return;
@@ -644,6 +735,18 @@ Future<void> _startLeaveDialog(int workerId) async {
             ],
           ),
         ),
+        DataCell(
+          Checkbox(
+            value: _selectedWorkerIds.contains(workerId),
+            onChanged: (checked) => setState(() {
+              if (checked == true) {
+                _selectedWorkerIds.add(workerId);
+              } else {
+                _selectedWorkerIds.remove(workerId);
+              }
+            }),
+          ),
+        ),
       ]);
     }).toList();
 
@@ -661,6 +764,7 @@ Future<void> _startLeaveDialog(int workerId) async {
           DataColumn(label: Text('Check In')),
           DataColumn(label: Text('Check Out')),
           DataColumn(label: Text('Actions')),
+          DataColumn(label: Text('Select')),
         ],
         rows: rows,
       ),
@@ -669,7 +773,7 @@ Future<void> _startLeaveDialog(int workerId) async {
 
   @override
   Widget build(BuildContext context) {
-    String formattedDate = DateFormat('yyyy/MM/dd').format(DateTime.now());
+    final formattedDate = DateFormat('yyyy/MM/dd').format(DateTime.parse(_recordDate));
 
     return Scaffold(
       backgroundColor: const Color(0xfff8f9fa),
@@ -734,24 +838,74 @@ Future<void> _startLeaveDialog(int workerId) async {
                                       style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Color(0xff1a2a6c)),
                                     ),
                                     const SizedBox(width: 8),
-                                    Container(
-                                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                                    InkWell(
+                                      onTap: _chooseAttendanceDate,
+                                      borderRadius: BorderRadius.circular(6),
+                                      child: Container(
+                                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
                                       decoration: BoxDecoration(
                                         color: Colors.green.shade50,
                                         borderRadius: BorderRadius.circular(6),
                                         border: Border.all(color: Colors.green.shade200),
                                       ),
-                                      child: const Text('Today', style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Colors.green)),
+                                        child: Row(
+                                          mainAxisSize: MainAxisSize.min,
+                                          children: const [
+                                            Text('Selected', style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Colors.green)),
+                                            SizedBox(width: 4),
+                                            Icon(Icons.edit_calendar, size: 13, color: Colors.green),
+                                          ],
+                                        ),
+                                      ),
                                     ),
                                   ],
                                 ),
                                 const SizedBox(height: 2),
                                 Text(
-                                  'Active attendance date',
+                                  'Tap the date to change the manual shift date',
                                   style: TextStyle(fontSize: 12, color: Colors.grey.shade600, fontWeight: FontWeight.w500),
                                 ),
                               ],
                             ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+                  child: Card(
+                    elevation: 0,
+                    child: Padding(
+                      padding: const EdgeInsets.all(12),
+                      child: Column(
+                        children: [
+                          Row(
+                            children: [
+                              Checkbox(
+                                value: _workers.isNotEmpty && _selectedWorkerIds.length == _workers.length,
+                                onChanged: (checked) {
+                                  setState(() {
+                                    if (checked == true) {
+                                      _selectedWorkerIds.addAll(_workers.map<int>((w) => int.parse(w['worker_id'].toString())));
+                                    } else {
+                                      _selectedWorkerIds.clear();
+                                    }
+                                  });
+                                },
+                              ),
+                              const Expanded(child: Text('Select all workers', style: TextStyle(fontWeight: FontWeight.bold))),
+                              Text('${_selectedWorkerIds.length} selected', style: TextStyle(color: Colors.grey.shade600)),
+                            ],
+                          ),
+                          const SizedBox(height: 8),
+                          Row(
+                            children: [
+                              Expanded(child: ElevatedButton.icon(onPressed: _selectedWorkerIds.isEmpty ? null : () => _bulkAttendanceAction(checkIn: true), icon: const Icon(Icons.login), label: const Text('Bulk Check-in'))),
+                              const SizedBox(width: 8),
+                              Expanded(child: ElevatedButton.icon(onPressed: _selectedWorkerIds.isEmpty ? null : () => _bulkAttendanceAction(checkIn: false), icon: const Icon(Icons.logout), label: const Text('Bulk Check-out'))),
+                            ],
                           ),
                         ],
                       ),
