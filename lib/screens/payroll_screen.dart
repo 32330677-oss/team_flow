@@ -30,11 +30,11 @@ class _PayrollScreenState extends State<PayrollScreen> {
   bool _isGenerating = false;
   bool _isLoadingBatches = true;
   bool _isLoadingSites = true;
-  
+
   List<dynamic> _payrollBatches = [];
   List<dynamic> _filteredBatches = [];
   List<dynamic> _sites = [];
-  
+
   int? _selectedSiteId;
   DateTime? _dailyAttendanceDate;
   bool _isExportingDailyAttendance = false;
@@ -56,9 +56,9 @@ class _PayrollScreenState extends State<PayrollScreen> {
     super.dispose();
   }
 
-Future<void> _fetchSites() async {
+  Future<void> _fetchSites() async {
     try {
-      final response = await ApiConfig.dio.get('/sites/all-sites'); // ✅ كان /admin/sites (404)
+      final response = await ApiConfig.dio.get('/sites/all-sites');
       final responseData = response.data;
       List sitesList = [];
       if (responseData is List) {
@@ -82,21 +82,21 @@ Future<void> _fetchSites() async {
       setState(() => _isLoadingSites = false);
       _showSnack('Failed to load sites', dangerColor);
     }
-}
-String formatDisplayDate(String? dateStr) {
-  if (dateStr == null || dateStr.isEmpty) return '';
-  try {
-    // تحليل التاريخ بشكل محلي بحت لتجنب فرق توقيت الـ UTC
-    final parsedDate = DateTime.parse(dateStr);
-    return DateFormat('yyyy-MM-dd').format(DateTime(parsedDate.year, parsedDate.month, parsedDate.day));
-  } catch (e) {
-    return dateStr;
   }
-}
-Future<void> _fetchPayrollReports() async {
+
+  String formatDisplayDate(String? dateStr) {
+    if (dateStr == null || dateStr.isEmpty) return '';
+    try {
+      final parsedDate = DateTime.parse(dateStr);
+      return DateFormat('yyyy-MM-dd').format(DateTime(parsedDate.year, parsedDate.month, parsedDate.day));
+    } catch (e) {
+      return dateStr;
+    }
+  }
+
+  Future<void> _fetchPayrollReports() async {
     setState(() => _isLoadingBatches = true);
     try {
-      // ✅ استخدام Query Parameters بشكل نظيف وآمن مع Dio
       final queryParams = <String, dynamic>{};
       if (_selectedSiteId != null) {
         queryParams['site_id'] = _selectedSiteId;
@@ -137,7 +137,7 @@ Future<void> _fetchPayrollReports() async {
     });
   }
 
-Future<void> _generatePayroll() async {
+  Future<void> _generatePayroll() async {
     if (_startDateController.text.isEmpty || _endDateController.text.isEmpty) {
       _showSnack('Please select start and end dates', Colors.orange);
       return;
@@ -147,7 +147,6 @@ Future<void> _generatePayroll() async {
       final response = await ApiConfig.dio.post('/admin/payroll/generate', data: {
         'start_date': _startDateController.text,
         'end_date': _endDateController.text,
-        // ✅ يتم إرسال site_id فقط إن وجد، وعندما يكون All Sites (null) لن يتم إرساله ليحسب السيرفر كل المواقع
         if (_selectedSiteId != null) 'site_id': _selectedSiteId,
       });
       if (response.data['success'] == true || response.statusCode == 200 || response.statusCode == 201) {
@@ -159,14 +158,11 @@ Future<void> _generatePayroll() async {
       }
     } catch (e) {
       String errorMessage = 'Error generating payroll';
-      
-      // ✅ فحص إذا كان الخطأ قادماً من الـ Dio (أي استجابة من السيرفر)
+
       if (e is DioException && e.response?.data != null) {
-        // أخذ الرسالة القادمة من الباك إند (مثل: تداخل التواريخ أو عدم وجود حضور)
         errorMessage = e.response?.data['message'] ?? errorMessage;
       }
-      
-      // عرضها بلون برتقالي تحذيري لطيف بدلاً من الأحمر القاتم للـ Exception
+
       _showSnack(errorMessage, Colors.orange[800]!);
     } finally {
       setState(() => _isGenerating = false);
@@ -235,64 +231,67 @@ Future<void> _generatePayroll() async {
     }
   }
 
-// متغير لتخزين آخر تاريخ انتهى عنده آخر كشف رواتب (مثلاً تاريخ اليوم القادم المسموح)
-DateTime? _lastBatchEndDate;
+  // Stores the end date of the most recent batch (optionally scoped to the
+  // selected site) so the "Start Date" picker can't create overlaps.
+  DateTime? _lastBatchEndDate;
 
- Future<void> _fetchLastBatchDate() async {
-  try {
-    final response = await ApiConfig.dio.get('/admin/payroll/last-date');
-    if (response.data['success'] && response.data['last_end_date'] != null) {
-      // استخراج التاريخ كـ String أو DateTime بدقة
-      String lastEndStr = response.data['last_end_date'].toString();
-      if (lastEndStr.contains('T')) lastEndStr = lastEndStr.split('T')[0];
-      
-      DateTime parsedEnd = DateTime.parse(lastEndStr);
-      DateTime nextStart = parsedEnd.add(const Duration(days: 1));
-      
+  Future<void> _fetchLastBatchDate() async {
+    try {
+      final queryParams = <String, dynamic>{};
+      if (_selectedSiteId != null) {
+        queryParams['site_id'] = _selectedSiteId;
+      }
+      final response = await ApiConfig.dio.get(
+        '/admin/payroll/last-date',
+        queryParameters: queryParams,
+      );
+      if (response.data['success'] == true && response.data['last_end_date'] != null) {
+        String lastEndStr = response.data['last_end_date'].toString();
+        if (lastEndStr.contains('T')) lastEndStr = lastEndStr.split('T')[0];
+
+        DateTime parsedEnd = DateTime.parse(lastEndStr);
+        DateTime nextStart = parsedEnd.add(const Duration(days: 1));
+
+        setState(() {
+          _lastBatchEndDate = parsedEnd;
+          _startDateController.text = "${nextStart.year.toString().padLeft(4, '0')}-"
+              "${nextStart.month.toString().padLeft(2, '0')}-"
+              "${nextStart.day.toString().padLeft(2, '0')}";
+        });
+      } else {
+        setState(() => _lastBatchEndDate = null);
+      }
+    } catch (_) {}
+  }
+
+  Future<void> _selectDate(TextEditingController controller, {bool isStartDate = false}) async {
+    final initial = isStartDate && _lastBatchEndDate != null
+        ? _lastBatchEndDate!.add(const Duration(days: 1))
+        : DateTime.now();
+
+    final picked = await showDatePicker(
+      context: context,
+      initialDate: initial,
+      firstDate: DateTime(2025),
+      lastDate: DateTime(2035),
+      selectableDayPredicate: (DateTime day) {
+        if (isStartDate && _lastBatchEndDate != null) {
+          return day.isAfter(_lastBatchEndDate!);
+        }
+        return true;
+      },
+    );
+
+    if (picked != null) {
+      final String formattedDate = "${picked.year.toString().padLeft(4, '0')}-"
+          "${picked.month.toString().padLeft(2, '0')}-"
+          "${picked.day.toString().padLeft(2, '0')}";
+
       setState(() {
-        _lastBatchEndDate = parsedEnd;
-        // تعبئة الـ Start Date تلقائياً باليوم التالي لآخر انتهاء ليكون مقفلاً وصحيحاً
-        _startDateController.text = "${nextStart.year.toString().padLeft(4, '0')}-"
-            "${nextStart.month.toString().padLeft(2, '0')}-"
-            "${nextStart.day.toString().padLeft(2, '0')}";
+        controller.text = formattedDate;
       });
     }
-  } catch (_) {}
-}
-
-Future<void> _selectDate(TextEditingController controller, {bool isStartDate = false}) async {
-  // تحديد التاريخ الافتراضي عند فتح التقويم
-  final initial = isStartDate && _lastBatchEndDate != null 
-      ? _lastBatchEndDate!.add(const Duration(days: 1)) 
-      : DateTime.now();
-
-  final picked = await showDatePicker(
-    context: context,
-    initialDate: initial,
-    firstDate: DateTime(2025),
-    lastDate: DateTime(2035),
-    // 🛠️ هنا السر: منع وتغميق الأيام القديمة والسماح فقط بالأيام اللاحقة لآخر كشف
-    selectableDayPredicate: (DateTime day) {
-      if (isStartDate && _lastBatchEndDate != null) {
-        // إذا كان حقل بداية، امنع أي يوم يساوي أو يسبق آخر تاريخ انتهاء تم عمله
-        // (يعني إذا آخر كشف انتهى في 17، سيتم إغلاق يوم 17 وما قبله، ويُفتح من 18 وطالع)
-        return day.isAfter(_lastBatchEndDate!);
-      }
-      return true; // باقي الحقول مفتوحة عادي
-    },
-  );
-
-  if (picked != null) {
-    // تثبيت التاريخ كـ String خام تماماً بدون مشاكل إزاحة توقيت (UTC)
-    final String formattedDate = "${picked.year.toString().padLeft(4, '0')}-"
-        "${picked.month.toString().padLeft(2, '0')}-"
-        "${picked.day.toString().padLeft(2, '0')}";
-
-    setState(() {
-      controller.text = formattedDate;
-    });
   }
-}
 
   void _showSnack(String message, Color color) {
     ScaffoldMessenger.of(context).showSnackBar(
@@ -301,21 +300,19 @@ Future<void> _selectDate(TextEditingController controller, {bool isStartDate = f
   }
 
   String _formatDate(dynamic dateInput) {
-  if (dateInput == null || dateInput.toString().isEmpty) return '';
-  try {
-    // إذا كان النص يحتوي على وقت (T)، نقوم بأخذ الجزء الخاص بالتاريخ فقط كنص خام دون إدخاله في DateTime يتحكم به الـ UTC
-    String str = dateInput.toString();
-    if (str.contains('T')) {
-      str = str.split('T')[0]; // يأخذ الجزء YYYY-MM-DD مباشرة كما أرسله السيرفر
+    if (dateInput == null || dateInput.toString().isEmpty) return '';
+    try {
+      String str = dateInput.toString();
+      if (str.contains('T')) {
+        str = str.split('T')[0];
+      }
+      DateTime parsed = DateTime.parse(str);
+      return DateFormat('yyyy-MM-dd').format(DateTime(parsed.year, parsed.month, parsed.day));
+    } catch (e) {
+      return dateInput.toString();
     }
-    
-    // أو للتأكد تماماً وإعادة تنسيقه بشكل نظيف:
-    DateTime parsed = DateTime.parse(str);
-    return DateFormat('yyyy-MM-dd').format(DateTime(parsed.year, parsed.month, parsed.day));
-  } catch (e) {
-    return dateInput.toString();
   }
-}
+
   Future<void> _openBatchDetails(int batchId) async {
     showDialog(
       context: context,
@@ -329,6 +326,9 @@ Future<void> _selectDate(TextEditingController controller, {bool isStartDate = f
 
       final data = response.data;
       final batch = data['batch'] ?? {};
+      // NEW SHAPE: one entry per worker, each carrying a `sites` list with
+      // the per-site hours/rates/pay breakdown. No more duplicated
+      // net_salary rows fanned out across sites.
       final List workers = data['workers'] ?? [];
       _showBatchDetailsSheet(batch, workers);
     } catch (e) {
@@ -376,7 +376,7 @@ Future<void> _selectDate(TextEditingController controller, {bool isStartDate = f
                   IconButton(
                     icon: const Icon(Icons.table_view, color: dangerColor),
                     tooltip: 'Export Excel Report',
-                    onPressed: () => _exportBatchExcel(batch, workers),
+                    onPressed: () => _exportBatchExcel(batch),
                   ),
                   const SizedBox(width: 8),
                   _statusChip(batch['status']?.toString() ?? 'Pending'),
@@ -385,18 +385,20 @@ Future<void> _selectDate(TextEditingController controller, {bool isStartDate = f
             ),
             const Divider(height: 1),
             Expanded(
-              child: ListView.builder(
-                controller: scrollController,
-                padding: const EdgeInsets.all(16),
-                itemCount: workers.length,
-                itemBuilder: (context, index) {
-                  final w = workers[index];
-                  return _WorkerPayrollCard(
-                    worker: w,
-                    onPreview: () => _openPayslipPreview(batch, w),
-                  );
-                },
-              ),
+              child: workers.isEmpty
+                  ? const Center(child: Text('No workers found in this batch.'))
+                  : ListView.builder(
+                      controller: scrollController,
+                      padding: const EdgeInsets.all(16),
+                      itemCount: workers.length,
+                      itemBuilder: (context, index) {
+                        final w = Map<String, dynamic>.from(workers[index]);
+                        return _WorkerPayrollCard(
+                          worker: w,
+                          onPreview: () => _openPayslipPreview(batch, w),
+                        );
+                      },
+                    ),
             ),
             Container(
               padding: const EdgeInsets.all(16),
@@ -410,7 +412,8 @@ Future<void> _selectDate(TextEditingController controller, {bool isStartDate = f
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Text('Total Workers: ${batch['total_workers'] ?? 0}', style: const TextStyle(fontWeight: FontWeight.w600)),
+                        Text('Total Workers: ${batch['total_workers'] ?? workers.length}',
+                            style: const TextStyle(fontWeight: FontWeight.w600)),
                         Text('Total Amount: ${formatSyp(batch['total_amount'])}',
                             style: const TextStyle(fontWeight: FontWeight.bold, color: primaryColor, fontSize: 16)),
                       ],
@@ -435,8 +438,9 @@ Future<void> _selectDate(TextEditingController controller, {bool isStartDate = f
     );
   }
 
-// استبدل الدالة القديمة بالكامل بهذه — لا حاجة لـ pw.Document ولا PdfGoogleFonts هنا
-Future<void> _exportBatchExcel(Map batch, List workers) async {
+  // The server generates and streams the final .xlsx — the client only
+  // downloads/shares the bytes. No calculation happens here.
+  Future<void> _exportBatchExcel(Map batch) async {
     final batchId = int.tryParse('${batch['payroll_batch_id']}');
     if (batchId == null) {
       _showSnack('Invalid payroll batch.', dangerColor);
@@ -464,6 +468,7 @@ Future<void> _exportBatchExcel(Map batch, List workers) async {
       _showSnack('Failed to export Excel payroll file.', dangerColor);
     }
   }
+
   Future<void> _confirmMarkPaid(int batchId) async {
     final confirm = await showDialog<bool>(
       context: context,
@@ -515,6 +520,7 @@ Future<void> _exportBatchExcel(Map batch, List workers) async {
         onRefresh: () async {
           await _fetchSites();
           await _fetchPayrollReports();
+          await _fetchLastBatchDate();
         },
         child: SingleChildScrollView(
           physics: const AlwaysScrollableScrollPhysics(),
@@ -581,15 +587,7 @@ Future<void> _exportBatchExcel(Map batch, List workers) async {
                                     IconButton(
                                       icon: const Icon(Icons.table_view, color: dangerColor, size: 20),
                                       tooltip: 'Export Excel',
-                                      onPressed: () async {
-                                        try {
-                                          final res = await ApiConfig.dio.get('/admin/payroll/batch/${batch['payroll_batch_id']}');
-                                          final rData = res.data;
-                                          _exportBatchExcel(rData['batch'] ?? {}, rData['workers'] ?? []);
-                                        } catch (e) {
-                                          _showSnack('Could not load Excel data', dangerColor);
-                                        }
-                                      },
+                                      onPressed: () => _exportBatchExcel(batch),
                                     ),
                                   ],
                                 ),
@@ -620,31 +618,32 @@ Future<void> _exportBatchExcel(Map batch, List workers) async {
         boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.04), blurRadius: 8, offset: const Offset(0, 2))],
       ),
       child: DropdownButtonFormField<int?>(
-    value: _selectedSiteId,
-    decoration: const InputDecoration(
-      labelText: 'Filter by Site',
-      border: OutlineInputBorder(),
-      contentPadding: EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-    ),
-    items: [
-      const DropdownMenuItem<int?>(
-        value: null,
-        child: Text('All Sites (الكل)'),
+        value: _selectedSiteId,
+        decoration: const InputDecoration(
+          labelText: 'Filter by Site',
+          border: OutlineInputBorder(),
+          contentPadding: EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+        ),
+        items: [
+          const DropdownMenuItem<int?>(
+            value: null,
+            child: Text('All Sites (الكل)'),
+          ),
+          ..._sites.map((site) {
+            return DropdownMenuItem<int?>(
+              value: site['site_id'],
+              child: Text(site['site_name'] ?? 'Site #${site['site_id']}'),
+            );
+          }).toList(),
+        ],
+        onChanged: (val) {
+          setState(() {
+            _selectedSiteId = val;
+          });
+          _fetchPayrollReports();
+          _fetchLastBatchDate();
+        },
       ),
-      ..._sites.map((site) {
-        return DropdownMenuItem<int?>(
-          value: site['site_id'],
-          child: Text(site['site_name'] ?? 'Site #${site['site_id']}'),
-        );
-      }).toList(),
-    ],
-    onChanged: (val) {
-      setState(() {
-        _selectedSiteId = val;
-      });
-      _fetchPayrollReports();
-    },
-  )
     );
   }
 
@@ -674,17 +673,17 @@ Future<void> _exportBatchExcel(Map batch, List workers) async {
           const SizedBox(height: 14),
           Row(
             children: [
-  Expanded(
-  child: TextField(
-    controller: _startDateController,
-    readOnly: true, // لمنع الكتابة اليدوية الخاطئة
-    onTap: () => _selectDate(_startDateController, isStartDate: true), // عند الضغط يفتح التقويم
-    decoration: const InputDecoration(
-      labelText: 'Start Date',
-      suffixIcon: Icon(Icons.calendar_today, size: 18), // أيقونة تقويم تدل أنه قابل للاختيار
-    ),
-  ),
-),
+              Expanded(
+                child: TextField(
+                  controller: _startDateController,
+                  readOnly: true,
+                  onTap: () => _selectDate(_startDateController, isStartDate: true),
+                  decoration: const InputDecoration(
+                    labelText: 'Start Date',
+                    suffixIcon: Icon(Icons.calendar_today, size: 18),
+                  ),
+                ),
+              ),
               const SizedBox(width: 12),
               Expanded(
                 child: TextField(
@@ -742,14 +741,31 @@ Future<void> _exportBatchExcel(Map batch, List workers) async {
   }
 }
 
+/// Displays one worker's payroll summary for a batch: a single net-salary
+/// total plus a per-site breakdown of hours and pay (a worker can appear at
+/// more than one site within the same batch).
 class _WorkerPayrollCard extends StatelessWidget {
-  final Map worker;
+  final Map<String, dynamic> worker;
   final VoidCallback onPreview;
 
   const _WorkerPayrollCard({required this.worker, required this.onPreview});
 
+  double _num(dynamic v) => double.tryParse(v?.toString() ?? '0') ?? 0;
+
+  List<Map<String, dynamic>> get _sites {
+    final raw = worker['sites'];
+    if (raw is List) {
+      return raw.map((e) => Map<String, dynamic>.from(e as Map)).toList();
+    }
+    return const [];
+  }
+
   @override
   Widget build(BuildContext context) {
+    final sites = _sites;
+    final totalRegularHours = sites.fold<double>(0, (sum, s) => sum + _num(s['regular_hours_worked']));
+    final totalOvertimeHours = sites.fold<double>(0, (sum, s) => sum + _num(s['overtime_hours_worked']));
+
     return Card(
       margin: const EdgeInsets.only(bottom: 10),
       elevation: 1,
@@ -776,11 +792,51 @@ class _WorkerPayrollCard extends StatelessWidget {
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                _miniStat('Regular', '${worker['regular_hours_worked']} h', Colors.blueGrey),
-                _miniStat('Overtime', '${worker['overtime_hours_worked']} h', Colors.orange.shade800),
+                _miniStat('Regular', '${totalRegularHours.toStringAsFixed(2)} h', Colors.blueGrey),
+                _miniStat('Overtime', '${totalOvertimeHours.toStringAsFixed(2)} h', Colors.orange.shade800),
+                // Net Pay is a single value stored once on the worker's payroll
+                // row — it is intentionally NOT summed across sites.
                 _miniStat('Net Pay', formatSyp(worker['net_salary']), Colors.green.shade700, bold: true),
               ],
             ),
+            if (sites.length > 1) ...[
+              const SizedBox(height: 10),
+              Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: Colors.grey.shade50,
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text('Worked across ${sites.length} sites this period',
+                        style: TextStyle(fontSize: 11.5, color: Colors.grey.shade600, fontWeight: FontWeight.w600)),
+                    const SizedBox(height: 6),
+                    ...sites.map((s) => Padding(
+                          padding: const EdgeInsets.symmetric(vertical: 2),
+                          child: Row(
+                            children: [
+                              Icon(Icons.location_on, size: 13, color: Colors.grey.shade500),
+                              const SizedBox(width: 4),
+                              Expanded(
+                                child: Text(
+                                  s['site_name']?.toString() ?? 'Site #${s['site_id']}',
+                                  style: const TextStyle(fontSize: 12.5, fontWeight: FontWeight.w600),
+                                ),
+                              ),
+                              Text(
+                                '${_num(s['regular_hours_worked']).toStringAsFixed(2)}h reg'
+                                '${_num(s['overtime_hours_worked']) > 0 ? ' + ${_num(s['overtime_hours_worked']).toStringAsFixed(2)}h OT' : ''}',
+                                style: TextStyle(fontSize: 11.5, color: Colors.grey.shade700),
+                              ),
+                            ],
+                          ),
+                        )),
+                  ],
+                ),
+              ),
+            ],
           ],
         ),
       ),
@@ -798,6 +854,8 @@ class _WorkerPayrollCard extends StatelessWidget {
   }
 }
 
+/// Read-only payslip for a single worker within a batch. Iterates the
+/// worker's `sites` breakdown and shows the single net-salary total once.
 class _PayslipDialog extends StatefulWidget {
   final Map batch;
   final Map worker;
@@ -809,8 +867,6 @@ class _PayslipDialog extends StatefulWidget {
 }
 
 class _PayslipDialogState extends State<_PayslipDialog> {
-  bool _isExporting = false;
-
   String _fmtDate(dynamic v) {
     if (v == null) return '';
     final s = v.toString();
@@ -819,73 +875,115 @@ class _PayslipDialogState extends State<_PayslipDialog> {
 
   double _num(dynamic v) => double.tryParse(v?.toString() ?? '0') ?? 0;
 
+  List<Map<String, dynamic>> get _sites {
+    final raw = widget.worker['sites'];
+    if (raw is List) {
+      return raw.map((e) => Map<String, dynamic>.from(e as Map)).toList();
+    }
+    return const [];
+  }
+
   @override
   Widget build(BuildContext context) {
     final w = widget.worker;
     final b = widget.batch;
-    final regularHours = _num(w['regular_hours_worked']);
-    final overtimeHours = _num(w['overtime_hours_worked']);
+    final sites = _sites;
+
+    final totalRegularHours = sites.fold<double>(0, (sum, s) => sum + _num(s['regular_hours_worked']));
+    final totalOvertimeHours = sites.fold<double>(0, (sum, s) => sum + _num(s['overtime_hours_worked']));
+    final totalBaseSalary = sites.fold<double>(0, (sum, s) => sum + _num(s['base_salary']));
+    final totalOvertimePay = sites.fold<double>(0, (sum, s) => sum + _num(s['overtime_pay']));
 
     return ConstrainedBox(
       constraints: const BoxConstraints(maxWidth: 420),
       child: Padding(
         padding: const EdgeInsets.all(20),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(w['worker_name'] ?? 'Worker #${w['worker_id']}',
-                          style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Color(0xff1a2a6c))),
-                      const SizedBox(height: 2),
-                      Text('Batch #${b['payroll_batch_id']} • Payslip', style: TextStyle(color: Colors.grey.shade600, fontSize: 12)),
-                    ],
-                  ),
-                ),
-                IconButton(
-                  icon: const Icon(Icons.close),
-                  onPressed: () => Navigator.pop(context),
-                ),
-              ],
-            ),
-            const Divider(height: 20),
-            _infoRow('Period', '${_fmtDate(b['start_date'])} to ${_fmtDate(b['end_date'])}'),
-            _infoRow('Regular Hours', '${regularHours.toStringAsFixed(2)} h'),
-            _infoRow('Overtime Hours', '${overtimeHours.toStringAsFixed(2)} h'),
-            _infoRow('Base Salary', formatSyp(w['base_salary'])),
-            _infoRow('Overtime Pay', formatSyp(w['overtime_pay'])),
-            const Divider(height: 20),
-            Container(
-              padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(color: Colors.grey.shade100, borderRadius: BorderRadius.circular(10)),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        child: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
                 children: [
-                  const Text('Net Salary', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15)),
-                  Text(formatSyp(w['net_salary']),
-                      style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: Color(0xff1a2a6c))),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(w['worker_name'] ?? 'Worker #${w['worker_id']}',
+                            style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Color(0xff1a2a6c))),
+                        const SizedBox(height: 2),
+                        Text('Batch #${b['payroll_batch_id']} • Payslip', style: TextStyle(color: Colors.grey.shade600, fontSize: 12)),
+                      ],
+                    ),
+                  ),
+                  IconButton(
+                    icon: const Icon(Icons.close),
+                    onPressed: () => Navigator.pop(context),
+                  ),
                 ],
               ),
-            ),
-            const SizedBox(height: 20),
-            Container(
-              width: double.infinity,
-              padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(
-                color: Colors.blueGrey.shade50,
-                borderRadius: BorderRadius.circular(10),
+              const Divider(height: 20),
+              _infoRow('Period', '${_fmtDate(b['start_date'])} to ${_fmtDate(b['end_date'])}'),
+              _infoRow('Regular Hours (all sites)', '${totalRegularHours.toStringAsFixed(2)} h'),
+              _infoRow('Overtime Hours (all sites)', '${totalOvertimeHours.toStringAsFixed(2)} h'),
+              _infoRow('Base Salary', formatSyp(totalBaseSalary)),
+              _infoRow('Overtime Pay', formatSyp(totalOvertimePay)),
+
+              if (sites.length > 1) ...[
+                const SizedBox(height: 12),
+                Text('Per-site breakdown', style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.bold, color: Colors.grey.shade700)),
+                const SizedBox(height: 6),
+                ...sites.map((s) => Container(
+                      margin: const EdgeInsets.only(bottom: 6),
+                      padding: const EdgeInsets.all(10),
+                      decoration: BoxDecoration(
+                        color: Colors.grey.shade50,
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(s['site_name']?.toString() ?? 'Site #${s['site_id']}',
+                              style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
+                          const SizedBox(height: 4),
+                          Text(
+                            'Regular: ${_num(s['regular_hours_worked']).toStringAsFixed(2)}h @ ${formatSyp(s['hourly_rate_snapshot'])}  •  '
+                            'Overtime: ${_num(s['overtime_hours_worked']).toStringAsFixed(2)}h @ ${formatSyp(s['overtime_hourly_rate_snapshot'])}',
+                            style: TextStyle(fontSize: 11.5, color: Colors.grey.shade700),
+                          ),
+                        ],
+                      ),
+                    )),
+              ],
+
+              const Divider(height: 20),
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(color: Colors.grey.shade100, borderRadius: BorderRadius.circular(10)),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    const Text('Net Salary', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15)),
+                    Text(formatSyp(w['net_salary']),
+                        style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: Color(0xff1a2a6c))),
+                  ],
+                ),
               ),
-              child: const Text(
-                'This is a read-only payroll summary. Export the complete batch from the Excel button.',
-                style: TextStyle(color: Colors.blueGrey),
+              const SizedBox(height: 20),
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: Colors.blueGrey.shade50,
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: const Text(
+                  'This is a read-only payroll summary. Export the complete batch from the Excel button.',
+                  style: TextStyle(color: Colors.blueGrey),
+                ),
               ),
-            ),
-          ],
+            ],
+          ),
         ),
       ),
     );
