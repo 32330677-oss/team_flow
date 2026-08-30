@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:dio/dio.dart';
 import 'package:team_flow/constants.dart';
 import '../widgets/custom_app_bar.dart';
+import '../screens/payroll_export_service.dart';
+
 class PendingTransfersScreen extends StatefulWidget {
   const PendingTransfersScreen({super.key});
 
@@ -36,6 +38,28 @@ class _PendingTransfersScreenState extends State<PendingTransfersScreen> {
     }
   }
 
+  Future<void> _downloadTransferDocument(int requestId) async {
+    try {
+      final response = await ApiConfig.dio.get<List<int>>(
+        '/transfers/$requestId/document',
+        options: Options(responseType: ResponseType.bytes),
+      );
+      final bytes = response.data;
+      if (bytes == null || bytes.isEmpty) throw Exception('Empty document');
+      await PayrollExportService.exportBytes(
+        bytes,
+        'Transfer_Request_$requestId.docx',
+      );
+    } on DioException catch (e) {
+      final msg = e.response?.data is Map
+          ? (e.response?.data['message'] ?? 'Failed to download document')
+          : 'Failed to download document';
+      _showSnack(msg, Colors.red);
+    } catch (_) {
+      _showSnack('Failed to download document', Colors.red);
+    }
+  }
+
   Future<void> _review(int requestId, String status) async {
     String? adminNote;
 
@@ -51,13 +75,18 @@ class _PendingTransfersScreenState extends State<PendingTransfersScreen> {
 
     setState(() => _processingId = requestId);
     try {
-      final response = await ApiConfig.dio.put('/transfers/$requestId/review', data: {
-        'status': status,
-        'admin_notes': adminNote,
-      });
+      final response = await ApiConfig.dio.put(
+        '/transfers/$requestId/review',
+        data: {
+          'status': status,
+          'admin_notes': adminNote,
+        },
+      );
       if (response.data['status'] == 'success') {
         _showSnack(
-          status == 'Approved' ? 'Request approved and worker transferred successfully' : 'Transfer request rejected',
+          status == 'Approved'
+              ? 'Request approved and worker transferred successfully'
+              : 'Transfer request rejected',
           Colors.green,
         );
         await _fetchPending();
@@ -74,18 +103,29 @@ class _PendingTransfersScreenState extends State<PendingTransfersScreen> {
 
   // نافذة تأكيد القبول
   Future<bool> asyncConfirmApprove() => _showApproveDialog();
+
   Future<bool> _showApproveDialog() async {
     final result = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
         title: const Text('Approve Transfer'),
-        content: const Text('Are you sure you want to approve this transfer request? This will reassign the worker to the new site.'),
+        content: const Text(
+          'Are you sure you want to approve this transfer request? This will reassign the worker to the new site.',
+        ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancel'),
+          ),
           ElevatedButton(
-            style: ElevatedButton.styleFrom(backgroundColor: Colors.green.shade700),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.green.shade700,
+            ),
             onPressed: () => Navigator.pop(ctx, true),
-            child: const Text('Approve', style: TextStyle(color: Colors.white)),
+            child: const Text(
+              'Approve',
+              style: TextStyle(color: Colors.white),
+            ),
           ),
         ],
       ),
@@ -104,7 +144,10 @@ class _PendingTransfersScreenState extends State<PendingTransfersScreen> {
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Text('Please provide a reason for rejection (Admin Notes):', style: TextStyle(fontSize: 13)),
+            const Text(
+              'Please provide a reason for rejection (Admin Notes):',
+              style: TextStyle(fontSize: 13),
+            ),
             const SizedBox(height: 10),
             TextField(
               controller: controller,
@@ -117,11 +160,17 @@ class _PendingTransfersScreenState extends State<PendingTransfersScreen> {
           ],
         ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Cancel'),
+          ),
           ElevatedButton(
             style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
             onPressed: () => Navigator.pop(ctx, controller.text),
-            child: const Text('Confirm Rejection', style: TextStyle(color: Colors.white)),
+            child: const Text(
+              'Confirm Rejection',
+              style: TextStyle(color: Colors.white),
+            ),
           ),
         ],
       ),
@@ -130,7 +179,10 @@ class _PendingTransfersScreenState extends State<PendingTransfersScreen> {
 
   void _showSnack(String message, Color color) {
     ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(message), backgroundColor: color),
+      SnackBar(
+        content: Text(message),
+        backgroundColor: color,
+      ),
     );
   }
 
@@ -138,14 +190,14 @@ class _PendingTransfersScreenState extends State<PendingTransfersScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: CustomAppBar(
-      title: 'Pending Transfer Requests',
-      actions: [
-        IconButton(
-          icon: const Icon(Icons.refresh),
-          onPressed: _fetchPending,
-        ),
-      ],
-    ),
+        title: 'Pending Transfer Requests',
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.refresh),
+            onPressed: _fetchPending,
+          ),
+        ],
+      ),
       body: _isLoading
           ? const Center(child: CircularProgressIndicator())
           : _requests.isEmpty
@@ -153,9 +205,16 @@ class _PendingTransfersScreenState extends State<PendingTransfersScreen> {
                   child: Column(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      Icon(Icons.check_circle_outline, size: 60, color: Colors.grey.shade400),
+                      Icon(
+                        Icons.check_circle_outline,
+                        size: 60,
+                        color: Colors.grey.shade400,
+                      ),
                       const SizedBox(height: 12),
-                      Text('No pending transfer requests', style: TextStyle(color: Colors.grey.shade600)),
+                      Text(
+                        'No pending transfer requests',
+                        style: TextStyle(color: Colors.grey.shade600),
+                      ),
                     ],
                   ),
                 )
@@ -166,12 +225,15 @@ class _PendingTransfersScreenState extends State<PendingTransfersScreen> {
                     itemCount: _requests.length,
                     itemBuilder: (context, index) {
                       final req = _requests[index];
-                      final isProcessing = _processingId == req['request_id'];
+                      final isProcessing =
+                          _processingId == req['request_id'];
 
                       return Card(
                         elevation: 2,
                         margin: const EdgeInsets.symmetric(vertical: 6),
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(14),
+                        ),
                         child: Padding(
                           padding: const EdgeInsets.all(16),
                           child: Column(
@@ -181,13 +243,19 @@ class _PendingTransfersScreenState extends State<PendingTransfersScreen> {
                                 children: [
                                   const CircleAvatar(
                                     backgroundColor: primaryColor,
-                                    child: Icon(Icons.person, color: Colors.white),
+                                    child: Icon(
+                                      Icons.person,
+                                      color: Colors.white,
+                                    ),
                                   ),
                                   const SizedBox(width: 10),
                                   Expanded(
                                     child: Text(
                                       req['worker_name'] ?? '',
-                                      style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15),
+                                      style: const TextStyle(
+                                        fontWeight: FontWeight.bold,
+                                        fontSize: 15,
+                                      ),
                                     ),
                                   ),
                                 ],
@@ -199,11 +267,16 @@ class _PendingTransfersScreenState extends State<PendingTransfersScreen> {
                                     child: _siteChip(
                                       icon: Icons.logout,
                                       label: 'From',
-                                      site: req['current_site_name'] ?? '',
+                                      site:
+                                          req['current_site_name'] ?? '',
                                       color: Colors.grey.shade700,
                                     ),
                                   ),
-                                  const Icon(Icons.arrow_forward, size: 18, color: Colors.grey),
+                                  const Icon(
+                                    Icons.arrow_forward,
+                                    size: 18,
+                                    color: Colors.grey,
+                                  ),
                                   Expanded(
                                     child: _siteChip(
                                       icon: Icons.login,
@@ -217,31 +290,84 @@ class _PendingTransfersScreenState extends State<PendingTransfersScreen> {
                               const SizedBox(height: 8),
                               Text(
                                 'Requested by: ${req['requested_by_name'] ?? ''}',
-                                style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  color: Colors.grey.shade600,
+                                ),
                               ),
                               const SizedBox(height: 14),
                               Row(
                                 children: [
                                   Expanded(
                                     child: OutlinedButton.icon(
-                                      onPressed: isProcessing ? null : () => _review(req['request_id'], 'Rejected'),
-                                      icon: const Icon(Icons.close, color: Colors.red),
-                                      label: const Text('Reject', style: TextStyle(color: Colors.red)),
-                                      style: OutlinedButton.styleFrom(side: const BorderSide(color: Colors.red)),
+                                      onPressed: () =>
+                                          _downloadTransferDocument(
+                                        req['request_id'],
+                                      ),
+                                      icon: const Icon(
+                                        Icons.description_outlined,
+                                      ),
+                                      label: const Text('Word Doc'),
+                                    ),
+                                  ),
+                                  const SizedBox(width: 10),
+                                  Expanded(
+                                    child: OutlinedButton.icon(
+                                      onPressed: isProcessing
+                                          ? null
+                                          : () => _review(
+                                                req['request_id'],
+                                                'Rejected',
+                                              ),
+                                      icon: const Icon(
+                                        Icons.close,
+                                        color: Colors.red,
+                                      ),
+                                      label: const Text(
+                                        'Reject',
+                                        style:
+                                            TextStyle(color: Colors.red),
+                                      ),
+                                      style: OutlinedButton.styleFrom(
+                                        side: const BorderSide(
+                                          color: Colors.red,
+                                        ),
+                                      ),
                                     ),
                                   ),
                                   const SizedBox(width: 10),
                                   Expanded(
                                     child: ElevatedButton.icon(
-                                      onPressed: isProcessing ? null : () => _review(req['request_id'], 'Approved'),
+                                      onPressed: isProcessing
+                                          ? null
+                                          : () => _review(
+                                                req['request_id'],
+                                                'Approved',
+                                              ),
                                       icon: isProcessing
                                           ? const SizedBox(
-                                              width: 16, height: 16,
-                                              child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                                              width: 16,
+                                              height: 16,
+                                              child:
+                                                  CircularProgressIndicator(
+                                                strokeWidth: 2,
+                                                color: Colors.white,
+                                              ),
                                             )
-                                          : const Icon(Icons.check, color: Colors.white),
-                                      label: const Text('Approve', style: TextStyle(color: Colors.white)),
-                                      style: ElevatedButton.styleFrom(backgroundColor: Colors.green.shade700),
+                                          : const Icon(
+                                              Icons.check,
+                                              color: Colors.white,
+                                            ),
+                                      label: const Text(
+                                        'Approve',
+                                        style: TextStyle(
+                                          color: Colors.white,
+                                        ),
+                                      ),
+                                      style: ElevatedButton.styleFrom(
+                                        backgroundColor:
+                                            Colors.green.shade700,
+                                      ),
                                     ),
                                   ),
                                 ],
@@ -256,13 +382,33 @@ class _PendingTransfersScreenState extends State<PendingTransfersScreen> {
     );
   }
 
-  Widget _siteChip({required IconData icon, required String label, required String site, required Color color}) {
+  Widget _siteChip({
+    required IconData icon,
+    required String label,
+    required String site,
+    required Color color,
+  }) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Row(children: [Icon(icon, size: 14, color: color), const SizedBox(width: 4), Text(label, style: TextStyle(fontSize: 11, color: color))]),
+        Row(
+          children: [
+            Icon(icon, size: 14, color: color),
+            const SizedBox(width: 4),
+            Text(
+              label,
+              style: TextStyle(fontSize: 11, color: color),
+            ),
+          ],
+        ),
         const SizedBox(height: 2),
-        Text(site, style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13)),
+        Text(
+          site,
+          style: const TextStyle(
+            fontWeight: FontWeight.w600,
+            fontSize: 13,
+          ),
+        ),
       ],
     );
   }

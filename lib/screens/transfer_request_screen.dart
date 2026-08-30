@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:dio/dio.dart';
 import 'package:team_flow/constants.dart';
 import '../widgets/searchable_picker_sheet.dart';
+import '../screens/payroll_export_service.dart'; // reuse generic byte export/share
 
 class TransferRequestScreen extends StatefulWidget {
   const TransferRequestScreen({super.key});
@@ -73,15 +74,39 @@ Future<void> _loadInitialData() async {
       _showSnack('Failed to load sites data', Colors.red);
     }
   }
-
+Future<void> _downloadTransferDocument(int requestId) async {
+  try {
+    final response = await ApiConfig.dio.get<List<int>>(
+      '/transfers/$requestId/document',
+      options: Options(responseType: ResponseType.bytes),
+    );
+    final bytes = response.data;
+    if (bytes == null || bytes.isEmpty) throw Exception('Empty document');
+    await PayrollExportService.exportBytes(bytes, 'Transfer_Request_$requestId.docx');
+  } on DioException catch (e) {
+    final msg = e.response?.data is Map
+        ? (e.response?.data['message'] ?? 'Failed to download document')
+        : 'Failed to download document';
+    _showSnack(msg, Colors.red);
+  } catch (_) {
+    _showSnack('Failed to download document', Colors.red);
+  }
+}
   // 2. جلب العمال التابعين للموقع الحالي الذي يختاره المشرف
-  Future<void> _loadWorkersForSite(int siteId) async {
+Future<void> _loadWorkersForSite(int siteId) async {
     setState(() {
       _isLoadingWorkers = true;
       _selectedWorker = null; // إعادة تعيين العامل عند تغيير الموقع
     });
     try {
-      final response = await ApiConfig.dio.get('/attendance/sites/$siteId/workers');
+      // إرسال التاريخ الحالي بصيغة YYYY-MM-DD لتجنب خطأ السيرفر
+      final String today = DateTime.now().toIso8601String().split('T')[0];
+
+      final response = await ApiConfig.dio.get(
+        '/attendance/sites/$siteId/workers',
+        queryParameters: {'record_date': today},
+      );
+      
       setState(() {
         _workersInSite = _parseListResponse(response.data);
         _isLoadingWorkers = false;
@@ -148,40 +173,81 @@ Future<void> _loadInitialData() async {
     if (picked != null) setState(() => _selectedTargetSite = picked);
   }
 
-  Future<void> _submit() async {
-    if (_selectedWorker == null || _selectedCurrentSite == null || _selectedTargetSite == null) {
-      _showSnack('Please fill in all fields', Colors.orange);
-      return;
-    }
-    if (_selectedCurrentSite!['site_id'] == _selectedTargetSite!['site_id']) {
-      _showSnack('Target site cannot be the same as current site', Colors.orange);
-      return;
+Future<void> _submit() async {
+  if (_selectedWorker == null ||
+      _selectedCurrentSite == null ||
+      _selectedTargetSite == null) {
+    _showSnack('Please fill in all fields', Colors.orange);
+    return;
+  }
+
+  if (_selectedCurrentSite!['site_id'] ==
+      _selectedTargetSite!['site_id']) {
+    _showSnack(
+      'Target site cannot be the same as current site',
+      Colors.orange,
+    );
+    return;
+  }
+
+  setState(() => _isSubmitting = true);
+
+  try {
+    final response = await ApiConfig.dio.post('/transfers', data: {
+      'worker_id': _selectedWorker!['worker_id'],
+      'current_site_id': _selectedCurrentSite!['site_id'],
+      'target_site_id': _selectedTargetSite!['site_id'],
+    });
+
+    if (!mounted) return;
+
+    final requestId =
+        response.data is Map ? response.data['request_id'] : null;
+
+    _showSnack(
+      'Transfer request submitted successfully',
+      Colors.green,
+    );
+
+    if (requestId != null) {
+      showDialog(
+        context: context,
+        builder: (_) => AlertDialog(
+          title: const Text('Transfer Request Created'),
+          content: Text('Request ID: #$requestId'),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('Close'),
+            ),
+            FilledButton.icon(
+              onPressed: () {
+                Navigator.pop(context);
+                _downloadTransferDocument(requestId);
+              },
+              icon: const Icon(Icons.download),
+              label: const Text('Download Transfer Document'),
+            ),
+          ],
+        ),
+      );
     }
 
-    setState(() => _isSubmitting = true);
-    try {
-      await ApiConfig.dio.post('/transfers', data: {
-        'worker_id': _selectedWorker!['worker_id'],
-        'current_site_id': _selectedCurrentSite!['site_id'],
-        'target_site_id': _selectedTargetSite!['site_id'],
-      });
-      if (!mounted) return;
-      _showSnack('Transfer request submitted successfully', Colors.green);
-      setState(() {
-        _selectedWorker = null;
-        _selectedCurrentSite = null;
-        _selectedTargetSite = null;
-        _workersInSite = [];
-      });
-    } on DioException catch (e) {
-      String msg = e.response?.data['message'] ?? 'Failed to submit request';
-      _showSnack(msg, Colors.red);
-    } catch (e) {
-      _showSnack('Server connection error', Colors.red);
-    } finally {
-      if (mounted) setState(() => _isSubmitting = false);
-    }
+    setState(() {
+      _selectedWorker = null;
+      _selectedCurrentSite = null;
+      _selectedTargetSite = null;
+      _workersInSite = [];
+    });
+  } on DioException catch (e) {
+    String msg = e.response?.data['message'] ?? 'Failed to submit request';
+    _showSnack(msg, Colors.red);
+  } catch (e) {
+    _showSnack('Server connection error', Colors.red);
+  } finally {
+    if (mounted) setState(() => _isSubmitting = false);
   }
+}
 
   void _showSnack(String message, Color color) {
     ScaffoldMessenger.of(context).showSnackBar(
