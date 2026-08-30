@@ -152,7 +152,53 @@ class WorkerProfileScreen extends StatelessWidget {
               ),
               const SizedBox(height: 16),
             ],
+// عدّل الـ class لتصبح StatefulWidget بدل StatelessWidget، أو أضف Fetch منفصل
+// أبسط حل: أضف الويدجت التالي مباشرة بالـ build باستخدام FutureBuilder
 
+const SizedBox(height: 16),
+const Text('Compensation', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+const SizedBox(height: 8),
+Container(
+  decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(16)),
+  child: Column(
+    children: [
+      _buildInfoRow(Icons.payments_outlined, 'Payment Type', worker['payment_type']?.toString()),
+      _buildDivider(),
+      if (worker['payment_type'] == 'Daily')
+        _buildInfoRow(Icons.calendar_today, 'Daily Rate', worker['daily_rate']?.toString())
+      else ...[
+        _buildInfoRow(Icons.schedule, 'Regular Hourly Rate', worker['regular_hourly_rate']?.toString()),
+        _buildDivider(),
+        _buildInfoRow(Icons.timer_outlined, 'Overtime Hourly Rate', worker['overtime_hourly_rate']?.toString()),
+      ],
+    ],
+  ),
+),
+const SizedBox(height: 12),
+FutureBuilder(
+  future: ApiConfig.dio.get('/workers/${worker['worker_id']}/compensation-history'),
+  builder: (context, snapshot) {
+    if (!snapshot.hasData) return const SizedBox.shrink();
+    final data = (snapshot.data as dynamic).data['data'] as List;
+    if (data.isEmpty) return const SizedBox.shrink();
+    return ExpansionTile(
+      title: const Text('Rate History', style: TextStyle(fontWeight: FontWeight.bold)),
+      children: data.map<Widget>((row) {
+        final rate = row['payment_type'] == 'Daily'
+            ? 'Daily: ${row['daily_rate']}'
+            : 'Regular: ${row['regular_hourly_rate']} / OT: ${row['overtime_hourly_rate']}';
+        return ListTile(
+          dense: true,
+          title: Text(rate),
+          subtitle: Text(
+            '${row['effective_from']} → ${row['effective_to'] ?? 'Present'}\n'
+            'Reason: ${row['reason'] ?? '-'} • By: ${row['changed_by_name'] ?? '-'}',
+          ),
+        );
+      }).toList(),
+    );
+  },
+),
             // 4. زر تحميل الهوية بدلاً من عرضها مباشرة
             const Text('ID & Documents', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
             const SizedBox(height: 8),

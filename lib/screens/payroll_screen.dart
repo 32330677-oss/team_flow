@@ -741,31 +741,15 @@ class _PayrollScreenState extends State<PayrollScreen> {
   }
 }
 
-/// Displays one worker's payroll summary for a batch: a single net-salary
-/// total plus a per-site breakdown of hours and pay (a worker can appear at
-/// more than one site within the same batch).
 class _WorkerPayrollCard extends StatelessWidget {
-  final Map<String, dynamic> worker;
+  final Map worker;
   final VoidCallback onPreview;
 
   const _WorkerPayrollCard({required this.worker, required this.onPreview});
 
-  double _num(dynamic v) => double.tryParse(v?.toString() ?? '0') ?? 0;
-
-  List<Map<String, dynamic>> get _sites {
-    final raw = worker['sites'];
-    if (raw is List) {
-      return raw.map((e) => Map<String, dynamic>.from(e as Map)).toList();
-    }
-    return const [];
-  }
-
   @override
   Widget build(BuildContext context) {
-    final sites = _sites;
-    final totalRegularHours = sites.fold<double>(0, (sum, s) => sum + _num(s['regular_hours_worked']));
-    final totalOvertimeHours = sites.fold<double>(0, (sum, s) => sum + _num(s['overtime_hours_worked']));
-
+    final isDaily = worker['pay_type'] == 'Daily';
     return Card(
       margin: const EdgeInsets.only(bottom: 10),
       elevation: 1,
@@ -781,6 +765,18 @@ class _WorkerPayrollCard extends StatelessWidget {
                   child: Text(worker['worker_name'] ?? 'Worker #${worker['worker_id']}',
                       style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15, color: Color(0xff1a2a6c))),
                 ),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                  decoration: BoxDecoration(
+                    color: isDaily ? Colors.purple.shade50 : Colors.blue.shade50,
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Text(
+                    worker['pay_type'] ?? 'Hourly',
+                    style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: isDaily ? Colors.purple : Colors.blue),
+                  ),
+                ),
+                const SizedBox(width: 8),
                 TextButton.icon(
                   onPressed: onPreview,
                   icon: const Icon(Icons.visibility_outlined, size: 18),
@@ -789,54 +785,24 @@ class _WorkerPayrollCard extends StatelessWidget {
               ],
             ),
             const Divider(),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                _miniStat('Regular', '${totalRegularHours.toStringAsFixed(2)} h', Colors.blueGrey),
-                _miniStat('Overtime', '${totalOvertimeHours.toStringAsFixed(2)} h', Colors.orange.shade800),
-                // Net Pay is a single value stored once on the worker's payroll
-                // row — it is intentionally NOT summed across sites.
-                _miniStat('Net Pay', formatSyp(worker['net_salary']), Colors.green.shade700, bold: true),
-              ],
-            ),
-            if (sites.length > 1) ...[
-              const SizedBox(height: 10),
-              Container(
-                padding: const EdgeInsets.all(8),
-                decoration: BoxDecoration(
-                  color: Colors.grey.shade50,
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text('Worked across ${sites.length} sites this period',
-                        style: TextStyle(fontSize: 11.5, color: Colors.grey.shade600, fontWeight: FontWeight.w600)),
-                    const SizedBox(height: 6),
-                    ...sites.map((s) => Padding(
-                          padding: const EdgeInsets.symmetric(vertical: 2),
-                          child: Row(
-                            children: [
-                              Icon(Icons.location_on, size: 13, color: Colors.grey.shade500),
-                              const SizedBox(width: 4),
-                              Expanded(
-                                child: Text(
-                                  s['site_name']?.toString() ?? 'Site #${s['site_id']}',
-                                  style: const TextStyle(fontSize: 12.5, fontWeight: FontWeight.w600),
-                                ),
-                              ),
-                              Text(
-                                '${_num(s['regular_hours_worked']).toStringAsFixed(2)}h reg'
-                                '${_num(s['overtime_hours_worked']) > 0 ? ' + ${_num(s['overtime_hours_worked']).toStringAsFixed(2)}h OT' : ''}',
-                                style: TextStyle(fontSize: 11.5, color: Colors.grey.shade700),
-                              ),
-                            ],
-                          ),
-                        )),
-                  ],
-                ),
+            if (isDaily)
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  _miniStat('Days Worked', '${worker['days_worked'] ?? 0}', Colors.blueGrey),
+                  _miniStat('Daily Rate', formatSyp(worker['daily_rate']), Colors.blueGrey),
+                  _miniStat('Net Pay', formatSyp(worker['net_salary']), Colors.green.shade700, bold: true),
+                ],
+              )
+            else
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  _miniStat('Regular', '${worker['regular_hours_worked']} h', Colors.blueGrey),
+                  _miniStat('Overtime', '${worker['overtime_hours_worked']} h', Colors.orange.shade800),
+                  _miniStat('Net Pay', formatSyp(worker['net_salary']), Colors.green.shade700, bold: true),
+                ],
               ),
-            ],
           ],
         ),
       ),
@@ -888,6 +854,7 @@ class _PayslipDialogState extends State<_PayslipDialog> {
     final w = widget.worker;
     final b = widget.batch;
     final sites = _sites;
+final isDaily = w['pay_type'] == 'Daily';
 
     final totalRegularHours = sites.fold<double>(0, (sum, s) => sum + _num(s['regular_hours_worked']));
     final totalOvertimeHours = sites.fold<double>(0, (sum, s) => sum + _num(s['overtime_hours_worked']));
@@ -923,11 +890,19 @@ class _PayslipDialogState extends State<_PayslipDialog> {
                 ],
               ),
               const Divider(height: 20),
-              _infoRow('Period', '${_fmtDate(b['start_date'])} to ${_fmtDate(b['end_date'])}'),
-              _infoRow('Regular Hours (all sites)', '${totalRegularHours.toStringAsFixed(2)} h'),
-              _infoRow('Overtime Hours (all sites)', '${totalOvertimeHours.toStringAsFixed(2)} h'),
-              _infoRow('Base Salary', formatSyp(totalBaseSalary)),
-              _infoRow('Overtime Pay', formatSyp(totalOvertimePay)),
+             _infoRow('Period', '${_fmtDate(b['start_date'])} to ${_fmtDate(b['end_date'])}'),
+_infoRow('Payment Type', w['pay_type'] ?? 'Hourly'),
+if (isDaily) ...[
+  _infoRow('Days Worked', '${w['days_worked'] ?? 0}'),
+  _infoRow('Daily Rate', formatSyp(w['daily_rate'])),
+] else ...[
+  _infoRow('Regular Hours', '${totalRegularHours.toStringAsFixed(2)} h'),
+  _infoRow('Overtime Hours', '${totalOvertimeHours.toStringAsFixed(2)} h'),
+  _infoRow('Regular Rate', formatSyp(w['regular_rate'])),
+  _infoRow('Overtime Rate', formatSyp(w['overtime_rate'])),
+],
+_infoRow('Base Salary', formatSyp(totalBaseSalary)),
+_infoRow('Overtime Pay', formatSyp(totalOvertimePay)),
 
               if (sites.length > 1) ...[
                 const SizedBox(height: 12),

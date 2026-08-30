@@ -17,7 +17,11 @@ class _WorkersScreenState extends State<WorkersScreen> {
   XFile? _selectedPersonalPhoto;
   XFile? _selectedIdPhoto;
   final ImagePicker _picker = ImagePicker();
-
+ String _paymentType = 'Daily'; // 'Hourly' or 'Daily'
+final _dailyRateController = TextEditingController();
+final _regularHourlyRateController = TextEditingController();
+final _overtimeHourlyRateController = TextEditingController();
+final _reasonController = TextEditingController(); // required only on edit when comp changes
   // دالة اختيار الصورة
   Future<void> _pickImage(bool isPersonal) async {
     final XFile? image = await _picker.pickImage(source: ImageSource.gallery);
@@ -71,6 +75,11 @@ class _WorkersScreenState extends State<WorkersScreen> {
     _birthDateController.dispose();
     _birthPlaceController.dispose();
     _locationController.dispose();
+    _dailyRateController.dispose();
+_regularHourlyRateController.dispose();
+_overtimeHourlyRateController.dispose();
+_reasonController.dispose();
+    
     super.dispose();
   }
 
@@ -122,75 +131,99 @@ class _WorkersScreenState extends State<WorkersScreen> {
     });
   }
 
-// دالة الحفظ المحدثة لتتوافق مع الويب والموبايل بدون أخطاء
-  Future<void> _saveWorker({String? workerUniqueId}) async {
-    final name = _nameController.text.trim();
+Future<void> _saveWorker({String? workerUniqueId}) async {
+  final name = _nameController.text.trim();
 
-    if (name.isEmpty) {
-      _showSnackBar('Please fill in the worker name', Colors.orange);
+  if (name.isEmpty) {
+    _showSnackBar('Please fill in the worker name', Colors.orange);
+    return;
+  }
+
+  // Frontend validation (backend re-validates regardless — section 3)
+  if (_paymentType == 'Hourly') {
+    if (_regularHourlyRateController.text.trim().isEmpty ||
+        _overtimeHourlyRateController.text.trim().isEmpty) {
+      _showSnackBar('Regular and overtime hourly rates are required.', Colors.orange);
       return;
     }
-
-    try {
-      // إعداد خريطة البيانات الأساسية
-      final Map<String, dynamic> mapData = {
-        'full_name': name,
-        'phone_number': _phoneController.text.trim(),
-        'nationality': _nationalityController.text.trim(),
-        'job_position': _positionController.text.trim(),
-        'notes': _notesController.text.trim(),
-        'mothers_name': _mothersNameController.text.trim(),
-        'birth_place': _birthPlaceController.text.trim(),
-        'location': _locationController.text.trim(),
-      };
-
-      final birthDate = _birthDateController.text.trim();
-      if (birthDate.isNotEmpty) {
-        mapData['birth_date'] = birthDate;
-      }
-
-      // معالجة الصورة الشخصية (متوافقة مع الويب والموبايل)
-      if (_selectedPersonalPhoto != null) {
-        final bytes = await _selectedPersonalPhoto!.readAsBytes();
-        mapData['personal_photo'] = MultipartFile.fromBytes(
-          bytes,
-          filename: _selectedPersonalPhoto!.name,
-        );
-      }
-
-      // معالجة صورة الهوية (متوافقة مع الويب والموبايل)
-      if (_selectedIdPhoto != null) {
-        final bytes = await _selectedIdPhoto!.readAsBytes();
-        mapData['id_photo'] = MultipartFile.fromBytes(
-          bytes,
-          filename: _selectedIdPhoto!.name,
-        );
-      }
-
-      FormData formData = FormData.fromMap(mapData);
-
-      if (workerUniqueId != null) {
-        final response = await ApiConfig.dio.put('/workers/$workerUniqueId', data: formData);
-        if (response.statusCode == 200) {
-          Navigator.pop(context);
-          _clearControllers();
-          _fetchWorkers();
-          _showSnackBar('Worker updated successfully', Colors.green);
-        }
-      } else {
-        final response = await ApiConfig.dio.post('/workers', data: formData);
-        if (response.statusCode == 201) {
-          Navigator.pop(context);
-          _clearControllers();
-          _fetchWorkers();
-          _showSnackBar('Worker added successfully with auto ID', Colors.green);
-        }
-      }
-    } catch (e) {
-      print("🚨 SAVE WORKER ERROR: $e"); // طباعة الخطأ الحقيقي للتتبع
-      _showSnackBar('Operation failed: ${e.toString()}', Colors.red);
+  } else {
+    if (_dailyRateController.text.trim().isEmpty) {
+      _showSnackBar('Daily rate is required.', Colors.orange);
+      return;
     }
   }
+
+  final isEditing = workerUniqueId != null;
+  if (isEditing && _reasonController.text.trim().isEmpty) {
+    // Only block if the worker actually has an existing payment_type/rate to compare against —
+    // simplest safe rule: always require a reason on edit since compensation fields are always sent.
+    _showSnackBar('Please provide a reason for the update (required for compensation/position changes).', Colors.orange);
+    return;
+  }
+
+  try {
+    final Map<String, dynamic> mapData = {
+      'full_name': name,
+      'phone_number': _phoneController.text.trim(),
+      'nationality': _nationalityController.text.trim(),
+      'job_position': _positionController.text.trim(),
+      'notes': _notesController.text.trim(),
+      'mothers_name': _mothersNameController.text.trim(),
+      'birth_place': _birthPlaceController.text.trim(),
+      'location': _locationController.text.trim(),
+      'payment_type': _paymentType,
+    };
+
+    if (_paymentType == 'Hourly') {
+      mapData['regular_hourly_rate'] = _regularHourlyRateController.text.trim();
+      mapData['overtime_hourly_rate'] = _overtimeHourlyRateController.text.trim();
+    } else {
+      mapData['daily_rate'] = _dailyRateController.text.trim();
+    }
+
+    if (isEditing) {
+      mapData['reason'] = _reasonController.text.trim();
+    }
+
+    final birthDate = _birthDateController.text.trim();
+    if (birthDate.isNotEmpty) mapData['birth_date'] = birthDate;
+
+    if (_selectedPersonalPhoto != null) {
+      final bytes = await _selectedPersonalPhoto!.readAsBytes();
+      mapData['personal_photo'] = MultipartFile.fromBytes(bytes, filename: _selectedPersonalPhoto!.name);
+    }
+    if (_selectedIdPhoto != null) {
+      final bytes = await _selectedIdPhoto!.readAsBytes();
+      mapData['id_photo'] = MultipartFile.fromBytes(bytes, filename: _selectedIdPhoto!.name);
+    }
+
+    FormData formData = FormData.fromMap(mapData);
+
+    if (workerUniqueId != null) {
+      final response = await ApiConfig.dio.put('/workers/$workerUniqueId', data: formData);
+      if (response.statusCode == 200) {
+        Navigator.pop(context);
+        _clearControllers();
+        _fetchWorkers();
+        _showSnackBar('Worker updated successfully', Colors.green);
+      }
+    } else {
+      final response = await ApiConfig.dio.post('/workers', data: formData);
+      if (response.statusCode == 201) {
+        Navigator.pop(context);
+        _clearControllers();
+        _fetchWorkers();
+        _showSnackBar('Worker added successfully with auto ID', Colors.green);
+      }
+    }
+  } on DioException catch (e) {
+    final msg = e.response?.data is Map ? (e.response?.data['message'] ?? 'Operation failed') : 'Operation failed';
+    _showSnackBar(msg, Colors.red);
+  } catch (e) {
+    print("🚨 SAVE WORKER ERROR: $e");
+    _showSnackBar('Operation failed: ${e.toString()}', Colors.red);
+  }
+}
 
   Future<void> _toggleWorkerStatus(String workerUniqueId, String currentStatus) async {
     final newStatus = currentStatus == 'Active' ? 'Inactive' : 'Active';
@@ -221,6 +254,11 @@ class _WorkersScreenState extends State<WorkersScreen> {
       _birthDateController.text = worker['birth_date']?.toString().split('T')[0] ?? '';
       _birthPlaceController.text = worker['birth_place']?.toString() ?? '';
       _locationController.text = worker['location']?.toString() ?? '';
+      _paymentType = worker['payment_type']?.toString() ?? 'Daily';
+_dailyRateController.text = worker['daily_rate']?.toString() ?? '';
+_regularHourlyRateController.text = worker['regular_hourly_rate']?.toString() ?? '';
+_overtimeHourlyRateController.text = worker['overtime_hourly_rate']?.toString() ?? '';
+_reasonController.clear();
     } else {
       _clearControllers();
     }
@@ -292,7 +330,71 @@ class _WorkersScreenState extends State<WorkersScreen> {
                 const SizedBox(height: 12),
                 TextField(controller: _positionController, decoration: InputDecoration(labelText: 'Job Position', prefixIcon: Icon(Icons.work_rounded, color: primaryColor))),
                 const SizedBox(height: 16),
-
+            const SizedBox(height: 16),
+Text('Payment Type *', style: TextStyle(fontWeight: FontWeight.w600, color: primaryColor)),
+const SizedBox(height: 8),
+Row(
+  children: [
+    Expanded(
+      child: RadioListTile<String>(
+        contentPadding: EdgeInsets.zero,
+        title: const Text('Hourly'),
+        value: 'Hourly',
+        groupValue: _paymentType,
+        onChanged: (value) => setModalState(() => _paymentType = value!),
+      ),
+    ),
+    Expanded(
+      child: RadioListTile<String>(
+        contentPadding: EdgeInsets.zero,
+        title: const Text('Daily'),
+        value: 'Daily',
+        groupValue: _paymentType,
+        onChanged: (value) => setModalState(() => _paymentType = value!),
+      ),
+    ),
+  ],
+),
+const SizedBox(height: 8),
+if (_paymentType == 'Hourly') ...[
+  TextField(
+    controller: _regularHourlyRateController,
+    keyboardType: const TextInputType.numberWithOptions(decimal: true),
+    decoration: InputDecoration(
+      labelText: 'Regular Hourly Rate *',
+      prefixIcon: Icon(Icons.schedule, color: primaryColor),
+    ),
+  ),
+  const SizedBox(height: 12),
+  TextField(
+    controller: _overtimeHourlyRateController,
+    keyboardType: const TextInputType.numberWithOptions(decimal: true),
+    decoration: InputDecoration(
+      labelText: 'Overtime Hourly Rate *',
+      prefixIcon: Icon(Icons.timer_outlined, color: primaryColor),
+    ),
+  ),
+] else ...[
+  TextField(
+    controller: _dailyRateController,
+    keyboardType: const TextInputType.numberWithOptions(decimal: true),
+    decoration: InputDecoration(
+      labelText: 'Daily Rate *',
+      prefixIcon: Icon(Icons.calendar_today, color: primaryColor),
+    ),
+  ),
+],
+if (isEditing) ...[
+  const SizedBox(height: 12),
+  TextField(
+    controller: _reasonController,
+    maxLines: 2,
+    decoration: const InputDecoration(
+      labelText: 'Reason for change (required if payment/rate/position changed)',
+      border: OutlineInputBorder(),
+    ),
+  ),
+],
                 // أزرار اختيار الصور بدل الحقول النصية القديمة
                 Row(
                   children: [
@@ -365,20 +467,25 @@ class _WorkersScreenState extends State<WorkersScreen> {
     );
   }
 
-  void _clearControllers() {
-    _codeController.clear();
-    _nameController.clear();
-    _phoneController.clear();
-    _nationalityController.clear();
-    _positionController.clear();
-    _notesController.clear();
-    _mothersNameController.clear();
-    _birthDateController.clear();
-    _birthPlaceController.clear();
-    _locationController.clear();
-    _selectedPersonalPhoto = null;
-    _selectedIdPhoto = null;
-  }
+ void _clearControllers() {
+  _codeController.clear();
+  _nameController.clear();
+  _phoneController.clear();
+  _nationalityController.clear();
+  _positionController.clear();
+  _notesController.clear();
+  _mothersNameController.clear();
+  _birthDateController.clear();
+  _birthPlaceController.clear();
+  _locationController.clear();
+  _dailyRateController.clear();
+  _regularHourlyRateController.clear();
+  _overtimeHourlyRateController.clear();
+  _reasonController.clear();
+  _paymentType = 'Daily';
+  _selectedPersonalPhoto = null;
+  _selectedIdPhoto = null;
+}
 
   void _showSnackBar(String message, Color bgColor) {
     ScaffoldMessenger.of(context).showSnackBar(
