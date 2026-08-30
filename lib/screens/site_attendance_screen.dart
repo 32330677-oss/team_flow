@@ -17,7 +17,7 @@ class SiteAttendanceScreen extends StatefulWidget {
 
 class _SiteAttendanceScreenState extends State<SiteAttendanceScreen> {
   bool _isLoading = true;
-  String _recordDate = DateFormat('yyyy-MM-dd').format(DateTime.now());
+String _recordDate = DateFormat('yyyy-MM-dd').format(DateTime.now());
   final Set<int> _selectedWorkerIds = <int>{};
   List<dynamic> _workers = [];
   List<dynamic> _mySitesForTransfer = [];
