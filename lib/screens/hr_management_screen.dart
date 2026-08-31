@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
 import 'workers_screen.dart'; // شاشة العمال الحالية لديك
-import 'supervisor_management_screen.dart'; // شاشة المشرفين التي سنبنيها
+import 'supervisor_management_screen.dart'; // شاشة المشرفين
+import 'staff_screen.dart'; // شاشة الموظفين الإداريين الجديدة
 import '../widgets/custom_app_bar.dart';
+
 class HRManagementScreen extends StatelessWidget {
   const HRManagementScreen({Key? key}) : super(key: key);
 
@@ -10,9 +12,9 @@ class HRManagementScreen extends StatelessWidget {
     return Scaffold(
       backgroundColor: Colors.grey[100],
       appBar: const CustomAppBar(
-      title: 'HR Management',
-    ),
-      body: Padding(
+        title: 'HR Management',
+      ),
+      body: SingleChildScrollView(
         padding: const EdgeInsets.all(20.0),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -45,6 +47,22 @@ class HRManagementScreen extends StatelessWidget {
                 Navigator.push(
                   context,
                   MaterialPageRoute(builder: (context) => const SupervisorManagementScreen()),
+                );
+              },
+            ),
+            const SizedBox(height: 20),
+
+            // 3. Staff Management Card (New)
+            _buildCategoryCard(
+              context,
+              title: 'Staff Management',
+              subtitle: 'Manage administrative staff, salaries, positions, and accounts',
+              icon: Icons.badge_rounded,
+              gradientColors: [const Color(0xff134e5e), const Color(0xff71b280)],
+              onTap: () {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (context) => const StaffScreen()),
                 );
               },
             ),

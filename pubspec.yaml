@@ -19,13 +19,15 @@ dependencies:
   flutter_secure_storage: ^9.0.0
   shared_preferences: ^2.5.5
   intl: ^0.20.2
-  image_picker: ^1.1.2    # <--- أضف هذه الحزمة هنا
-  
+  image_picker: ^1.1.2
+
   pdf: ^3.13.0
   printing: ^5.15.0
   url_launcher: ^6.2.5
   share_plus: ^12.0.2
   path_provider: ^2.1.6
+  fl_chart: ^0.69.0
+
 dev_dependencies:
   flutter_lints: ^6.0.0
   flutter_test:
@@ -34,7 +36,6 @@ dev_dependencies:
 flutter:
   uses-material-design: true
 
-  # إعدادات الخطوط (إذا كنت تريد إبقاء ملف الخط الاحتياطي المحلي، اتركها، وإلا يمكنك حذفها أيضاً لأننا سنعتمد على محرك الـ HTML للطباعة)
   fonts:
     - family: Cairo
       fonts:

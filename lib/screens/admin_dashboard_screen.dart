@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:team_flow/constants.dart';
-
-// Screens used for navigation — kept exactly as in the original project.
+import 'analytics_dashboard_screen.dart';
 import 'login_screen.dart';
 import 'project_management_screen.dart';
 import 'worker_assignment_screen.dart';
@@ -9,7 +8,7 @@ import 'hr_management_screen.dart';
 import 'attendance_payroll_hub.dart';
 import 'workers_screen.dart';
 import 'supervisor_management_screen.dart';
-import 'pending_transfers_screen.dart'; // <-- أضف ملف الشاشة الجديدة هنا
+import 'pending_transfers_screen.dart';
 
 class AdminDashboardScreen extends StatefulWidget {
   const AdminDashboardScreen({super.key});
@@ -42,6 +41,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
   // تم إضافة عنصر Transfer Requests إلى القائمة الجانبية
   final List<_SidebarItem> _items = const [
     _SidebarItem(icon: Icons.dashboard_rounded, label: 'Dashboard'),
+    _SidebarItem(icon: Icons.insights_rounded, label: 'Analytics'),
     _SidebarItem(icon: Icons.business_rounded, label: 'Projects'),
     _SidebarItem(icon: Icons.alt_route_rounded, label: 'Worker Distribution'),
     _SidebarItem(icon: Icons.people_alt_rounded, label: 'HR Management'),
@@ -134,7 +134,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
   }
 
   // ---------- Sidebar navigation ----------
-  void _onSelectItem(int index) {
+   void _onSelectItem(int index) {
     if (index == 0) {
       setState(() => _selectedIndex = 0);
       return;
@@ -145,18 +145,21 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
     Widget destination;
     switch (index) {
       case 1:
-        destination = const ProjectManagementScreen();
+        destination = const AnalyticsDashboardScreen();
         break;
       case 2:
-        destination = const WorkerAssignmentScreen();
+        destination = const ProjectManagementScreen();
         break;
       case 3:
-        destination = const HRManagementScreen();
+        destination = const WorkerAssignmentScreen();
         break;
       case 4:
+        destination = const HRManagementScreen();
+        break;
+      case 5:
         destination = const AttendancePayrollHub();
         break;
-      case 5: // <-- ربط الفهرس رقم 5 بشاشة Transfer Requests الجديدة
+      case 6:
         destination = const PendingTransfersScreen();
         break;
       default:
