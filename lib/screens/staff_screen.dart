@@ -3,6 +3,7 @@ import 'package:dio/dio.dart';
 import '../constants.dart';
 import '../widgets/custom_app_bar.dart';
 import '../widgets/app_data_table.dart';
+import 'staff_lifecycle_screen.dart';
 
 class StaffScreen extends StatefulWidget {
   const StaffScreen({Key? key}) : super(key: key);
@@ -94,7 +95,6 @@ class _StaffScreenState extends State<StaffScreen> {
       final fullName = (s['full_name'] ?? '').toString().toLowerCase();
       final position = (s['position'] ?? '').toString().toLowerCase();
       final query = _searchQuery.toLowerCase();
-      // تمت إزالة البحث بواسطة الـ username لعدم وجوده
       return fullName.contains(query) || position.contains(query);
     }).toList();
 
@@ -127,7 +127,7 @@ class _StaffScreenState extends State<StaffScreen> {
                   child: TextField(
                     onChanged: (val) => setState(() => _searchQuery = val),
                     decoration: InputDecoration(
-                      hintText: 'Search by name or position...', // تم التعديل
+                      hintText: 'Search by name or position...',
                       prefixIcon: const Icon(Icons.search),
                       filled: true,
                       fillColor: Colors.white,
@@ -207,6 +207,7 @@ class _StaffScreenState extends State<StaffScreen> {
                                         children: [
                                           IconButton(
                                             icon: const Icon(Icons.edit_rounded, color: Colors.blue, size: 20),
+                                            tooltip: 'Edit',
                                             onPressed: () => _openAddOrEditSheet(staff: stf),
                                           ),
                                           IconButton(
@@ -215,7 +216,43 @@ class _StaffScreenState extends State<StaffScreen> {
                                               color: isActive ? Colors.orange : Colors.green,
                                               size: 20,
                                             ),
+                                            tooltip: isActive ? 'Deactivate' : 'Activate',
                                             onPressed: () => _toggleStatus(stf['staff_id'], stf['status']),
+                                          ),
+                                          PopupMenuButton<String>(
+                                            icon: const Icon(Icons.more_vert, size: 20, color: Colors.grey),
+                                            onSelected: (value) {
+                                              if (value == 'edit') {
+                                                _openAddOrEditSheet(staff: stf);
+                                              } else if (value == 'status') {
+                                                _toggleStatus(stf['staff_id'], stf['status']);
+                                              } else if (value == 'lifecycle') {
+                                                Navigator.push(
+                                                  context,
+                                                  MaterialPageRoute(
+                                                    builder: (_) => StaffLifecycleScreen(staff: stf),
+                                                  ),
+                                                ).then((_) => _loadStaff());
+                                              }
+                                            },
+                                            itemBuilder: (context) => [
+                                              const PopupMenuItem(
+                                                value: 'edit',
+                                                child: Row(children: [
+                                                  Icon(Icons.edit, size: 18, color: Colors.blue),
+                                                  SizedBox(width: 8),
+                                                  Text('Edit'),
+                                                ]),
+                                              ),
+                                              const PopupMenuItem(
+                                                value: 'lifecycle',
+                                                child: Row(children: [
+                                                  Icon(Icons.timeline, size: 18, color: Colors.purple),
+                                                  SizedBox(width: 8),
+                                                  Text('Lifecycle & Site'),
+                                                ]),
+                                              ),
+                                            ],
                                           ),
                                         ],
                                       ),
@@ -315,7 +352,6 @@ class _AddEditStaffSheetState extends State<_AddEditStaffSheet> {
       final isEditing = widget.staff != null;
       final staffId = widget.staff?['staff_id'];
 
-      // تم حذف username و password لعدم وجودهما في الباك إند
       final payload = {
         'full_name': _nameController.text.trim(),
         'phone_number': _phoneController.text.trim().isEmpty ? null : _phoneController.text.trim(),
@@ -386,7 +422,6 @@ class _AddEditStaffSheetState extends State<_AddEditStaffSheet> {
                 validator: (val) => val == null || val.isEmpty ? 'Please enter full name' : null,
               ),
               const SizedBox(height: 16),
-              // تم حذف حقل الـ Username وحقل الـ Password نهائياً
               TextFormField(
                 controller: _phoneController,
                 keyboardType: TextInputType.phone,

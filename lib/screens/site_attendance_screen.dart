@@ -52,11 +52,7 @@ String _recordDate = DateFormat('yyyy-MM-dd').format(DateTime.now());
     }
   }
 
-  // -------------------------------------------------------------------
-  // UNCHANGED: _handleAction still accepts an optional extraData map so
-  // additional fields (leave_type, check_in_time, check_out_time...) can
-  // be merged into the request payload without duplicating this method.
-  // -------------------------------------------------------------------
+
   Future<void> _handleAction(String endpoint, int workerId, {Map<String, dynamic>? extraData}) async {
     if (!mounted) return;
     setState(() => _isLoading = true);

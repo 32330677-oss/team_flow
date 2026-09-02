@@ -104,40 +104,26 @@ class _AdminAttendanceScreenState extends State<AdminAttendanceScreen> {
     await _fetchData();
   }
 
-  Future<String?> _askRejectionReason() async {
+  Future<String?> _promptForReason(BuildContext context) async {
     final controller = TextEditingController();
-    final result = await showDialog<String>(
+    return showDialog<String>(
       context: context,
-      builder: (dialogContext) => AlertDialog(
-        title: const Text('Reject attendance record'),
+      builder: (ctx) => AlertDialog(
+        title: const Text('Reason for correction'),
         content: TextField(
-          controller: controller,
-          maxLines: 3,
-          autofocus: true,
-          decoration: const InputDecoration(
-            labelText: 'Reason',
-            hintText: 'Explain what the supervisor must correct',
-            border: OutlineInputBorder(),
-          ),
-        ),
+            controller: controller,
+            maxLines: 3,
+            autofocus: true,
+            decoration: const InputDecoration(border: OutlineInputBorder())),
         actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(dialogContext),
-            child: const Text('Cancel'),
-          ),
+          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
           FilledButton(
-            style: FilledButton.styleFrom(backgroundColor: Colors.red.shade700),
-            onPressed: () {
-              final value = controller.text.trim();
-              if (value.isNotEmpty) Navigator.pop(dialogContext, value);
-            },
-            child: const Text('Reject'),
+            onPressed: () => Navigator.pop(ctx, controller.text),
+            child: const Text('Confirm'),
           ),
         ],
       ),
     );
-    controller.dispose();
-    return result;
   }
 
   Future<void> _showManagementLeaveDialog(int attendanceId) async {
@@ -374,7 +360,7 @@ class _AdminAttendanceScreenState extends State<AdminAttendanceScreen> {
                 ),
               OutlinedButton.icon(
                 onPressed: _working ? null : () async {
-                  final note = await _askRejectionReason();
+                  final note = await _promptForReason(context);
                   if (note != null) await _reviewSelected([id], 'Rejected', note: note);
                 },
                 icon: const Icon(Icons.close, size: 18),
@@ -441,7 +427,7 @@ class _AdminAttendanceScreenState extends State<AdminAttendanceScreen> {
             ),
             FilledButton.icon(
               onPressed: _working ? null : () async {
-                final note = await _askRejectionReason();
+                final note = await _promptForReason(context);
                 if (note != null) await _reviewSelected(selected, 'Rejected', note: note);
               },
               icon: const Icon(Icons.close, size: 18),

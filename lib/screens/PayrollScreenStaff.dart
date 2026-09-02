@@ -1,25 +1,39 @@
 import 'package:flutter/material.dart';
-import 'package:http/http.dart' as http;
-import 'dart:convert';
+import 'package:dio/dio.dart';
 import 'package:intl/intl.dart';
+import '../constants.dart';
+import '../widgets/custom_app_bar.dart';
+import 'package:flutter/material.dart';
 
-class GeneratePayrollScreen extends StatefulWidget {
-  const GeneratePayrollScreen({super.key});
+class AppColors {
+  static const Color primary = Color(0xFF1A2A6C); // اللون الرئيسي الأزرق الغامق
+  static const Color danger = Colors.red;          // لون التنبيهات والأخطاء
+  static const Color success = Colors.green;       // لون النجاح
+  static const Color warning = Colors.orange;      // لون التحذير
+}
+class StaffPayrollScreen extends StatefulWidget {
+  const StaffPayrollScreen({super.key});
 
   @override
-  State<GeneratePayrollScreen> createState() => _GeneratePayrollScreenState();
+  State<StaffPayrollScreen> createState() => _StaffPayrollScreenState();
 }
 
-class _GeneratePayrollScreenState extends State<GeneratePayrollScreen> {
+class _StaffPayrollScreenState extends State<StaffPayrollScreen> {
   bool _isLoading = false;
   bool _isSaving = false;
   List<dynamic> _draftPayrollItems = [];
-  
-  // Date range controllers for the payroll batch period
+  List<dynamic> _existingBatches = [];
+  bool _isLoadingBatches = true;
+
+  // Date range controllers for payroll batch period
   final TextEditingController _startDateController = TextEditingController();
   final TextEditingController _endDateController = TextEditingController();
 
-  final String baseUrl = 'https://your-api-domain.com/api'; // Update with your API URL
+  @override
+  void initState() {
+    super.initState();
+    _loadBatches();
+  }
 
   @override
   void dispose() {
@@ -28,248 +42,445 @@ class _GeneratePayrollScreenState extends State<GeneratePayrollScreen> {
     super.dispose();
   }
 
-  // 1. Preview payroll draft before saving
-  Future<void> _previewPayrollDraft() async {
-    if (_startDateController.text.isEmpty || _endDateController.text.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Please select both start and end dates first')),
-      );
-      return;
-    }
-
-    setState(() {
-      _isLoading = true;
-    });
-
+  Future<void> _loadBatches() async {
+    setState(() => _isLoadingBatches = true);
     try {
-      // Adjust this endpoint if you have a separate preview route, or use generate-batch if it returns items
-      final response = await http.post(
-        Uri.parse('$baseUrl/payroll/preview-batch'),
-        headers: {
-          'Authorization': 'Bearer YOUR_TOKEN_HERE',
-          'Content-Type': 'application/json',
-        },
-        body: jsonEncode({
-          'start_date': _startDateController.text,
-          'end_date': _endDateController.text,
-        }),
-      );
-
-      if (response.statusCode == 200) {
-        final data = jsonDecode(response.body);
+      final response = await ApiConfig.dio.get('/staff-payroll/batches');
+      if (response.statusCode == 200 && response.data['status'] == 'success') {
         setState(() {
-          _draftPayrollItems = data['items'] ?? data['data'] ?? [];
+          _existingBatches = response.data['data'] ?? [];
         });
-      } else {
-        final errorMsg = jsonDecode(response.body)['message'] ?? 'Failed to load payroll draft preview';
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(errorMsg)));
       }
     } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Network error: $e')),
-      );
+      debugPrint('Error loading batches: $e');
     } finally {
-      setState(() {
-        _isLoading = false;
-      });
+      setState(() => _isLoadingBatches = false);
     }
   }
 
-  // 2. Save Button - Commits and generates the batch into the database
-  Future<void> _savePayrollBatch() async {
-    if (_draftPayrollItems.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('No staff records found in the draft to save')),
-      );
+  Future<void> _previewPayrollDraft() async {
+    if (_startDateController.text.isEmpty || _endDateController.text.isEmpty) {
+      _showSnackBar('Please select both start and end dates first', Colors.orange);
       return;
     }
 
-    setState(() {
-      _isSaving = true;
-    });
+    setState(() => _isLoading = true);
 
     try {
-      // Connects to your backend endpoint that runs inside a transaction and writes to the DB
-      final response = await http.post(
-        Uri.parse('$baseUrl/payroll/generate-batch'),
-        headers: {
-          'Authorization': 'Bearer YOUR_TOKEN_HERE',
-          'Content-Type': 'application/json',
-        },
-        body: jsonEncode({
-          'start_date': _startDateController.text,
-          'end_date': _endDateController.text,
-        }),
-      );
+      final response = await ApiConfig.dio.post('/staff-payroll/preview-batch', data: {
+        'start_date': _startDateController.text.trim(),
+        'end_date': _endDateController.text.trim(),
+      });
+
+      if (response.statusCode == 200) {
+        final data = response.data;
+        setState(() {
+          _draftPayrollItems = data['items'] ?? data['data'] ?? [];
+        });
+      }
+    } on DioException catch (e) {
+      final msg = e.response?.data is Map ? (e.response?.data['message'] ?? 'Failed to load preview') : 'Failed to load preview';
+      _showSnackBar(msg, AppColors.danger);
+    } catch (e) {
+      _showSnackBar('Network error: $e', AppColors.danger);
+    } finally {
+      setState(() => _isLoading = false);
+    }
+  }
+
+  Future<void> _savePayrollBatch() async {
+    if (_draftPayrollItems.isEmpty) {
+      _showSnackBar('No staff records found in the draft to save', Colors.orange);
+      return;
+    }
+
+    setState(() => _isSaving = true);
+
+    try {
+      final response = await ApiConfig.dio.post('/staff-payroll/generate-batch', data: {
+        'start_date': _startDateController.text.trim(),
+        'end_date': _endDateController.text.trim(),
+      });
 
       if (response.statusCode == 201 || response.statusCode == 200) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Payroll batch successfully saved to database!')),
-        );
-        Navigator.pop(context, true); // Return to previous screen and refresh
-      } else {
-        final errorMsg = jsonDecode(response.body)['message'] ?? 'Failed to save payroll batch';
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(errorMsg)));
+        _showSnackBar('Payroll batch successfully saved!', Colors.green.shade700);
+        setState(() {
+          _draftPayrollItems = [];
+          _startDateController.clear();
+          _endDateController.clear();
+        });
+        _loadBatches();
       }
+    } on DioException catch (e) {
+      final msg = e.response?.data is Map ? (e.response?.data['message'] ?? 'Failed to save batch') : 'Failed to save batch';
+      _showSnackBar(msg, AppColors.danger);
     } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Network error: $e')),
-      );
+      _showSnackBar('Network error: $e', AppColors.danger);
     } finally {
-      setState(() {
-        _isSaving = false;
-      });
+      setState(() => _isSaving = false);
     }
+  }
+
+  void _showSnackBar(String message, Color color) {
+    ScaffoldMessenger.of(context).hideCurrentSnackBar();
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(message, style: const TextStyle(fontWeight: FontWeight.w600)),
+        backgroundColor: color,
+        behavior: SnackBarBehavior.floating,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+      ),
+    );
+  }
+
+  Future<String?> _promptForReason(BuildContext context) async {
+    final controller = TextEditingController();
+    return showDialog<String>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Supersede & Correct Reason'),
+        content: TextField(
+          controller: controller,
+          maxLines: 3,
+          decoration: const InputDecoration(
+            hintText: 'Enter reason for correction/superseding...',
+            border: OutlineInputBorder(),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(backgroundColor: AppColors.primary),
+            onPressed: () => Navigator.pop(context, controller.text),
+            child: const Text('Proceed', style: TextStyle(color: Colors.white)),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _showBatchDetailsSheet(Map batch) {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setModalState) {
+          final isFinalized = batch['is_finalized'] == 1 || batch['is_finalized'] == true;
+          final status = batch['status']?.toString() ?? 'Generated';
+
+          return Container(
+            height: MediaQuery.of(context).size.height * 0.7,
+            padding: const EdgeInsets.all(20),
+            decoration: const BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Text('Batch #${batch['staff_payroll_batch_id']} Details',
+                        style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                    IconButton(
+                      icon: const Icon(Icons.close),
+                      onPressed: () => Navigator.pop(context),
+                    ),
+                  ],
+                ),
+                const Divider(),
+                Text('Period: ${batch['start_date']} to ${batch['end_date']}',
+                    style: const TextStyle(color: Colors.grey, fontWeight: FontWeight.w500)),
+                const SizedBox(height: 10),
+                Text('Status: $status | Finalized: ${isFinalized ? "Yes" : "No"}',
+                    style: const TextStyle(fontWeight: FontWeight.w600)),
+                const SizedBox(height: 15),
+                const Text('Financial Actions:', style: TextStyle(fontWeight: FontWeight.bold)),
+                const SizedBox(height: 8),
+                _financeActions(batch, () {
+                  _loadBatches();
+                  Navigator.pop(context);
+                }),
+                const SizedBox(height: 20),
+                const Text('Batch Items Preview:', style: TextStyle(fontWeight: FontWeight.bold)),
+                const SizedBox(height: 8),
+                Expanded(
+                  child: ListView.builder(
+                    itemCount: (batch['items'] as List?)?.length ?? 0,
+                    itemBuilder: (context, index) {
+                      final item = batch['items'][index];
+                      return ListTile(
+                        dense: true,
+                        title: Text(item['full_name'] ?? 'Staff', style: const TextStyle(fontWeight: FontWeight.bold)),
+                        subtitle: Text('Net Salary: ${item['net_salary']}'),
+                      );
+                    },
+                  ),
+                ),
+              ],
+            ),
+          );
+        },
+      ),
+    );
+  }
+
+  Widget _financeActions(Map batch, VoidCallback onChanged) {
+    final isFinalized = batch['is_finalized'] == 1 || batch['is_finalized'] == true;
+    final status = batch['status']?.toString() ?? 'Generated';
+
+    if (status == 'Superseded') {
+      return Container(
+        padding: const EdgeInsets.all(10),
+        decoration: BoxDecoration(color: Colors.grey.shade200, borderRadius: BorderRadius.circular(8)),
+        child: const Text('This batch has been superseded by a newer version.',
+            style: TextStyle(fontWeight: FontWeight.w600)),
+      );
+    }
+
+    return Wrap(
+      spacing: 8,
+      runSpacing: 8,
+      children: [
+        if (!isFinalized)
+          ElevatedButton.icon(
+            onPressed: () async {
+              try {
+                await ApiConfig.dio.patch('/staff-payroll/batch/${batch['staff_payroll_batch_id']}/finalize');
+                onChanged();
+              } on DioException catch (e) {
+                final msg = e.response?.data is Map ? (e.response?.data['message'] ?? 'Failed to finalize') : 'Failed to finalize';
+                _showSnackBar(msg, AppColors.danger);
+              }
+            },
+            icon: const Icon(Icons.lock_outline, size: 18),
+            label: const Text('Finalize'),
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.indigo, foregroundColor: Colors.white),
+          ),
+        if (isFinalized && status != 'Paid')
+          ElevatedButton.icon(
+            onPressed: () async {
+              try {
+                await ApiConfig.dio.patch('/staff-payroll/batch/${batch['staff_payroll_batch_id']}/mark-paid');
+                onChanged();
+              } on DioException catch (e) {
+                final msg = e.response?.data is Map ? (e.response?.data['message'] ?? 'Failed to mark paid') : 'Failed to mark paid';
+                _showSnackBar(msg, AppColors.danger);
+              }
+            },
+            icon: const Icon(Icons.check_circle, size: 18),
+            label: const Text('Mark Paid'),
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.green.shade700, foregroundColor: Colors.white),
+          ),
+        OutlinedButton.icon(
+          onPressed: () async {
+            final reason = await _promptForReason(context);
+            if (reason == null || reason.trim().isEmpty) return;
+            try {
+              final res = await ApiConfig.dio.post(
+                '/staff-payroll/batch/${batch['staff_payroll_batch_id']}/new-version',
+                data: {'reason': reason},
+              );
+              // res.data['next_version_params'] has start_date/end_date/version_number/supersedes_batch_id
+              if (res.data != null && res.data['next_version_params'] != null) {
+                final params = res.data['next_version_params'];
+                setState(() {
+                  _startDateController.text = params['start_date'] ?? '';
+                  _endDateController.text = params['end_date'] ?? '';
+                });
+              }
+              onChanged();
+            } on DioException catch (e) {
+              final msg = e.response?.data is Map ? (e.response?.data['message'] ?? 'Failed to supersede') : 'Failed to supersede';
+              _showSnackBar(msg, AppColors.danger);
+            }
+          },
+          icon: const Icon(Icons.difference_outlined, size: 18, color: Colors.deepOrange),
+          label: const Text('Supersede & Correct', style: TextStyle(color: Colors.deepOrange)),
+        ),
+      ],
+    );
   }
 
   @override
   Widget build(BuildContext context) {
     final currencyFormat = NumberFormat('#,##0', 'en_US');
 
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('Generate & Preview Monthly Payroll'),
-        backgroundColor: const Color(0xFF1A2A6C),
-      ),
-      body: Padding(
-        padding: const EdgeInsets.all(16.0),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
+    return DefaultTabController(
+      length: 2,
+      child: Scaffold(
+        backgroundColor: Colors.grey[100],
+        appBar: const CustomAppBar(title: 'Staff Payroll Management'),
+        body: Column(
           children: [
-            // Period Selection Card
-            Card(
-              elevation: 3,
-              child: Padding(
-                padding: const EdgeInsets.all(12.0),
-                child: Row(
-                  children: [
-                    Expanded(
-                      child: TextField(
-                        controller: _startDateController,
-                        decoration: const InputDecoration(
-                          labelText: 'Start Date (YYYY-MM-DD)',
-                          prefixIcon: Icon(Icons.date_range),
-                        ),
-                      ),
-                    ),
-                    const SizedBox(width: 10),
-                    Expanded(
-                      child: TextField(
-                        controller: _endDateController,
-                        decoration: const InputDecoration(
-                          labelText: 'End Date (YYYY-MM-DD)',
-                          prefixIcon: Icon(Icons.date_range),
-                        ),
-                      ),
-                    ),
-                    const SizedBox(width: 10),
-                    ElevatedButton(
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: const Color(0xFF1A2A6C),
-                        foregroundColor: Colors.white,
-                        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
-                      ),
-                      onPressed: _isLoading ? null : _previewPayrollDraft,
-                      child: _isLoading
-                          ? const SizedBox(
-                              width: 20,
-                              height: 20,
-                              child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2),
-                            )
-                          : const Text('Preview Draft'),
-                    ),
-                  ],
-                ),
+            const Material(
+              color: Colors.white,
+              child: TabBar(
+                labelColor: AppColors.primary,
+                unselectedLabelColor: Colors.grey,
+                indicatorColor: AppColors.primary,
+                tabs: [
+                  Tab(text: 'Generate & Preview', icon: Icon(Icons.playlist_add_check)),
+                  Tab(text: 'Existing Batches', icon: Icon(Icons.history)),
+                ],
               ),
             ),
-            const SizedBox(height: 16),
-
-            const Text(
-              'Payroll Draft Breakdown:',
-              style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
-            ),
-            const SizedBox(height: 8),
-
-            // Staff Payroll Items List
             Expanded(
-              child: _draftPayrollItems.isEmpty
-                  ? const Center(
-                      child: Text(
-                        'Select a date period and click "Preview Draft" to view staff calculations.',
-                        textAlign: TextAlign.center,
-                        style: TextStyle(color: Colors.grey),
-                      ),
-                    )
-                  : ListView.builder(
-                      itemCount: _draftPayrollItems.length,
-                      itemBuilder: (context, index) {
-                        final item = _draftPayrollItems[index];
-                        final workerName = item['full_name'] ?? item['worker_name'] ?? 'Unknown Staff';
-                        final position = item['position'] ?? item['site_name'] ?? 'Staff Member';
-                        final presentDays = item['present_days'] ?? item['days_worked'] ?? 0;
-                        final paidLeaveDays = item['paid_leave_days'] ?? 0;
-                        final absenceDays = item['unpaid_absence_days'] ?? 0;
-                        final netSalary = double.tryParse(item['net_salary'].toString()) ?? 0.0;
-
-                        return Card(
-                          margin: const EdgeInsets.symmetric(vertical: 6),
-                          elevation: 2,
+              child: TabBarView(
+                children: [
+                  // Tab 1: Generate & Preview
+                  Padding(
+                    padding: const EdgeInsets.all(16.0),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        Card(
+                          elevation: 3,
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                           child: Padding(
                             padding: const EdgeInsets.all(12.0),
-                            child: ListTile(
-                              contentPadding: EdgeInsets.zero,
-                              title: Text(
-                                workerName,
-                                style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
-                              ),
-                              subtitle: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  const SizedBox(height: 4),
-                                  Text('Position / Site: $position', style: const TextStyle(color: Colors.black87)),
-                                  const SizedBox(height: 2),
-                                  Text('Present: $presentDays | Paid Leave: $paidLeaveDays | Unpaid Absence: $absenceDays'),
-                                ],
-                              ),
-                              trailing: Text(
-                                '${currencyFormat.format(netSalary)} ل.س',
-                                style: const TextStyle(
-                                  fontWeight: FontWeight.bold,
-                                  color: Colors.teal,
-                                  fontSize: 16,
+                            child: Row(
+                              children: [
+                                Expanded(
+                                  child: TextField(
+                                    controller: _startDateController,
+                                    decoration: const InputDecoration(
+                                      labelText: 'Start Date (YYYY-MM-DD)',
+                                      prefixIcon: Icon(Icons.date_range),
+                                    ),
+                                  ),
                                 ),
-                              ),
-                              isThreeLine: true,
+                                const SizedBox(width: 10),
+                                Expanded(
+                                  child: TextField(
+                                    controller: _endDateController,
+                                    decoration: const InputDecoration(
+                                      labelText: 'End Date (YYYY-MM-DD)',
+                                      prefixIcon: Icon(Icons.date_range),
+                                    ),
+                                  ),
+                                ),
+                                const SizedBox(width: 10),
+                                ElevatedButton(
+                                  style: ElevatedButton.styleFrom(
+                                    backgroundColor: AppColors.primary,
+                                    foregroundColor: Colors.white,
+                                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
+                                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                                  ),
+                                  onPressed: _isLoading ? null : _previewPayrollDraft,
+                                  child: _isLoading
+                                      ? const SizedBox(
+                                          width: 20,
+                                          height: 20,
+                                          child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2),
+                                        )
+                                      : const Text('Preview'),
+                                ),
+                              ],
                             ),
                           ),
-                        );
-                      },
+                        ),
+                        const SizedBox(height: 16),
+                        const Text('Payroll Draft Breakdown:',
+                            style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+                        const SizedBox(height: 8),
+                        Expanded(
+                          child: _draftPayrollItems.isEmpty
+                              ? const Center(
+                                  child: Text(
+                                    'Select a date period and click "Preview" to view staff calculations.',
+                                    textAlign: TextAlign.center,
+                                    style: TextStyle(color: Colors.grey),
+                                  ),
+                                )
+                              : ListView.builder(
+                                  itemCount: _draftPayrollItems.length,
+                                  itemBuilder: (context, index) {
+                                    final item = _draftPayrollItems[index];
+                                    final workerName = item['full_name'] ?? item['worker_name'] ?? 'Unknown Staff';
+                                    final position = item['position'] ?? 'Staff Member';
+                                    final presentDays = item['present_days'] ?? item['days_worked'] ?? 0;
+                                    final netSalary = double.tryParse(item['net_salary'].toString()) ?? 0.0;
+
+                                    return Card(
+                                      margin: const EdgeInsets.symmetric(vertical: 6),
+                                      elevation: 2,
+                                      child: ListTile(
+                                        title: Text(workerName, style: const TextStyle(fontWeight: FontWeight.bold)),
+                                        subtitle: Text('Position: $position | Present Days: $presentDays'),
+                                        trailing: Text(
+                                          '${currencyFormat.format(netSalary)}',
+                                          style: const TextStyle(
+                                            fontWeight: FontWeight.bold,
+                                            color: Colors.teal,
+                                            fontSize: 15,
+                                          ),
+                                        ),
+                                      ),
+                                    );
+                                  },
+                                ),
+                        ),
+                        if (_draftPayrollItems.isNotEmpty) ...[
+                          const SizedBox(height: 12),
+                          ElevatedButton.icon(
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: Colors.green.shade700,
+                              foregroundColor: Colors.white,
+                              padding: const EdgeInsets.symmetric(vertical: 14),
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                            ),
+                            onPressed: _isSaving ? null : _savePayrollBatch,
+                            icon: _isSaving
+                                ? const SizedBox(
+                                    width: 20,
+                                    height: 20,
+                                    child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2),
+                                  )
+                                : const Icon(Icons.save),
+                            label: const Text(
+                              'Save Payroll Batch to Database',
+                              style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                            ),
+                          ),
+                        ],
+                      ],
                     ),
+                  ),
+
+                  // Tab 2: Existing Batches History
+                  _isLoadingBatches
+                      ? const Center(child: CircularProgressIndicator())
+                      : // بالسطر الصحيح:
+_existingBatches.isEmpty
+    ? const Center(child: Text('No payroll batches recorded yet.'))
+    : ListView.builder(
+        padding: const EdgeInsets.all(16),
+        itemCount: _existingBatches.length,
+        itemBuilder: (context, index) {
+          final batch = _existingBatches[index];
+          return Card(
+            margin: const EdgeInsets.only(bottom: 12),
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+            child: ListTile(
+              title: Text('Batch #${batch['staff_payroll_batch_id']} (${batch['status']})',
+                  style: const TextStyle(fontWeight: FontWeight.bold)),
+              subtitle: Text('Period: ${batch['start_date']} to ${batch['end_date']}'),
+              trailing: const Icon(Icons.arrow_forward_ios, size: 16),
+              onTap: () => _showBatchDetailsSheet(batch),
             ),
-
-            const SizedBox(height: 12),
-
-            // Final Save Button
-            if (_draftPayrollItems.isNotEmpty)
-              ElevatedButton.icon(
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: Colors.green,
-                  foregroundColor: Colors.white,
-                  padding: const EdgeInsets.symmetric(vertical: 14),
-                ),
-                onPressed: _isSaving ? null : _savePayrollBatch,
-                icon: _isSaving
-                    ? const SizedBox(
-                        width: 20,
-                        height: 20,
-                        child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2),
-                      )
-                    : const Icon(Icons.save),
-                label: const Text(
-                  'Save Payroll Batch to Database',
-                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
-                ),
+          );
+        },
+      ),
+                ],
               ),
+            ),
           ],
         ),
       ),

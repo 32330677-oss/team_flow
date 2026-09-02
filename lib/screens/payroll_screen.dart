@@ -749,7 +749,19 @@ class _WorkerPayrollCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final isDaily = worker['pay_type'] == 'Daily';
+    final sites = (worker['sites'] is List) ? (worker['sites'] as List) : [];
+    
+    // استخراج كل أنواع الدفع الفريدة للمرونة
+    final uniquePayTypes = sites.map((s) => s['pay_type']?.toString()).where((t) => t != null).toSet();
+    final isMixed = uniquePayTypes.length > 1;
+    final payTypeLabel = isMixed ? 'Mixed' : (worker['pay_type'] ?? 'Hourly');
+    final isDaily = payTypeLabel == 'Daily';
+
+    // جمع المجاميع من الـ sites للتأكد من مطابقة الأرقام
+    final totalDays = sites.fold<num>(0, (sum, s) => sum + (num.tryParse(s['days_worked']?.toString() ?? '0') ?? 0));
+    final totalRegular = sites.fold<num>(0, (sum, s) => sum + (num.tryParse(s['regular_hours_worked']?.toString() ?? '0') ?? 0));
+    final totalOvertime = sites.fold<num>(0, (sum, s) => sum + (num.tryParse(s['overtime_hours_worked']?.toString() ?? '0') ?? 0));
+
     return Card(
       margin: const EdgeInsets.only(bottom: 10),
       elevation: 1,
@@ -762,18 +774,24 @@ class _WorkerPayrollCard extends StatelessWidget {
             Row(
               children: [
                 Expanded(
-                  child: Text(worker['worker_name'] ?? 'Worker #${worker['worker_id']}',
-                      style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15, color: Color(0xff1a2a6c))),
+                  child: Text(
+                    worker['worker_name'] ?? 'Worker #${worker['worker_id']}',
+                    style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15, color: Color(0xff1a2a6c)),
+                  ),
                 ),
                 Container(
                   padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
                   decoration: BoxDecoration(
-                    color: isDaily ? Colors.purple.shade50 : Colors.blue.shade50,
+                    color: isMixed ? Colors.orange.shade50 : (isDaily ? Colors.purple.shade50 : Colors.blue.shade50),
                     borderRadius: BorderRadius.circular(8),
                   ),
                   child: Text(
-                    worker['pay_type'] ?? 'Hourly',
-                    style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: isDaily ? Colors.purple : Colors.blue),
+                    payTypeLabel,
+                    style: TextStyle(
+                      fontSize: 11, 
+                      fontWeight: FontWeight.bold, 
+                      color: isMixed ? Colors.orange.shade800 : (isDaily ? Colors.purple : Colors.blue),
+                    ),
                   ),
                 ),
                 const SizedBox(width: 8),
@@ -785,12 +803,21 @@ class _WorkerPayrollCard extends StatelessWidget {
               ],
             ),
             const Divider(),
-            if (isDaily)
+            if (isMixed)
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  _miniStat('Days Worked', '${worker['days_worked'] ?? 0}', Colors.blueGrey),
-                  _miniStat('Daily Rate', formatSyp(worker['daily_rate']), Colors.blueGrey),
+                  _miniStat('Sites / Types', '${sites.length} Records', Colors.blueGrey),
+                  _miniStat('Total Days/Hrs', '${totalDays > 0 ? "$totalDays days" : ""} ${totalRegular > 0 ? "$totalRegular h" : ""}', Colors.blueGrey),
+                  _miniStat('Net Pay', formatSyp(worker['net_salary']), Colors.green.shade700, bold: true),
+                ],
+              )
+            else if (isDaily)
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  _miniStat('Days Worked', '$totalDays', Colors.blueGrey),
+                  _miniStat('Daily Rate', formatSyp(worker['daily_rate'] ?? sites.firstOrNull?['daily_rate_snapshot']), Colors.blueGrey),
                   _miniStat('Net Pay', formatSyp(worker['net_salary']), Colors.green.shade700, bold: true),
                 ],
               )
@@ -798,8 +825,8 @@ class _WorkerPayrollCard extends StatelessWidget {
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  _miniStat('Regular', '${worker['regular_hours_worked']} h', Colors.blueGrey),
-                  _miniStat('Overtime', '${worker['overtime_hours_worked']} h', Colors.orange.shade800),
+                  _miniStat('Regular', '$totalRegular h', Colors.blueGrey),
+                  _miniStat('Overtime', '$totalOvertime h', Colors.orange.shade800),
                   _miniStat('Net Pay', formatSyp(worker['net_salary']), Colors.green.shade700, bold: true),
                 ],
               ),
@@ -854,10 +881,14 @@ class _PayslipDialogState extends State<_PayslipDialog> {
     final w = widget.worker;
     final b = widget.batch;
     final sites = _sites;
-final isDaily = w['pay_type'] == 'Daily';
+
+    final uniquePayTypes = sites.map((s) => s['pay_type']?.toString()).where((t) => t != null).toSet();
+    final isMixed = uniquePayTypes.length > 1;
+    final payTypeLabel = isMixed ? 'Mixed' : (w['pay_type'] ?? 'Hourly');
 
     final totalRegularHours = sites.fold<double>(0, (sum, s) => sum + _num(s['regular_hours_worked']));
     final totalOvertimeHours = sites.fold<double>(0, (sum, s) => sum + _num(s['overtime_hours_worked']));
+    final totalDaysWorked = sites.fold<double>(0, (sum, s) => sum + _num(s['days_worked']));
     final totalBaseSalary = sites.fold<double>(0, (sum, s) => sum + _num(s['base_salary']));
     final totalOvertimePay = sites.fold<double>(0, (sum, s) => sum + _num(s['overtime_pay']));
 
@@ -890,46 +921,73 @@ final isDaily = w['pay_type'] == 'Daily';
                 ],
               ),
               const Divider(height: 20),
-             _infoRow('Period', '${_fmtDate(b['start_date'])} to ${_fmtDate(b['end_date'])}'),
-_infoRow('Payment Type', w['pay_type'] ?? 'Hourly'),
-if (isDaily) ...[
-  _infoRow('Days Worked', '${w['days_worked'] ?? 0}'),
-  _infoRow('Daily Rate', formatSyp(w['daily_rate'])),
-] else ...[
-  _infoRow('Regular Hours', '${totalRegularHours.toStringAsFixed(2)} h'),
-  _infoRow('Overtime Hours', '${totalOvertimeHours.toStringAsFixed(2)} h'),
-  _infoRow('Regular Rate', formatSyp(w['regular_rate'])),
-  _infoRow('Overtime Rate', formatSyp(w['overtime_rate'])),
-],
-_infoRow('Base Salary', formatSyp(totalBaseSalary)),
-_infoRow('Overtime Pay', formatSyp(totalOvertimePay)),
+              _infoRow('Period', '${_fmtDate(b['start_date'])} to ${_fmtDate(b['end_date'])}'),
+              _infoRow('Payment Type', payTypeLabel),
+              
+              if (isMixed) ...[
+                _infoRow('Total Days Worked', '${totalDaysWorked.toStringAsFixed(0)} days'),
+                _infoRow('Total Regular Hours', '${totalRegularHours.toStringAsFixed(2)} h'),
+                _infoRow('Total Overtime Hours', '${totalOvertimeHours.toStringAsFixed(2)} h'),
+              ] else if (payTypeLabel == 'Daily') ...[
+                _infoRow('Days Worked', '${totalDaysWorked.toStringAsFixed(0)}'),
+                _infoRow('Daily Rate', formatSyp(w['daily_rate'] ?? sites.firstOrNull?['daily_rate_snapshot'])),
+              ] else ...[
+                _infoRow('Regular Hours', '${totalRegularHours.toStringAsFixed(2)} h'),
+                _infoRow('Overtime Hours', '${totalOvertimeHours.toStringAsFixed(2)} h'),
+                _infoRow('Regular Rate', formatSyp(w['regular_rate'] ?? sites.firstOrNull?['hourly_rate_snapshot'])),
+                _infoRow('Overtime Rate', formatSyp(w['overtime_rate'] ?? sites.firstOrNull?['overtime_hourly_rate_snapshot'])),
+              ],
 
-              if (sites.length > 1) ...[
-                const SizedBox(height: 12),
-                Text('Per-site breakdown', style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.bold, color: Colors.grey.shade700)),
-                const SizedBox(height: 6),
-                ...sites.map((s) => Container(
-                      margin: const EdgeInsets.only(bottom: 6),
-                      padding: const EdgeInsets.all(10),
-                      decoration: BoxDecoration(
-                        color: Colors.grey.shade50,
-                        borderRadius: BorderRadius.circular(8),
-                      ),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
+              _infoRow('Base Salary', formatSyp(totalBaseSalary)),
+              _infoRow('Overtime Pay', formatSyp(totalOvertimePay)),
+
+              const SizedBox(height: 12),
+              Text('Per-site breakdown', style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.bold, color: Colors.grey.shade700)),
+              const SizedBox(height: 6),
+              ...sites.map((s) {
+                final sType = s['pay_type'] ?? 'Hourly';
+                final isDaily = sType == 'Daily';
+                return Container(
+                  margin: const EdgeInsets.only(bottom: 6),
+                  padding: const EdgeInsets.all(10),
+                  decoration: BoxDecoration(
+                    color: Colors.grey.shade50,
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(color: Colors.grey.shade200),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
                         children: [
                           Text(s['site_name']?.toString() ?? 'Site #${s['site_id']}',
                               style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
-                          const SizedBox(height: 4),
-                          Text(
-                            'Regular: ${_num(s['regular_hours_worked']).toStringAsFixed(2)}h @ ${formatSyp(s['hourly_rate_snapshot'])}  •  '
-                            'Overtime: ${_num(s['overtime_hours_worked']).toStringAsFixed(2)}h @ ${formatSyp(s['overtime_hourly_rate_snapshot'])}',
-                            style: TextStyle(fontSize: 11.5, color: Colors.grey.shade700),
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                            decoration: BoxDecoration(
+                              color: isDaily ? Colors.purple.shade50 : Colors.blue.shade50,
+                              borderRadius: BorderRadius.circular(4),
+                            ),
+                            child: Text(sType, style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: isDaily ? Colors.purple : Colors.blue)),
                           ),
                         ],
                       ),
-                    )),
-              ],
+                      const SizedBox(height: 4),
+                      if (isDaily)
+                        Text(
+                          'Days: ${_num(s['days_worked']).toStringAsFixed(0)}  •  Rate: ${formatSyp(s['daily_rate_snapshot'])}  •  Total: ${formatSyp(s['base_salary'])}',
+                          style: TextStyle(fontSize: 11.5, color: Colors.grey.shade700),
+                        )
+                      else
+                        Text(
+                          'Regular: ${_num(s['regular_hours_worked']).toStringAsFixed(2)}h @ ${formatSyp(s['hourly_rate_snapshot'])}  •  Overtime: ${_num(s['overtime_hours_worked']).toStringAsFixed(2)}h @ ${formatSyp(s['overtime_hourly_rate_snapshot'])}',
+                          style: TextStyle(fontSize: 11.5, color: Colors.grey.shade700),
+                        ),
+                    ],
+                  ),
+                );
+              }),
 
               const Divider(height: 20),
               Container(

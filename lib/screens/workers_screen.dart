@@ -22,6 +22,15 @@ final _dailyRateController = TextEditingController();
 final _regularHourlyRateController = TextEditingController();
 final _overtimeHourlyRateController = TextEditingController();
 final _reasonController = TextEditingController(); // required only on edit when comp changes
+// --- Bulk compensation update state ---
+String _bulkPaymentType = 'Daily';
+final _bulkDailyRateController = TextEditingController();
+final _bulkRegularHourlyRateController = TextEditingController();
+final _bulkOvertimeHourlyRateController = TextEditingController();
+final _bulkReasonController = TextEditingController();
+bool _bulkApplyToAll = true;
+final Set<int> _bulkSelectedWorkerIds = <int>{};
+bool _isBulkSubmitting = false;
   // دالة اختيار الصورة
   Future<void> _pickImage(bool isPersonal) async {
     final XFile? image = await _picker.pickImage(source: ImageSource.gallery);
@@ -79,7 +88,10 @@ final _reasonController = TextEditingController(); // required only on edit when
 _regularHourlyRateController.dispose();
 _overtimeHourlyRateController.dispose();
 _reasonController.dispose();
-    
+    _bulkDailyRateController.dispose();
+_bulkRegularHourlyRateController.dispose();
+_bulkOvertimeHourlyRateController.dispose();
+_bulkReasonController.dispose();
     super.dispose();
   }
 
@@ -131,7 +143,7 @@ _reasonController.dispose();
     });
   }
 
-Future<void> _saveWorker({String? workerUniqueId}) async {
+Future<void> _saveWorker({String? workerUniqueId, Map<String, dynamic>? originalWorker}) async {
   final name = _nameController.text.trim();
 
   if (name.isEmpty) {
@@ -139,26 +151,49 @@ Future<void> _saveWorker({String? workerUniqueId}) async {
     return;
   }
 
-  // Frontend validation (backend re-validates regardless — section 3)
-  if (_paymentType == 'Hourly') {
-    if (_regularHourlyRateController.text.trim().isEmpty ||
-        _overtimeHourlyRateController.text.trim().isEmpty) {
-      _showSnackBar('Regular and overtime hourly rates are required.', Colors.orange);
-      return;
-    }
-  } else {
-    if (_dailyRateController.text.trim().isEmpty) {
-      _showSnackBar('Daily rate is required.', Colors.orange);
-      return;
-    }
+  final isEditing = workerUniqueId != null;
+
+  // فحص هل تم تعديل بيانات التعويض فعلياً مقارنة بالبيانات الأصلية (إذا كان تعديلاً)
+  bool compensationChanged = true;
+  if (isEditing && originalWorker != null) {
+    final oldPaymentType = originalWorker['payment_type']?.toString() ?? 'Daily';
+    final oldDailyRate = originalWorker['daily_rate']?.toString() ?? '';
+    final oldRegularRate = originalWorker['regular_hourly_rate']?.toString() ?? '';
+    final oldOvertimeRate = originalWorker['overtime_hourly_rate']?.toString() ?? '';
+    final oldPosition = originalWorker['job_position']?.toString() ?? '';
+
+    final currentDailyRate = _dailyRateController.text.trim();
+    final currentRegularRate = _regularHourlyRateController.text.trim();
+    final currentOvertimeRate = _overtimeHourlyRateController.text.trim();
+    final currentPosition = _positionController.text.trim();
+
+    // التحقق هل هناك أي تغيير حقيقي في الراتب أو نوعه أو الوظيفة
+    compensationChanged = (oldPaymentType != _paymentType) ||
+        (oldDailyRate != currentDailyRate) ||
+        (oldRegularRate != currentRegularRate) ||
+        (oldOvertimeRate != currentOvertimeRate) ||
+        (oldPosition != currentPosition);
   }
 
-  final isEditing = workerUniqueId != null;
-  if (isEditing && _reasonController.text.trim().isEmpty) {
-    // Only block if the worker actually has an existing payment_type/rate to compare against —
-    // simplest safe rule: always require a reason on edit since compensation fields are always sent.
-    _showSnackBar('Please provide a reason for the update (required for compensation/position changes).', Colors.orange);
-    return;
+  // إذا تغير التعويض، نتحقق من إدخال الحقول الإلزامية الخاصة به
+  if (compensationChanged) {
+    if (_paymentType == 'Hourly') {
+      if (_regularHourlyRateController.text.trim().isEmpty ||
+          _overtimeHourlyRateController.text.trim().isEmpty) {
+        _showSnackBar('Regular and overtime hourly rates are required.', Colors.orange);
+        return;
+      }
+    } else {
+      if (_dailyRateController.text.trim().isEmpty) {
+        _showSnackBar('Daily rate is required.', Colors.orange);
+        return;
+      }
+    }
+
+    if (isEditing && _reasonController.text.trim().isEmpty) {
+      _showSnackBar('Please provide a reason for the compensation/position change.', Colors.orange);
+      return;
+    }
   }
 
   try {
@@ -171,18 +206,26 @@ Future<void> _saveWorker({String? workerUniqueId}) async {
       'mothers_name': _mothersNameController.text.trim(),
       'birth_place': _birthPlaceController.text.trim(),
       'location': _locationController.text.trim(),
-      'payment_type': _paymentType,
     };
 
-    if (_paymentType == 'Hourly') {
-      mapData['regular_hourly_rate'] = _regularHourlyRateController.text.trim();
-      mapData['overtime_hourly_rate'] = _overtimeHourlyRateController.text.trim();
-    } else {
-      mapData['daily_rate'] = _dailyRateController.text.trim();
-    }
+    // نرسل بيانات التعويض فقط إذا كانت جديدة (عند الإضافة) أو حدث تغيير فيها (عند التعديل)
+    if (!isEditing || compensationChanged) {
+      mapData['payment_type'] = _paymentType;
+      if (_paymentType == 'Hourly') {
+        mapData['regular_hourly_rate'] = _regularHourlyRateController.text.trim();
+        mapData['overtime_hourly_rate'] = _overtimeHourlyRateController.text.trim();
+      } else {
+        mapData['daily_rate'] = _dailyRateController.text.trim();
+      }
 
-    if (isEditing) {
-      mapData['reason'] = _reasonController.text.trim();
+      if (isEditing) {
+        mapData['reason'] = _reasonController.text.trim();
+        
+        // (اختياري) إذا كنت تريد إرسال تاريخ نفاذ يتم تحديده من الواجهة، يمكنك جعله يقرأ من حقل نصي،
+        // أو إرسال تاريخ اليوم تلقائياً عند تعديل الراتب لتجنب أي مشاكل:
+        final now = DateTime.now();
+        mapData['effective_date'] = "${now.year}-${now.month.toString().padLeft(2, '0')}-${now.day.toString().padLeft(2, '0')}";
+      }
     }
 
     final birthDate = _birthDateController.text.trim();
@@ -224,6 +267,264 @@ Future<void> _saveWorker({String? workerUniqueId}) async {
     _showSnackBar('Operation failed: ${e.toString()}', Colors.red);
   }
 }
+
+
+void _openBulkCompensationSheet() {
+  _bulkPaymentType = 'Daily';
+  _bulkDailyRateController.clear();
+  _bulkRegularHourlyRateController.clear();
+  _bulkOvertimeHourlyRateController.clear();
+  _bulkReasonController.clear();
+  _bulkApplyToAll = true;
+  _bulkSelectedWorkerIds.clear();
+
+  showModalBottomSheet(
+    context: context,
+    isScrollControlled: true,
+    backgroundColor: Colors.white,
+    shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(24))),
+    builder: (context) => StatefulBuilder(
+      builder: (context, setModalState) => Padding(
+        padding: EdgeInsets.only(
+          bottom: MediaQuery.of(context).viewInsets.bottom,
+          top: 24, left: 24, right: 24,
+        ),
+        child: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Center(
+                child: Container(
+                  width: 40, height: 4,
+                  decoration: BoxDecoration(color: Colors.grey[300], borderRadius: BorderRadius.circular(10)),
+                ),
+              ),
+              const SizedBox(height: 16),
+              Text(
+                'Bulk Update Compensation',
+                style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: primaryColor),
+              ),
+              const SizedBox(height: 6),
+              Text(
+                'This will update the payment type/rate for the selected workers and record it in their compensation history.',
+                style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
+              ),
+              const SizedBox(height: 20),
+
+              Text('Payment Type *', style: TextStyle(fontWeight: FontWeight.w600, color: primaryColor)),
+              Row(
+                children: [
+                  Expanded(
+                    child: RadioListTile<String>(
+                      contentPadding: EdgeInsets.zero,
+                      title: const Text('Hourly'),
+                      value: 'Hourly',
+                      groupValue: _bulkPaymentType,
+                      onChanged: (value) => setModalState(() => _bulkPaymentType = value!),
+                    ),
+                  ),
+                  Expanded(
+                    child: RadioListTile<String>(
+                      contentPadding: EdgeInsets.zero,
+                      title: const Text('Daily'),
+                      value: 'Daily',
+                      groupValue: _bulkPaymentType,
+                      onChanged: (value) => setModalState(() => _bulkPaymentType = value!),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 8),
+
+              if (_bulkPaymentType == 'Hourly') ...[
+                TextField(
+                  controller: _bulkRegularHourlyRateController,
+                  keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                  decoration: InputDecoration(
+                    labelText: 'Regular Hourly Rate *',
+                    prefixIcon: Icon(Icons.schedule, color: primaryColor),
+                    border: const OutlineInputBorder(),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: _bulkOvertimeHourlyRateController,
+                  keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                  decoration: InputDecoration(
+                    labelText: 'Overtime Hourly Rate *',
+                    prefixIcon: Icon(Icons.timer_outlined, color: primaryColor),
+                    border: const OutlineInputBorder(),
+                  ),
+                ),
+              ] else ...[
+                TextField(
+                  controller: _bulkDailyRateController,
+                  keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                  decoration: InputDecoration(
+                    labelText: 'Daily Rate *',
+                    prefixIcon: Icon(Icons.calendar_today, color: primaryColor),
+                    border: const OutlineInputBorder(),
+                  ),
+                ),
+              ],
+
+              const SizedBox(height: 16),
+              TextField(
+                controller: _bulkReasonController,
+                maxLines: 2,
+                decoration: const InputDecoration(
+                  labelText: 'Reason for change *',
+                  hintText: 'مثال: تعديل عام لليومية حسب قرار الإدارة',
+                  border: OutlineInputBorder(),
+                ),
+              ),
+
+              const SizedBox(height: 16),
+              CheckboxListTile(
+                contentPadding: EdgeInsets.zero,
+                title: const Text('Apply to all active workers', style: TextStyle(fontWeight: FontWeight.bold)),
+                subtitle: const Text('Uncheck to choose specific workers instead'),
+                value: _bulkApplyToAll,
+                onChanged: (value) => setModalState(() => _bulkApplyToAll = value ?? true),
+              ),
+
+              if (!_bulkApplyToAll) ...[
+                const SizedBox(height: 8),
+                Container(
+                  constraints: const BoxConstraints(maxHeight: 260),
+                  decoration: BoxDecoration(
+                    border: Border.all(color: Colors.grey.shade300),
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: ListView.builder(
+                    shrinkWrap: true,
+                    itemCount: _workers.length,
+                    itemBuilder: (context, index) {
+                      final worker = _workers[index];
+                      final id = int.tryParse(worker['worker_id'].toString());
+                      if (id == null) return const SizedBox.shrink();
+                      final selected = _bulkSelectedWorkerIds.contains(id);
+                      return CheckboxListTile(
+                        dense: true,
+                        title: Text(worker['full_name'] ?? ''),
+                        subtitle: Text('ID: ${worker['worker_unique_id'] ?? ''}'),
+                        value: selected,
+                        onChanged: (checked) => setModalState(() {
+                          if (checked == true) {
+                            _bulkSelectedWorkerIds.add(id);
+                          } else {
+                            _bulkSelectedWorkerIds.remove(id);
+                          }
+                        }),
+                      );
+                    },
+                  ),
+                ),
+                const SizedBox(height: 6),
+                Text('${_bulkSelectedWorkerIds.length} worker(s) selected', style: TextStyle(color: Colors.grey.shade600, fontSize: 12)),
+              ],
+
+              const SizedBox(height: 24),
+              SizedBox(
+                width: double.infinity,
+                height: 50,
+                child: ElevatedButton(
+                  onPressed: _isBulkSubmitting
+                      ? null
+                      : () => _submitBulkCompensation(setModalState),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: primaryColor,
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                  ),
+                  child: _isBulkSubmitting
+                      ? const SizedBox(
+                          width: 22, height: 22,
+                          child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                        )
+                      : const Text('Apply Bulk Update', style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold)),
+                ),
+              ),
+              const SizedBox(height: 20),
+            ],
+          ),
+        ),
+      ),
+    ),
+  );
+}
+
+Future<void> _submitBulkCompensation(void Function(void Function()) setModalState) async {
+  final reason = _bulkReasonController.text.trim();
+  if (reason.isEmpty) {
+    _showSnackBar('Please provide a reason for the bulk change.', Colors.orange);
+    return;
+  }
+
+  if (_bulkPaymentType == 'Hourly') {
+    if (_bulkRegularHourlyRateController.text.trim().isEmpty ||
+        _bulkOvertimeHourlyRateController.text.trim().isEmpty) {
+      _showSnackBar('Regular and overtime hourly rates are required.', Colors.orange);
+      return;
+    }
+  } else {
+    if (_bulkDailyRateController.text.trim().isEmpty) {
+      _showSnackBar('Daily rate is required.', Colors.orange);
+      return;
+    }
+  }
+
+  if (!_bulkApplyToAll && _bulkSelectedWorkerIds.isEmpty) {
+    _showSnackBar('Please select at least one worker.', Colors.orange);
+    return;
+  }
+
+  setModalState(() => _isBulkSubmitting = true);
+  setState(() => _isBulkSubmitting = true);
+
+  try {
+    final now = DateTime.now();
+    final effectiveDate = "${now.year}-${now.month.toString().padLeft(2, '0')}-${now.day.toString().padLeft(2, '0')}";
+
+    final Map<String, dynamic> data = {
+      'payment_type': _bulkPaymentType,
+      'reason': reason,
+      'effective_from': effectiveDate,
+    };
+    if (_bulkPaymentType == 'Hourly') {
+      data['regular_hourly_rate'] = _bulkRegularHourlyRateController.text.trim();
+      data['overtime_hourly_rate'] = _bulkOvertimeHourlyRateController.text.trim();
+    } else {
+      data['daily_rate'] = _bulkDailyRateController.text.trim();
+    }
+    if (!_bulkApplyToAll) {
+      data['worker_ids'] = _bulkSelectedWorkerIds.toList();
+    }
+
+    final response = await ApiConfig.dio.post('/workers/bulk-compensation', data: data);
+
+    if (mounted) {
+      Navigator.pop(context); // اقفل الشيت
+      final message = response.data is Map && response.data['message'] != null
+          ? response.data['message'].toString()
+          : 'Bulk compensation updated successfully';
+      _showSnackBar(message, Colors.green);
+      _fetchWorkers();
+    }
+  } on DioException catch (e) {
+    final msg = e.response?.data is Map ? (e.response?.data['message'] ?? 'Bulk update failed') : 'Bulk update failed';
+    setModalState(() => _isBulkSubmitting = false);
+    setState(() => _isBulkSubmitting = false);
+    _showSnackBar(msg, Colors.red);
+  } catch (e) {
+    setModalState(() => _isBulkSubmitting = false);
+    setState(() => _isBulkSubmitting = false);
+    _showSnackBar('Bulk update failed: ${e.toString()}', Colors.red);
+  }
+}
+
+
+
 
   Future<void> _toggleWorkerStatus(String workerUniqueId, String currentStatus) async {
     final newStatus = currentStatus == 'Active' ? 'Inactive' : 'Active';
@@ -428,7 +729,10 @@ if (isEditing) ...[
                 TextField(controller: _notesController, maxLines: 2, decoration: InputDecoration(labelText: 'Notes', prefixIcon: Icon(Icons.note_rounded, color: primaryColor))),
                 const SizedBox(height: 24),
                 ElevatedButton(
-                  onPressed: () => _saveWorker(workerUniqueId: workerUniqueId),
+                  onPressed: () => _saveWorker(
+    workerUniqueId: workerUniqueId, 
+    originalWorker: worker, // تمرير بيانات العامل الأصلية هنا للمقارنة
+  ),
                   style: ElevatedButton.styleFrom(
                     minimumSize: const Size.fromHeight(50),
                     backgroundColor: primaryColor,
@@ -497,16 +801,21 @@ if (isEditing) ...[
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: Colors.grey[100],
-      appBar: CustomAppBar(
-        title: 'Workers Management',
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.refresh_rounded),
-            tooltip: 'Refresh',
-            onPressed: _fetchWorkers,
-          ),
-        ],
-      ),
+     appBar: CustomAppBar(
+  title: 'Workers Management',
+  actions: [
+    IconButton(
+      icon: const Icon(Icons.price_change_rounded),
+      tooltip: 'Bulk Update Compensation',
+      onPressed: _openBulkCompensationSheet,
+    ),
+    IconButton(
+      icon: const Icon(Icons.refresh_rounded),
+      tooltip: 'Refresh',
+      onPressed: _fetchWorkers,
+    ),
+  ],
+),
       floatingActionButton: FloatingActionButton.extended(
         onPressed: () => _openWorkerSheet(),
         backgroundColor: primaryColor,

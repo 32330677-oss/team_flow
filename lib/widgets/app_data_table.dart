@@ -331,7 +331,11 @@ class StatusBadge extends StatelessWidget {
           label: status,
           color: AppColors.danger,
         );
-
+  case 'Terminated':
+        return StatusBadge(
+          label: status,
+          color: Colors.black87,
+        );
       case 'Completed':
         return StatusBadge(
           label: status,
