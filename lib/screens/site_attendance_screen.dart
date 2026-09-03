@@ -25,7 +25,8 @@ String _recordDate = DateFormat('yyyy-MM-dd').format(DateTime.now());
   TimeOfDay? _defaultLunchStart;
   TimeOfDay? _defaultLunchEnd;
   final Map<int, Map<String, TimeOfDay>> _lunchOverrides = {};
-
+ final TextEditingController _searchController = TextEditingController();
+String _searchQuery = '';
   @override
   void initState() {
     super.initState();
@@ -51,7 +52,11 @@ String _recordDate = DateFormat('yyyy-MM-dd').format(DateTime.now());
       _showToast('Failed to load workers', Colors.red);
     }
   }
-
+List<dynamic> get _filteredWorkers {
+  if (_searchQuery.trim().isEmpty) return _workers;
+  final q = _searchQuery.trim().toLowerCase();
+  return _workers.where((w) => (w['full_name'] ?? '').toString().toLowerCase().contains(q)).toList();
+}
 
   Future<void> _handleAction(String endpoint, int workerId, {Map<String, dynamic>? extraData}) async {
     if (!mounted) return;
@@ -80,6 +85,82 @@ String _recordDate = DateFormat('yyyy-MM-dd').format(DateTime.now());
       _showToast('Connection error', Colors.red);
     }
   }
+@override
+void dispose() {
+  _searchController.dispose();
+  super.dispose();
+}
+Future<void> _editTimesDialog(Map worker) async {
+  final attendanceId = worker['attendance_id'];
+  if (attendanceId == null) {
+    _showToast('No attendance record to edit yet.', Colors.orange);
+    return;
+  }
+
+  DateTime? newCheckIn = worker['check_in_time'] != null
+      ? DateTime.tryParse(worker['check_in_time'].toString().replaceFirst(' ', 'T'))
+      : null;
+  DateTime? newCheckOut = worker['check_out_time'] != null
+      ? DateTime.tryParse(worker['check_out_time'].toString().replaceFirst(' ', 'T'))
+      : null;
+
+  final result = await showDialog<Map<String, DateTime?>>(
+    context: context,
+    builder: (dialogContext) => StatefulBuilder(
+      builder: (context, setDialogState) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: Text('Edit Times — ${worker['full_name'] ?? ''}'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(
+              contentPadding: EdgeInsets.zero,
+              title: const Text('Check-in'),
+              subtitle: Text(newCheckIn == null ? 'Not set' : DateFormat('yyyy-MM-dd HH:mm').format(newCheckIn!)),
+              trailing: const Icon(Icons.edit, size: 18),
+              onTap: () async {
+                final picked = await _pickLocalDateTime(helpText: 'Select New Check-in Time', initial: newCheckIn);
+                if (picked != null) setDialogState(() => newCheckIn = DateTime.parse(picked.replaceFirst(' ', 'T')));
+              },
+            ),
+            ListTile(
+              contentPadding: EdgeInsets.zero,
+              title: const Text('Check-out'),
+              subtitle: Text(newCheckOut == null ? 'Not set' : DateFormat('yyyy-MM-dd HH:mm').format(newCheckOut!)),
+              trailing: const Icon(Icons.edit, size: 18),
+              onTap: () async {
+                final picked = await _pickLocalDateTime(helpText: 'Select New Check-out Time', initial: newCheckOut);
+                if (picked != null) setDialogState(() => newCheckOut = DateTime.parse(picked.replaceFirst(' ', 'T')));
+              },
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(dialogContext), child: const Text('Cancel')),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(dialogContext, {'checkIn': newCheckIn, 'checkOut': newCheckOut}),
+            child: const Text('Save'),
+          ),
+        ],
+      ),
+    ),
+  );
+
+  if (result == null) return;
+
+  final payload = <String, dynamic>{};
+  if (result['checkIn'] != null) payload['check_in_time'] = DateFormat('yyyy-MM-dd HH:mm:ss').format(result['checkIn']!);
+  if (result['checkOut'] != null) payload['check_out_time'] = DateFormat('yyyy-MM-dd HH:mm:ss').format(result['checkOut']!);
+
+  try {
+    await ApiConfig.dio.patch('/attendance/$attendanceId/edit-times', data: payload);
+    await _fetchWorkers();
+    if (mounted) _showToast('Times updated successfully.', Colors.green);
+  } on DioException catch (e) {
+    final data = e.response?.data;
+    _showToast(data is Map && data['message'] != null ? data['message'].toString() : 'Failed to update times.', Colors.red);
+  }
+}
 
   Future<void> _chooseAttendanceDate() async {
     final current = DateTime.parse(_recordDate);
@@ -517,76 +598,118 @@ Future<void> _startLeaveDialog(int workerId) async {
     }
   }
 
-  Future<void> _submitDay() async {
-    bool hasActiveCheckIns = _workers.any((w) => w['attendance_id'] != null);
-    if (!hasActiveCheckIns) {
-      _showToast('No active attendance records to submit.', Colors.orange);
+Future<void> _submitDay() async {
+  bool hasActiveCheckIns = _workers.any((w) => w['attendance_id'] != null);
+  if (!hasActiveCheckIns) {
+    _showToast('No active attendance records to submit.', Colors.orange);
+    return;
+  }
+
+  bool? confirm = await showDialog<bool>(
+    context: context,
+    builder: (context) => AlertDialog(
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      title: const Text('Confirm Submission'),
+      content: const Text('Are you sure you want to end the day and submit records for review? Make sure all workers have checked out.'),
+      actions: [
+        TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancel')),
+        ElevatedButton(
+          style: ElevatedButton.styleFrom(backgroundColor: const Color(0xff1a2a6c), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8))),
+          onPressed: () => Navigator.pop(context, true),
+          child: const Text('Submit', style: TextStyle(color: Colors.white)),
+        ),
+      ],
+    ),
+  );
+
+  if (confirm != true) return;
+  await _performSubmit(force: false);
+}
+
+Future<void> _performSubmit({required bool force}) async {
+  setState(() => _isLoading = true);
+  try {
+    final response = await ApiConfig.dio.post(
+      '/attendance/submit',
+      data: {
+        'siteId': widget.siteId,
+        'record_date': _recordDate,
+        if (force) 'force': true,
+      },
+    );
+
+    final data = response.data is Map ? response.data as Map : <String, dynamic>{};
+
+    if (data['status'] == 'warning' && data['requires_confirmation'] == true) {
+      setState(() => _isLoading = false);
+      final missingWorkers = (data['missing_workers'] as List?)?.map((e) => e.toString()).join(', ') ?? '';
+      final proceed = await showDialog<bool>(
+        context: context,
+        builder: (context) => AlertDialog(
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          title: const Text('Missing Lunch Time'),
+          content: Text(
+            'These workers don\'t have a lunch break recorded even though their shift seems to overlap lunch time:\n\n$missingWorkers\n\nSubmit anyway if this is intentional (e.g. they left early due to an emergency).',
+          ),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancel')),
+            ElevatedButton(
+              style: ElevatedButton.styleFrom(backgroundColor: Colors.orange.shade800),
+              onPressed: () => Navigator.pop(context, true),
+              child: const Text('Submit Anyway', style: TextStyle(color: Colors.white)),
+            ),
+          ],
+        ),
+      );
+      if (proceed == true) await _performSubmit(force: true);
       return;
     }
 
-    bool? confirm = await showDialog<bool>(
-      context: context,
-      builder: (context) => AlertDialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        title: const Text('Confirm Submission'),
-        content: const Text('Are you sure you want to end the day and submit records for review? Make sure all workers have checked out.'),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancel')),
-          ElevatedButton(
-            style: ElevatedButton.styleFrom(backgroundColor: const Color(0xff1a2a6c), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8))),
-            onPressed: () => Navigator.pop(context, true),
-            child: const Text('Submit', style: TextStyle(color: Colors.white)),
-          ),
-        ],
-      ),
-    );
-
-    if (confirm != true) return;
-
-    setState(() => _isLoading = true);
-    try {
-      final response = await ApiConfig.dio.post(
-        '/attendance/submit',
-        data: {
-          'siteId': widget.siteId,
-          'record_date': _recordDate,
-        },
-      );
-      if (response.data['status'] == 'success') {
-        await _fetchWorkers();
-        if (!mounted) return;
-        _showToast('Day submitted successfully', Colors.green);
-        if (_workers.isEmpty) Navigator.pop(context);
-      }
-    } on DioException catch (e) {
+    if (data['status'] == 'success') {
+      await _fetchWorkers();
+      if (!mounted) return;
+      _showToast('Day submitted successfully', Colors.green);
+      if (_workers.isEmpty) Navigator.pop(context);
+    } else {
       setState(() => _isLoading = false);
-      final msg = e.response?.data['message'] ?? 'Final submission failed. Ensure all workers have checked out.';
-      _showToast(msg, Colors.red);
-    } catch (e) {
-      setState(() => _isLoading = false);
-      _showToast('Server connection error', Colors.red);
     }
+  } on DioException catch (e) {
+    setState(() => _isLoading = false);
+    final msg = e.response?.data is Map
+        ? (e.response?.data['message'] ?? 'Final submission failed. Ensure all workers have checked out.')
+        : 'Final submission failed.';
+    _showToast(msg, Colors.red);
+  } catch (e) {
+    setState(() => _isLoading = false);
+    _showToast('Server connection error', Colors.red);
   }
+}
 
 
-  Widget _buildWorkersTable() {
-    if (_workers.isEmpty) {
-      return Center(
+Widget _buildWorkersTable() {
+  if (_filteredWorkers.isEmpty) {
+    return SizedBox(
+      height: 240,
+      child: Center(
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
             Icon(Icons.assignment_turned_in, size: 56, color: Colors.grey.shade400),
             const SizedBox(height: 10),
-            const Text(
-              'All workers accounted for or none available!',
-              style: TextStyle(fontSize: 14, color: Colors.grey, fontWeight: FontWeight.w500),
+            Text(
+              _searchQuery.isEmpty
+                  ? 'All workers accounted for or none available!'
+                  : 'No workers match "$_searchQuery"',
+              textAlign: TextAlign.center,
+              style: const TextStyle(fontSize: 14, color: Colors.grey, fontWeight: FontWeight.w500),
             ),
           ],
         ),
-      );
-    }
+      ),
+    );
+  }
 
-    final rows = _workers.map<DataRow>((worker) {
+  final rows = _filteredWorkers.map<DataRow>((worker) {
       final workerId = int.parse(worker['worker_id'].toString());
       final hasCheckIn = worker['check_in_time'] != null;
       final hasCheckOut = worker['check_out_time'] != null;
@@ -702,6 +825,9 @@ Future<void> _startLeaveDialog(int workerId) async {
                 case 'transfer':
                   await _openTransferSheet(worker);
                   break;
+                  case 'edit_times':
+      await _editTimesDialog(worker);
+      break;
               }
             },
             itemBuilder: (_) => [
@@ -725,7 +851,12 @@ Future<void> _startLeaveDialog(int workerId) async {
                 enabled: hasCheckIn && !hasCheckOut && !isSubmitted && !isRejected,
                 child: const Text('Check Out'),
               ),
-              const PopupMenuDivider(),
+               const PopupMenuDivider(),
+  PopupMenuItem(
+    value: 'edit_times',
+    enabled: hasCheckIn, // ما في داعي نعدّل إذا ما في تشيك ان أصلاً
+    child: const Text('Edit Check-in / Check-out'),
+  ),
               const PopupMenuItem(value: 'lunch', child: Text('Edit Lunch')),
               const PopupMenuItem(value: 'transfer', child: Text('Transfer Worker')),
             ],
@@ -744,28 +875,28 @@ Future<void> _startLeaveDialog(int workerId) async {
           ),
         ),
       ]);
-    }).toList();
+      }).toList();
 
-    return SingleChildScrollView(
-      padding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
-      child: AppDataTableCard(
-        title: 'Workers Attendance',
-        subtitle: '${_workers.length} workers',
-        icon: Icons.groups_rounded,
-        accentColor: const Color(0xff1a2a6c),
-        padding: const EdgeInsets.all(12),
-        columns: const [
-          DataColumn(label: Text('Worker')),
-          DataColumn(label: Text('Status')),
-          DataColumn(label: Text('Check In')),
-          DataColumn(label: Text('Check Out')),
-          DataColumn(label: Text('Actions')),
-          DataColumn(label: Text('Select')),
-        ],
-        rows: rows,
-      ),
-    );
-  }
+  return Padding(
+    padding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
+    child: AppDataTableCard(
+      title: 'Workers Attendance',
+      subtitle: '${_filteredWorkers.length} workers',
+      icon: Icons.groups_rounded,
+      accentColor: const Color(0xff1a2a6c),
+      padding: const EdgeInsets.all(12),
+      columns: const [
+        DataColumn(label: Text('Worker')),
+        DataColumn(label: Text('Status')),
+        DataColumn(label: Text('Check In')),
+        DataColumn(label: Text('Check Out')),
+        DataColumn(label: Text('Actions')),
+        DataColumn(label: Text('Select')),
+      ],
+      rows: rows,
+    ),
+  );
+}
 
   @override
   Widget build(BuildContext context) {
@@ -792,9 +923,13 @@ Future<void> _startLeaveDialog(int workerId) async {
           ),
         ],
       ),
-      body: _isLoading
-          ? const Center(child: CircularProgressIndicator(color: Color(0xff1a2a6c)))
-          : Column(
+body: _isLoading
+    ? const Center(child: CircularProgressIndicator(color: Color(0xff1a2a6c)))
+    : Column(
+        children: [
+          Expanded(
+            child: ListView(
+              padding: const EdgeInsets.only(bottom: 12),
               children: [
                 Padding(
                   padding: const EdgeInsets.all(16.0),
@@ -802,13 +937,7 @@ Future<void> _startLeaveDialog(int workerId) async {
                     decoration: BoxDecoration(
                       color: Colors.white,
                       borderRadius: BorderRadius.circular(16),
-                      boxShadow: [
-                        BoxShadow(
-                          color: Colors.black.withOpacity(0.04),
-                          blurRadius: 10,
-                          offset: const Offset(0, 4),
-                        ),
-                      ],
+                      boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.04), blurRadius: 10, offset: const Offset(0, 4))],
                     ),
                     child: Padding(
                       padding: const EdgeInsets.all(16.0),
@@ -829,21 +958,19 @@ Future<void> _startLeaveDialog(int workerId) async {
                               children: [
                                 Row(
                                   children: [
-                                    Text(
-                                      formattedDate,
-                                      style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Color(0xff1a2a6c)),
-                                    ),
+                                    Text(DateFormat('yyyy/MM/dd').format(DateTime.parse(_recordDate)),
+                                        style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Color(0xff1a2a6c))),
                                     const SizedBox(width: 8),
                                     InkWell(
                                       onTap: _chooseAttendanceDate,
                                       borderRadius: BorderRadius.circular(6),
                                       child: Container(
                                         padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                                      decoration: BoxDecoration(
-                                        color: Colors.green.shade50,
-                                        borderRadius: BorderRadius.circular(6),
-                                        border: Border.all(color: Colors.green.shade200),
-                                      ),
+                                        decoration: BoxDecoration(
+                                          color: Colors.green.shade50,
+                                          borderRadius: BorderRadius.circular(6),
+                                          border: Border.all(color: Colors.green.shade200),
+                                        ),
                                         child: Row(
                                           mainAxisSize: MainAxisSize.min,
                                           children: const [
@@ -857,15 +984,37 @@ Future<void> _startLeaveDialog(int workerId) async {
                                   ],
                                 ),
                                 const SizedBox(height: 2),
-                                Text(
-                                  'Tap the date to change the manual shift date',
-                                  style: TextStyle(fontSize: 12, color: Colors.grey.shade600, fontWeight: FontWeight.w500),
-                                ),
+                                Text('Tap the date to change the manual shift date',
+                                    style: TextStyle(fontSize: 12, color: Colors.grey.shade600, fontWeight: FontWeight.w500)),
                               ],
                             ),
                           ),
                         ],
                       ),
+                    ),
+                  ),
+                ),
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+                  child: TextField(
+                    controller: _searchController,
+                    onChanged: (value) => setState(() => _searchQuery = value),
+                    decoration: InputDecoration(
+                      hintText: 'Search worker by name...',
+                      prefixIcon: const Icon(Icons.search),
+                      filled: true,
+                      fillColor: Colors.white,
+                      suffixIcon: _searchQuery.isEmpty
+                          ? null
+                          : IconButton(
+                              icon: const Icon(Icons.clear),
+                              onPressed: () {
+                                _searchController.clear();
+                                setState(() => _searchQuery = '');
+                              },
+                            ),
+                      contentPadding: const EdgeInsets.symmetric(vertical: 0, horizontal: 16),
+                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(14), borderSide: BorderSide.none),
                     ),
                   ),
                 ),
@@ -938,30 +1087,30 @@ Future<void> _startLeaveDialog(int workerId) async {
                     ),
                   ),
                 ),
-                Expanded(child: _buildWorkersTable()),
-                Container(
-                  padding: const EdgeInsets.all(16.0),
-                  color: Colors.white,
-                  child: SizedBox(
-                    width: double.infinity,
-                    height: 50,
-                    child: ElevatedButton.icon(
-                      onPressed: _submitDay,
-                      icon: const Icon(Icons.send_rounded, color: Colors.white),
-                      label: const Text(
-                        'Submit Day for Review',
-                        style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: Colors.white),
-                      ),
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: const Color(0xff1a2a6c),
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                        elevation: 2,
-                      ),
-                    ),
-                  ),
-                ),
+                _buildWorkersTable(),
               ],
             ),
+          ),
+          Container(
+            padding: const EdgeInsets.all(16.0),
+            color: Colors.white,
+            child: SizedBox(
+              width: double.infinity,
+              height: 50,
+              child: ElevatedButton.icon(
+                onPressed: _submitDay,
+                icon: const Icon(Icons.send_rounded, color: Colors.white),
+                label: const Text('Submit Day for Review', style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: Colors.white)),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: const Color(0xff1a2a6c),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                  elevation: 2,
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
     );
   }
 }

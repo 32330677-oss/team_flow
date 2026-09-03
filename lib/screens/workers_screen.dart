@@ -916,25 +916,96 @@ if (isEditing) ...[
                                   style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
                                 ),
                                 subtitle: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    const SizedBox(height: 4),
-                                    Text('ID: ${worker['worker_unique_id']} | Position: ${worker['job_position'] ?? 'N/A'}',
-                                        style: TextStyle(color: Colors.grey.shade600, fontSize: 13)),
-                                    const SizedBox(height: 4),
-                                    Container(
-                                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                                      decoration: BoxDecoration(
-                                        color: isActive ? Colors.green.shade50 : Colors.red.shade50,
-                                        borderRadius: BorderRadius.circular(6),
-                                      ),
-                                      child: Text(
-                                        isActive ? 'Active' : 'Inactive',
-                                        style: TextStyle(color: isActive ? Colors.green.shade700 : Colors.red.shade700, fontSize: 11, fontWeight: FontWeight.bold),
-                                      ),
-                                    ),
-                                  ],
-                                ),
+  crossAxisAlignment: CrossAxisAlignment.start,
+  children: [
+    const SizedBox(height: 4),
+
+    Text(
+      'ID: ${worker['worker_unique_id']} | Position: ${worker['job_position'] ?? 'N/A'}',
+      style: TextStyle(
+        color: Colors.grey.shade600,
+        fontSize: 13,
+      ),
+    ),
+
+    const SizedBox(height: 4),
+
+    // Active / Inactive badge
+    Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+      decoration: BoxDecoration(
+        color: isActive
+            ? Colors.green.shade50
+            : Colors.red.shade50,
+        borderRadius: BorderRadius.circular(6),
+      ),
+      child: Text(
+        isActive ? 'Active' : 'Inactive',
+        style: TextStyle(
+          color: isActive
+              ? Colors.green.shade700
+              : Colors.red.shade700,
+          fontSize: 11,
+          fontWeight: FontWeight.bold,
+        ),
+      ),
+    ),
+
+    // ==========================================
+    // Assigned Site
+    // ==========================================
+    const SizedBox(height: 4),
+
+    Builder(
+      builder: (_) {
+        final siteName = worker['assigned_site_name']?.toString();
+        final isAssigned =
+            siteName != null && siteName.trim().isNotEmpty;
+
+        return Container(
+          padding: const EdgeInsets.symmetric(
+            horizontal: 8,
+            vertical: 2,
+          ),
+          decoration: BoxDecoration(
+            color: isAssigned
+                ? Colors.green.shade50
+                : Colors.red.shade50,
+            borderRadius: BorderRadius.circular(6),
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(
+                Icons.location_on,
+                size: 12,
+                color: isAssigned
+                    ? Colors.green.shade700
+                    : Colors.red.shade700,
+              ),
+              const SizedBox(width: 4),
+              Flexible(
+                child: Text(
+                  isAssigned
+                      ? siteName!
+                      : 'Not assigned to a site',
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    color: isAssigned
+                        ? Colors.green.shade700
+                        : Colors.red.shade700,
+                    fontSize: 11,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        );
+      },
+    ),
+  ],
+),
                                 trailing: PopupMenuButton<String>(
                                   onSelected: (value) {
                                     if (value == 'edit') {
