@@ -146,7 +146,7 @@ class _BulkAttendanceScreenState extends State<BulkAttendanceScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            // حقول الإدخال الأساسية
+            // حقول الإدخال الأساس
             TextField(
               controller: _siteIdController,
               keyboardType: TextInputType.number,
