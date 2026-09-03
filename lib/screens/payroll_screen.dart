@@ -816,7 +816,11 @@ class _WorkerPayrollCard extends StatelessWidget {
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  _miniStat('Days Worked', '$totalDays', Colors.blueGrey),
+                  _miniStat(
+  'Days Worked',
+  (double.tryParse(worker['days_worked'].toString()) ?? 0).toStringAsFixed(2),
+  Colors.blueGrey,
+),
                   _miniStat('Daily Rate', formatSyp(worker['daily_rate'] ?? sites.firstOrNull?['daily_rate_snapshot']), Colors.blueGrey),
                   _miniStat('Net Pay', formatSyp(worker['net_salary']), Colors.green.shade700, bold: true),
                 ],
@@ -925,7 +929,10 @@ class _PayslipDialogState extends State<_PayslipDialog> {
               _infoRow('Payment Type', payTypeLabel),
               
               if (isMixed) ...[
-                _infoRow('Total Days Worked', '${totalDaysWorked.toStringAsFixed(0)} days'),
+                _infoRow(
+  'Days Worked',
+  (double.tryParse(w['days_worked'].toString()) ?? 0).toStringAsFixed(2),
+),
                 _infoRow('Total Regular Hours', '${totalRegularHours.toStringAsFixed(2)} h'),
                 _infoRow('Total Overtime Hours', '${totalOvertimeHours.toStringAsFixed(2)} h'),
               ] else if (payTypeLabel == 'Daily') ...[
