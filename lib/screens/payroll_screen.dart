@@ -221,15 +221,35 @@ class _PayrollScreenState extends State<PayrollScreen> {
     }
   }
 
-  Future<void> _markBatchAsPaid(int batchId) async {
-    try {
-      await ApiConfig.dio.patch('/admin/payroll/batch/$batchId/mark-paid');
-      _showSnack('Batch marked as paid', Colors.green);
-      _fetchPayrollReports();
-    } catch (e) {
-      _showSnack('Failed to update payment status', dangerColor);
-    }
+Future<void> _finalizeBatch(int batchId) async {
+  try {
+    await ApiConfig.dio.patch('/admin/payroll/batch/$batchId/finalize');
+    _showSnack('Payroll batch finalized successfully', Colors.green.shade700);
+    _fetchPayrollReports();
+  } on DioException catch (e) {
+    final msg = e.response?.data is Map
+        ? (e.response?.data['message'] ?? 'Failed to finalize batch')
+        : 'Failed to finalize batch';
+    _showSnack(msg, dangerColor);
+  } catch (e) {
+    _showSnack('Failed to finalize batch', dangerColor);
   }
+}
+
+Future<void> _markBatchAsPaid(int batchId) async {
+  try {
+    await ApiConfig.dio.patch('/admin/payroll/batch/$batchId/mark-paid');
+    _showSnack('Batch marked as paid', Colors.green);
+    _fetchPayrollReports();
+  } on DioException catch (e) {
+    final msg = e.response?.data is Map
+        ? (e.response?.data['message'] ?? 'Failed to update payment status')
+        : 'Failed to update payment status';
+    _showSnack(msg, dangerColor);
+  } catch (e) {
+    _showSnack('Failed to update payment status', dangerColor);
+  }
+}
 
   // Stores the end date of the most recent batch (optionally scoped to the
   // selected site) so the "Start Date" picker can't create overlaps.
@@ -264,34 +284,53 @@ class _PayrollScreenState extends State<PayrollScreen> {
     } catch (_) {}
   }
 
-  Future<void> _selectDate(TextEditingController controller, {bool isStartDate = false}) async {
-    final initial = isStartDate && _lastBatchEndDate != null
-        ? _lastBatchEndDate!.add(const Duration(days: 1))
-        : DateTime.now();
+Future<void> _selectDate(TextEditingController controller, {bool isStartDate = false}) async {
+  final initial = isStartDate && _lastBatchEndDate != null
+      ? _lastBatchEndDate!.add(const Duration(days: 1))
+      : DateTime.now();
 
-    final picked = await showDatePicker(
-      context: context,
-      initialDate: initial,
-      firstDate: DateTime(2025),
-      lastDate: DateTime(2035),
-      selectableDayPredicate: (DateTime day) {
-        if (isStartDate && _lastBatchEndDate != null) {
-          return day.isAfter(_lastBatchEndDate!);
-        }
-        return true;
-      },
-    );
+  final picked = await showDatePicker(
+    context: context,
+    initialDate: initial,
+    firstDate: DateTime(2025),
+    lastDate: DateTime(2035),
+    // لم يعد فيه selectableDayPredicate يمنع التواريخ —
+    // بس بنحذر الأدمن إذا اختار فترة قديمة (تصحيح/Supersede)
+  );
 
-    if (picked != null) {
-      final String formattedDate = "${picked.year.toString().padLeft(4, '0')}-"
-          "${picked.month.toString().padLeft(2, '0')}-"
-          "${picked.day.toString().padLeft(2, '0')}";
-
-      setState(() {
-        controller.text = formattedDate;
-      });
+  if (picked != null) {
+    if (isStartDate &&
+        _lastBatchEndDate != null &&
+        !picked.isAfter(_lastBatchEndDate!)) {
+      final confirmOverlap = await showDialog<bool>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: const Text('Overlapping Period'),
+          content: const Text(
+            'This start date overlaps a previous payroll period. '
+            'If you generate payroll for this range, the existing batch for that period will be superseded (versioned) automatically. Continue?',
+          ),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
+            ElevatedButton(
+              onPressed: () => Navigator.pop(ctx, true),
+              child: const Text('Continue'),
+            ),
+          ],
+        ),
+      );
+      if (confirmOverlap != true) return;
     }
+
+    final String formattedDate = "${picked.year.toString().padLeft(4, '0')}-"
+        "${picked.month.toString().padLeft(2, '0')}-"
+        "${picked.day.toString().padLeft(2, '0')}";
+
+    setState(() {
+      controller.text = formattedDate;
+    });
   }
+}
 
   void _showSnack(String message, Color color) {
     ScaffoldMessenger.of(context).showSnackBar(
@@ -359,29 +398,46 @@ class _PayrollScreenState extends State<PayrollScreen> {
             Padding(
               padding: const EdgeInsets.fromLTRB(20, 14, 20, 6),
               child: Row(
-                children: [
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text('Batch #${batch['payroll_batch_id'] ?? ''}',
-                            style: const TextStyle(fontSize: 19, fontWeight: FontWeight.bold, color: primaryColor)),
-                        Text(
-                          'Period: ${_formatDate(batch['start_date'])} → ${_formatDate(batch['end_date'])}',
-                          style: TextStyle(color: Colors.grey.shade600, fontSize: 13),
-                        ),
-                      ],
-                    ),
-                  ),
-                  IconButton(
-                    icon: const Icon(Icons.table_view, color: dangerColor),
-                    tooltip: 'Export Excel Report',
-                    onPressed: () => _exportBatchExcel(batch),
-                  ),
-                  const SizedBox(width: 8),
-                  _statusChip(batch['status']?.toString() ?? 'Pending'),
-                ],
-              ),
+  children: [
+    Expanded(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Text('Batch #${batch['payroll_batch_id'] ?? ''} (v${batch['version_number'] ?? 1})',
+                  style: const TextStyle(fontSize: 17, fontWeight: FontWeight.bold, color: primaryColor)),
+              const SizedBox(width: 8),
+              if ((batch['is_finalized'] == 1 || batch['is_finalized'] == true))
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                  decoration: BoxDecoration(color: Colors.indigo.shade50, borderRadius: BorderRadius.circular(20)),
+                  child: const Text('Finalized', style: TextStyle(color: Colors.indigo, fontSize: 11, fontWeight: FontWeight.bold)),
+                )
+              else
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                  decoration: BoxDecoration(color: Colors.orange.shade50, borderRadius: BorderRadius.circular(20)),
+                  child: const Text('Not Finalized', style: TextStyle(color: Colors.orange, fontSize: 11, fontWeight: FontWeight.bold)),
+                ),
+            ],
+          ),
+          Text(
+            'Period: ${_formatDate(batch['start_date'])} → ${_formatDate(batch['end_date'])}',
+            style: TextStyle(color: Colors.grey.shade600, fontSize: 13),
+          ),
+        ],
+      ),
+    ),
+    IconButton(
+      icon: const Icon(Icons.table_view, color: dangerColor),
+      tooltip: 'Export Excel Report',
+      onPressed: () => _exportBatchExcel(batch),
+    ),
+    const SizedBox(width: 8),
+    _statusChip(batch['status']?.toString() ?? 'Pending'),
+  ],
+),
             ),
             const Divider(height: 1),
             Expanded(
@@ -419,16 +475,48 @@ class _PayrollScreenState extends State<PayrollScreen> {
                       ],
                     ),
                   ),
-                  if ((batch['status'] ?? 'Pending') != 'Paid')
-                    ElevatedButton.icon(
-                      onPressed: () {
-                        Navigator.pop(context);
-                        _confirmMarkPaid(batch['payroll_batch_id']);
-                      },
-                      icon: const Icon(Icons.check_circle, color: Colors.white, size: 18),
-                      label: const Text('Mark Paid', style: TextStyle(color: Colors.white)),
-                      style: ElevatedButton.styleFrom(backgroundColor: Colors.green.shade700),
-                    ),
+                if ((batch['status'] ?? 'Pending') != 'Paid') ...[
+  if (!(batch['is_finalized'] == 1 || batch['is_finalized'] == true))
+    ElevatedButton.icon(
+      onPressed: () async {
+        final confirm = await showDialog<bool>(
+          context: context,
+          builder: (ctx) => AlertDialog(
+            title: const Text('Finalize Payroll Batch'),
+            content: const Text(
+              'Finalizing locks this period and confirms management approval. '
+              'After finalizing, it can no longer be regenerated — only superseded with a new correction. Continue?',
+            ),
+            actions: [
+              TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
+              ElevatedButton(
+                style: ElevatedButton.styleFrom(backgroundColor: Colors.indigo),
+                onPressed: () => Navigator.pop(ctx, true),
+                child: const Text('Finalize', style: TextStyle(color: Colors.white)),
+              ),
+            ],
+          ),
+        );
+        if (confirm == true) {
+          Navigator.pop(context);
+          await _finalizeBatch(batch['payroll_batch_id']);
+        }
+      },
+      icon: const Icon(Icons.lock_outline, color: Colors.white, size: 18),
+      label: const Text('Finalize', style: TextStyle(color: Colors.white)),
+      style: ElevatedButton.styleFrom(backgroundColor: Colors.indigo),
+    )
+  else
+    ElevatedButton.icon(
+      onPressed: () {
+        Navigator.pop(context);
+        _confirmMarkPaid(batch['payroll_batch_id']);
+      },
+      icon: const Icon(Icons.check_circle, color: Colors.white, size: 18),
+      label: const Text('Mark Paid', style: TextStyle(color: Colors.white)),
+      style: ElevatedButton.styleFrom(backgroundColor: Colors.green.shade700),
+    ),
+],
                 ],
               ),
             ),
@@ -591,10 +679,11 @@ class _PayrollScreenState extends State<PayrollScreen> {
                                     ),
                                   ],
                                 ),
-                                subtitle: Text(
-                                  'Period: ${_formatDate(batch['start_date'])} → ${_formatDate(batch['end_date'])}\n'
-                                  'Workers: ${batch['total_workers']} • Total: ${formatSyp(batch['total_amount'])} • By: ${batch['generated_by'] ?? 'Admin'}',
-                                ),
+                               subtitle: Text(
+  'v${batch['version_number'] ?? 1} • Period: ${_formatDate(batch['start_date'])} → ${_formatDate(batch['end_date'])}\n'
+  'Workers: ${batch['total_workers']} • Total: ${formatSyp(batch['total_amount'])} • By: ${batch['generated_by'] ?? 'Admin'}'
+  '${(batch['is_finalized'] == 1 || batch['is_finalized'] == true) ? '' : ' • Not Finalized'}',
+),
                                 isThreeLine: true,
                                 trailing: _statusChip(batch['status']?.toString() ?? 'Pending'),
                                 onTap: () => _openBatchDetails(batch['payroll_batch_id']),
