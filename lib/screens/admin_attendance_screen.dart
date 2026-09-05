@@ -10,9 +10,12 @@ class AdminAttendanceScreen extends StatefulWidget {
   State<AdminAttendanceScreen> createState() => _AdminAttendanceScreenState();
 }
 
+// Date -> Site -> records
+typedef _SiteGroups = Map<String, List<Map<String, dynamic>>>;
+
 class _AdminAttendanceScreenState extends State<AdminAttendanceScreen> {
   final Set<int> _selectedIds = <int>{};
-  Map<String, List<Map<String, dynamic>>> _grouped = {};
+  Map<String, _SiteGroups> _grouped = {};
   bool _loading = true;
   bool _working = false;
 
@@ -27,7 +30,9 @@ class _AdminAttendanceScreenState extends State<AdminAttendanceScreen> {
     try {
       final response = await ApiConfig.dio.get('/admin/attendance/pending');
       final raw = response.data is Map ? response.data['data'] : null;
-      final grouped = <String, List<Map<String, dynamic>>>{};
+
+      // date -> site -> [records]
+      final byDate = <String, _SiteGroups>{};
 
       if (raw is List) {
         for (final value in raw) {
@@ -35,14 +40,24 @@ class _AdminAttendanceScreenState extends State<AdminAttendanceScreen> {
           final item = Map<String, dynamic>.from(value);
           final rawDate = '${item['record_date'] ?? '1970-01-01'}';
           final date = rawDate.length >= 10 ? rawDate.substring(0, 10) : rawDate;
-          grouped.putIfAbsent(date, () => <Map<String, dynamic>>[]).add(item);
+          final siteName = (item['site_name'] ?? 'Unknown Site').toString();
+
+          byDate.putIfAbsent(date, () => <String, List<Map<String, dynamic>>>{});
+          byDate[date]!.putIfAbsent(siteName, () => <Map<String, dynamic>>[]);
+          byDate[date]![siteName]!.add(item);
         }
       }
 
-      final sorted = grouped.keys.toList()..sort((a, b) => b.compareTo(a));
-      final ordered = <String, List<Map<String, dynamic>>>{};
-      for (final date in sorted) {
-        ordered[date] = grouped[date]!;
+      final sortedDates = byDate.keys.toList()..sort((a, b) => b.compareTo(a));
+      final ordered = <String, _SiteGroups>{};
+      for (final date in sortedDates) {
+        final sites = byDate[date]!;
+        final sortedSites = sites.keys.toList()..sort();
+        final orderedSites = <String, List<Map<String, dynamic>>>{};
+        for (final site in sortedSites) {
+          orderedSites[site] = sites[site]!;
+        }
+        ordered[date] = orderedSites;
       }
 
       if (!mounted) return;
@@ -68,7 +83,7 @@ class _AdminAttendanceScreenState extends State<AdminAttendanceScreen> {
     return fallback;
   }
 
-  List<int> _idsForDate(List<Map<String, dynamic>> items) {
+  List<int> _idsOf(List<Map<String, dynamic>> items) {
     return items
         .map((item) => int.tryParse('${item['attendance_id']}'))
         .whereType<int>()
@@ -126,56 +141,147 @@ class _AdminAttendanceScreenState extends State<AdminAttendanceScreen> {
     );
   }
 
-  Future<void> _showManagementLeaveDialog(int attendanceId) async {
-    final hours = TextEditingController();
-    final reason = TextEditingController();
-    final result = await showDialog<bool>(
-      context: context,
-      builder: (dialogContext) => AlertDialog(
+  // ---------------------------------------------------------------------
+  // Management leave: counter-based input (minutes, step 15) instead of a
+  // free-text field. Sends decimal hours to the server (minutes / 60),
+  // matching the `decimal(4,2)` column and avoiding ambiguous manual entry.
+  // ---------------------------------------------------------------------
+
+Future<void> _showManagementLeaveDialog(
+  int attendanceId, {
+  num currentHours = 0,
+  required bool hasCheckIn,
+}) async {
+  int minutes = ((currentHours * 60) / 15).round() * 15; // snap to nearest 15
+  if (minutes < 0) minutes = 0;
+  if (minutes > 24 * 60) minutes = 24 * 60;
+  final reason = TextEditingController();
+  String? reasonError;
+ 
+  String fmt(int totalMinutes) {
+    final h = totalMinutes ~/ 60;
+    final m = totalMinutes % 60;
+    if (h == 0) return '${m}m';
+    if (m == 0) return '${h}h';
+    return '${h}h ${m}m';
+  }
+ 
+  final result = await showDialog<bool>(
+    context: context,
+    builder: (dialogContext) => StatefulBuilder(
+      builder: (context, setDialogState) => AlertDialog(
         title: const Text('Management leave'),
         content: Column(
           mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            TextField(
-              controller: hours,
-              keyboardType: const TextInputType.numberWithOptions(decimal: true),
-              decoration: const InputDecoration(labelText: 'Hours', border: OutlineInputBorder()),
+            Text(
+              hasCheckIn
+                  ? 'Use the counter to set the compensated time (steps of 15 minutes).'
+                  : 'This worker has no check-in (Absent/Sick/Vacation/Holiday). '
+                      'These hours will be counted directly as working hours, '
+                      'so a reason is required.',
+              style: TextStyle(
+                fontSize: 12,
+                color: hasCheckIn ? Colors.grey : Colors.orange.shade800,
+                fontWeight: hasCheckIn ? FontWeight.normal : FontWeight.w600,
+              ),
             ),
-            const SizedBox(height: 12),
+            const SizedBox(height: 16),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                IconButton.filledTonal(
+                  icon: const Icon(Icons.remove),
+                  onPressed: minutes <= 0
+                      ? null
+                      : () => setDialogState(() => minutes -= 15),
+                ),
+                Container(
+                  width: 110,
+                  alignment: Alignment.center,
+                  padding: const EdgeInsets.symmetric(vertical: 10),
+                  decoration: BoxDecoration(
+                    border: Border.all(color: Colors.grey.shade300),
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: Text(
+                    fmt(minutes),
+                    style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                  ),
+                ),
+                IconButton.filledTonal(
+                  icon: const Icon(Icons.add),
+                  onPressed: minutes >= 24 * 60
+                      ? null
+                      : () => setDialogState(() => minutes += 15),
+                ),
+              ],
+            ),
+            const SizedBox(height: 16),
             TextField(
               controller: reason,
               maxLines: 2,
-              decoration: const InputDecoration(labelText: 'Reason', border: OutlineInputBorder()),
+              onChanged: (_) {
+                if (reasonError != null) setDialogState(() => reasonError = null);
+              },
+              decoration: InputDecoration(
+                // Mark as required only when there's no check-in.
+                labelText: hasCheckIn ? 'Reason (optional)' : 'Reason *',
+                border: const OutlineInputBorder(),
+                errorText: reasonError,
+              ),
             ),
           ],
         ),
         actions: [
           TextButton(onPressed: () => Navigator.pop(dialogContext, false), child: const Text('Cancel')),
-          FilledButton(onPressed: () => Navigator.pop(dialogContext, true), child: const Text('Save')),
+          FilledButton(
+            onPressed: () {
+              if (!hasCheckIn && reason.text.trim().isEmpty) {
+                setDialogState(() => reasonError = 'A reason is required for workers with no check-in.');
+                return;
+              }
+              Navigator.pop(dialogContext, true);
+            },
+            child: const Text('Save'),
+          ),
         ],
       ),
-    );
-    final hoursValue = double.tryParse(hours.text.trim());
-    final reasonValue = reason.text.trim();
-    hours.dispose();
-    reason.dispose();
-    if (result != true || hoursValue == null || hoursValue < 0 || hoursValue > 24) {
-      if (result == true && mounted) _showMessage('Hours must be a number between 0 and 24.', false);
-      return;
-    }
-
-    try {
-      await ApiConfig.dio.patch('/attendance/$attendanceId/management-leave', data: {
-        'hours': hoursValue,
-        'reason': reasonValue,
+    ),
+  );
+ 
+  final reasonValue = reason.text.trim();
+  reason.dispose();
+  if (result != true) return;
+ 
+  final hoursValue = minutes / 60.0;
+ 
+  try {
+    final response = await ApiConfig.dio.patch('/attendance/$attendanceId/management-leave', data: {
+      'hours': hoursValue,
+      'reason': reasonValue,
+    });
+ 
+    if (!mounted) return;
+    _showMessage('Management leave saved (${fmt(minutes)}).', true);
+ 
+    // Server returns a `warning` when the shift is still open (check-in
+    // without check-out): the hours were saved but not yet reflected in
+    // total_working_hours until checkout happens.
+    final warning = response.data is Map ? response.data['warning'] : null;
+    if (warning != null && '$warning'.trim().isNotEmpty) {
+      // Slight delay so it doesn't collide with the success snackbar above.
+      Future.delayed(const Duration(milliseconds: 400), () {
+        if (mounted) _showMessage('$warning', false);
       });
-      if (!mounted) return;
-      _showMessage('Management leave saved.', true);
-      await _fetchData();
-    } on DioException catch (e) {
-      if (mounted) _showMessage(_errorMessage(e, 'Failed to save management leave.'), false);
     }
+ 
+    await _fetchData();
+  } on DioException catch (e) {
+    if (mounted) _showMessage(_errorMessage(e, 'Failed to save management leave.'), false);
   }
+}
 
   Future<void> _showSettingsDialog() async {
     bool lunchPaid = false;
@@ -278,120 +384,293 @@ class _AdminAttendanceScreenState extends State<AdminAttendanceScreen> {
     );
   }
 
-  Widget _timeCell(String label, dynamic value) {
-    final text = value == null ? '--' : '${value}'.replaceFirst('T', ' ');
-    return Expanded(
-      child: Container(
-        padding: const EdgeInsets.all(10),
-        decoration: BoxDecoration(color: Colors.grey.shade50, borderRadius: BorderRadius.circular(10)),
-        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          Text(label, style: TextStyle(fontSize: 11, color: Colors.grey.shade600)),
-          const SizedBox(height: 3),
-          Text(text.length > 16 ? text.substring(11, 16) : text, style: const TextStyle(fontWeight: FontWeight.w700)),
-        ]),
-      ),
-    );
+  String _timeOnly(dynamic value) {
+    if (value == null) return '--:--';
+    final text = '$value'.replaceFirst('T', ' ');
+    return text.length > 16 ? text.substring(11, 16) : text;
   }
 
   Widget _statusChip(String status) {
     final rejected = status == 'Rejected';
     final color = rejected ? Colors.red : Colors.orange.shade800;
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-      decoration: BoxDecoration(color: color.withOpacity(.10), borderRadius: BorderRadius.circular(30)),
-      child: Text(status, style: TextStyle(color: color, fontWeight: FontWeight.w700, fontSize: 12)),
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+      decoration: BoxDecoration(color: color.withOpacity(.10), borderRadius: BorderRadius.circular(20)),
+      child: Text(status, style: TextStyle(color: color, fontWeight: FontWeight.w700, fontSize: 11)),
     );
   }
 
-  Widget _recordCard(Map<String, dynamic> item) {
+  // Compact per-worker card. Shows an Overtime badge only when overtime_hours > 0.
+  Widget _workerCard(Map<String, dynamic> item) {
     final id = int.tryParse('${item['attendance_id']}');
     if (id == null) return const SizedBox.shrink();
+
     final status = '${item['status'] ?? item['attendance_status'] ?? 'Submitted'}';
     final rejected = status == 'Rejected';
     final selected = _selectedIds.contains(id);
 
-    return Card(
-      margin: const EdgeInsets.only(bottom: 10),
-      elevation: 0,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(16),
-        side: BorderSide(color: selected ? Colors.indigo : Colors.grey.shade200, width: selected ? 1.5 : 1),
+    final overtimeHours = double.tryParse('${item['overtime_hours'] ?? 0}') ?? 0;
+    final hasOvertime = overtimeHours > 0;
+    final managementHours = double.tryParse('${item['management_leave_hours'] ?? 0}') ?? 0;
+
+    return Container(
+      margin: const EdgeInsets.only(bottom: 8),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: selected ? Colors.indigo : Colors.grey.shade200, width: selected ? 1.4 : 1),
       ),
       child: Padding(
-        padding: const EdgeInsets.all(14),
-        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            Checkbox(value: selected, onChanged: (v) => setState(() => v == true ? _selectedIds.add(id) : _selectedIds.remove(id))),
-            Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              Text('${item['full_name'] ?? 'Worker'}', style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w800)),
-              const SizedBox(height: 3),
-              Text('${item['site_name'] ?? 'Unknown site'}', style: TextStyle(color: Colors.grey.shade600)),
-            ])),
-            _statusChip(status),
-          ]),
-          const Divider(height: 22),
-          Row(children: [
-            _timeCell('Check-in', item['check_in_time']),
-            const SizedBox(width: 10),
-            _timeCell('Check-out', item['check_out_time']),
-            const SizedBox(width: 10),
-            _timeCell('Hours', item['total_working_hours'] ?? '--'),
-          ]),
-          if (rejected && item['admin_rejection_notes'] != null) ...[
-            const SizedBox(height: 12),
-            Container(
-              width: double.infinity,
-              padding: const EdgeInsets.all(10),
-              decoration: BoxDecoration(color: Colors.red.shade50, borderRadius: BorderRadius.circular(10)),
-              child: Text('${item['admin_rejection_notes']}', style: TextStyle(color: Colors.red.shade800)),
-            ),
-          ],
-          const SizedBox(height: 12),
-          Wrap(
-            spacing: 8,
-            runSpacing: 8,
-            children: [
-              if (!rejected)
-                OutlinedButton.icon(
-                  onPressed: _working ? null : () => _reviewSelected([id], 'Approved'),
-                  icon: const Icon(Icons.check, size: 18),
-                  label: const Text('Approve'),
-                  style: OutlinedButton.styleFrom(foregroundColor: Colors.green.shade700),
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Checkbox(
+                  value: selected,
+                  visualDensity: VisualDensity.compact,
+                  materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                  onChanged: (v) => setState(() => v == true ? _selectedIds.add(id) : _selectedIds.remove(id)),
                 ),
-              OutlinedButton.icon(
-                onPressed: _working ? null : () async {
-                  final note = await _promptForReason(context);
-                  if (note != null) await _reviewSelected([id], 'Rejected', note: note);
-                },
-                icon: const Icon(Icons.close, size: 18),
-                label: const Text('Reject'),
-                style: OutlinedButton.styleFrom(foregroundColor: Colors.red.shade700),
-              ),
-              PopupMenuButton<String>(
-                tooltip: 'More actions',
-                onSelected: (value) {
-                  if (value == 'management') _showManagementLeaveDialog(id);
-                },
-                itemBuilder: (_) => const [
-                  PopupMenuItem(value: 'management', child: Text('Management leave hours')),
-                ],
-                child: OutlinedButton.icon(
-                  onPressed: null,
-                  icon: const Icon(Icons.more_horiz, size: 18),
-                  label: const Text('More'),
+                const SizedBox(width: 4),
+                Expanded(
+                  child: Text(
+                    '${item['full_name'] ?? 'Worker'}',
+                    style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w700),
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+                _statusChip(status),
+              ],
+            ),
+            const SizedBox(height: 6),
+            Row(
+              children: [
+                Icon(Icons.login_rounded, size: 13, color: Colors.grey.shade600),
+                const SizedBox(width: 3),
+                Text(_timeOnly(item['check_in_time']), style: const TextStyle(fontSize: 12.5)),
+                const SizedBox(width: 12),
+                Icon(Icons.logout_rounded, size: 13, color: Colors.grey.shade600),
+                const SizedBox(width: 3),
+                Text(_timeOnly(item['check_out_time']), style: const TextStyle(fontSize: 12.5)),
+                const SizedBox(width: 12),
+                Icon(Icons.timelapse_rounded, size: 13, color: Colors.grey.shade600),
+                const SizedBox(width: 3),
+                Text('${item['total_working_hours'] ?? '--'}h', style: const TextStyle(fontSize: 12.5)),
+              ],
+            ),
+            const SizedBox(height: 6),
+            Wrap(
+              spacing: 6,
+              runSpacing: 4,
+              children: [
+                // Overtime indicator — only rendered when > 0.
+                if (hasOvertime)
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                    decoration: BoxDecoration(
+                      color: Colors.deepPurple.withOpacity(.10),
+                      borderRadius: BorderRadius.circular(20),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(Icons.bolt_rounded, size: 12, color: Colors.deepPurple.shade400),
+                        const SizedBox(width: 3),
+                        Text(
+                          'Overtime: ${overtimeHours.toStringAsFixed(2)}h',
+                          style: TextStyle(fontSize: 11, fontWeight: FontWeight.w700, color: Colors.deepPurple.shade400),
+                        ),
+                      ],
+                    ),
+                  )
+                else
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                    decoration: BoxDecoration(
+                      color: Colors.grey.withOpacity(.10),
+                      borderRadius: BorderRadius.circular(20),
+                    ),
+                    child: Text('No overtime', style: TextStyle(fontSize: 11, color: Colors.grey.shade600)),
+                  ),
+                if (managementHours > 0)
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                    decoration: BoxDecoration(
+                      color: Colors.teal.withOpacity(.10),
+                      borderRadius: BorderRadius.circular(20),
+                    ),
+                    child: Text(
+                      'Mgmt leave: ${managementHours.toStringAsFixed(2)}h',
+                      style: TextStyle(fontSize: 11, fontWeight: FontWeight.w700, color: Colors.teal.shade700),
+                    ),
+                  ),
+              ],
+            ),
+            if (rejected && item['admin_rejection_notes'] != null) ...[
+              const SizedBox(height: 8),
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(color: Colors.red.shade50, borderRadius: BorderRadius.circular(8)),
+                child: Text(
+                  '${item['admin_rejection_notes']}',
+                  style: TextStyle(color: Colors.red.shade800, fontSize: 12),
                 ),
               ),
             ],
-          ),
-        ]),
+            const SizedBox(height: 8),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.end,
+              children: [
+                if (!rejected)
+                  TextButton.icon(
+                    onPressed: _working ? null : () => _reviewSelected([id], 'Approved'),
+                    icon: const Icon(Icons.check, size: 16),
+                    label: const Text('Approve', style: TextStyle(fontSize: 12.5)),
+                    style: TextButton.styleFrom(foregroundColor: Colors.green.shade700, padding: const EdgeInsets.symmetric(horizontal: 8)),
+                  ),
+                TextButton.icon(
+                  onPressed: _working
+                      ? null
+                      : () async {
+                          final note = await _promptForReason(context);
+                          if (note != null) await _reviewSelected([id], 'Rejected', note: note);
+                        },
+                  icon: const Icon(Icons.close, size: 16),
+                  label: const Text('Reject', style: TextStyle(fontSize: 12.5)),
+                  style: TextButton.styleFrom(foregroundColor: Colors.red.shade700, padding: const EdgeInsets.symmetric(horizontal: 8)),
+                ),
+     IconButton(
+  tooltip: 'Management leave',
+  visualDensity: VisualDensity.compact,
+  icon: const Icon(Icons.more_time_rounded, size: 19, color: Colors.teal),
+  onPressed: () => _showManagementLeaveDialog(
+    id,
+    currentHours: managementHours,
+    hasCheckIn: item['check_in_time'] != null,
+  ),
+),
+              ],
+            ),
+          ],
+        ),
       ),
     );
   }
 
-  Widget _daySection(String date, List<Map<String, dynamic>> items) {
-    final ids = _idsForDate(items);
+  // Site-level section within a date: its own bulk select + bulk actions.
+  Widget _siteSection(String date, String siteName, List<Map<String, dynamic>> items) {
+    final ids = _idsOf(items);
     final allSelected = ids.isNotEmpty && ids.every(_selectedIds.contains);
     final selected = ids.where(_selectedIds.contains).toList();
+    final overtimeCount = items.where((i) => (double.tryParse('${i['overtime_hours'] ?? 0}') ?? 0) > 0).length;
+
+    return Container(
+      margin: const EdgeInsets.only(bottom: 10),
+      padding: const EdgeInsets.all(10),
+      decoration: BoxDecoration(
+        color: Colors.grey.shade50,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: Colors.grey.shade200),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Checkbox(
+                value: allSelected,
+                tristate: true,
+                visualDensity: VisualDensity.compact,
+                onChanged: (value) => setState(() {
+                  if (value == true) {
+                    _selectedIds.addAll(ids);
+                  } else {
+                    _selectedIds.removeAll(ids);
+                  }
+                }),
+              ),
+              Icon(Icons.location_on, size: 15, color: Colors.grey.shade600),
+              const SizedBox(width: 4),
+              Expanded(
+                child: Text(
+                  siteName,
+                  style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 13.5),
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+              if (overtimeCount > 0)
+                Container(
+                  margin: const EdgeInsets.only(right: 6),
+                  padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+                  decoration: BoxDecoration(
+                    color: Colors.deepPurple.withOpacity(.10),
+                    borderRadius: BorderRadius.circular(20),
+                  ),
+                  child: Text(
+                    '$overtimeCount OT',
+                    style: TextStyle(fontSize: 10.5, fontWeight: FontWeight.w700, color: Colors.deepPurple.shade400),
+                  ),
+                ),
+              Text('${items.length}', style: TextStyle(color: Colors.grey.shade600, fontSize: 11.5)),
+            ],
+          ),
+          if (selected.isNotEmpty) ...[
+            const SizedBox(height: 6),
+            Padding(
+              padding: const EdgeInsets.only(left: 40),
+              child: Wrap(spacing: 6, runSpacing: 6, children: [
+                FilledButton.icon(
+                  onPressed: _working ? null : () => _reviewSelected(selected, 'Approved'),
+                  icon: const Icon(Icons.check, size: 15),
+                  label: Text('Approve ${selected.length}', style: const TextStyle(fontSize: 12)),
+                  style: FilledButton.styleFrom(
+                    backgroundColor: Colors.green.shade700,
+                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                  ),
+                ),
+                FilledButton.icon(
+                  onPressed: _working
+                      ? null
+                      : () async {
+                          final note = await _promptForReason(context);
+                          if (note != null) await _reviewSelected(selected, 'Rejected', note: note);
+                        },
+                  icon: const Icon(Icons.close, size: 15),
+                  label: Text('Reject ${selected.length}', style: const TextStyle(fontSize: 12)),
+                  style: FilledButton.styleFrom(
+                    backgroundColor: Colors.red.shade700,
+                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                  ),
+                ),
+              ]),
+            ),
+          ],
+          const SizedBox(height: 8),
+          // Compact per-worker cards, 2-column wrap on wide screens.
+          LayoutBuilder(builder: (context, constraints) {
+            final columns = constraints.maxWidth > 700 ? 2 : 1;
+            if (columns == 1) {
+              return Column(children: items.map(_workerCard).toList());
+            }
+            final cardWidth = (constraints.maxWidth - 8) / 2;
+            return Wrap(
+              spacing: 8,
+              runSpacing: 0,
+              children: items.map((item) => SizedBox(width: cardWidth, child: _workerCard(item))).toList(),
+            );
+          }),
+        ],
+      ),
+    );
+  }
+
+  Widget _dateSection(String date, _SiteGroups sites) {
+    final allItemsForDate = sites.values.expand((v) => v).toList();
+    final ids = _idsOf(allItemsForDate);
+    final allSelected = ids.isNotEmpty && ids.every(_selectedIds.contains);
 
     return Card(
       elevation: 0,
@@ -414,41 +693,26 @@ class _AdminAttendanceScreenState extends State<AdminAttendanceScreen> {
             }),
           ),
           Expanded(child: Text(date, style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 17))),
-          Text('${items.length} records', style: TextStyle(color: Colors.grey.shade600, fontSize: 12)),
+          Text('${allItemsForDate.length} records • ${sites.length} sites', style: TextStyle(color: Colors.grey.shade600, fontSize: 12)),
         ]),
-        subtitle: selected.isEmpty ? null : Padding(
-          padding: const EdgeInsets.only(left: 58, bottom: 8),
-          child: Wrap(spacing: 8, runSpacing: 8, children: [
-            FilledButton.icon(
-              onPressed: _working ? null : () => _reviewSelected(selected, 'Approved'),
-              icon: const Icon(Icons.check, size: 18),
-              label: Text('Approve ${selected.length}'),
-              style: FilledButton.styleFrom(backgroundColor: Colors.green.shade700),
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(14, 0, 14, 14),
+            child: Column(
+              children: sites.entries.map((e) => _siteSection(date, e.key, e.value)).toList(),
             ),
-            FilledButton.icon(
-              onPressed: _working ? null : () async {
-                final note = await _promptForReason(context);
-                if (note != null) await _reviewSelected(selected, 'Rejected', note: note);
-              },
-              icon: const Icon(Icons.close, size: 18),
-              label: Text('Reject ${selected.length}'),
-              style: FilledButton.styleFrom(backgroundColor: Colors.red.shade700),
-            ),
-          ]),
-        ),
-        children: [Padding(
-          padding: const EdgeInsets.fromLTRB(14, 0, 14, 14),
-          child: Column(children: items.map(_recordCard).toList()),
-        )],
+          ),
+        ],
       ),
     );
   }
 
   @override
   Widget build(BuildContext context) {
-    final allItems = _grouped.values.expand((items) => items).toList();
+    final allItems = _grouped.values.expand((sites) => sites.values.expand((v) => v)).toList();
     final pending = allItems.where((i) => '${i['status']}' == 'Submitted').length;
     final rejected = allItems.where((i) => '${i['status']}' == 'Rejected').length;
+    final overtimeTotal = allItems.where((i) => (double.tryParse('${i['overtime_hours'] ?? 0}') ?? 0) > 0).length;
 
     return Scaffold(
       appBar: CustomAppBar(
@@ -471,14 +735,14 @@ class _AdminAttendanceScreenState extends State<AdminAttendanceScreen> {
                           final cards = [
                             _summaryCard('Submitted', '$pending', Icons.pending_actions, Colors.orange),
                             _summaryCard('Rejected', '$rejected', Icons.warning_amber, Colors.red),
-                            _summaryCard('Total records', '${allItems.length}', Icons.people_alt_outlined, Colors.indigo),
+                            _summaryCard('With Overtime', '$overtimeTotal', Icons.bolt_rounded, Colors.deepPurple),
                           ];
                           return constraints.maxWidth < 650
                               ? Column(children: cards.map((card) => Padding(padding: const EdgeInsets.only(bottom: 8), child: card)).toList())
                               : Row(children: [Expanded(child: cards[0]), const SizedBox(width: 10), Expanded(child: cards[1]), const SizedBox(width: 10), Expanded(child: cards[2])]);
                         }),
                         const SizedBox(height: 10),
-                        ..._grouped.entries.map((entry) => _daySection(entry.key, entry.value)),
+                        ..._grouped.entries.map((entry) => _dateSection(entry.key, entry.value)),
                       ],
                     ),
             ),
