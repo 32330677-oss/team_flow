@@ -28,6 +28,7 @@ final _bulkDailyRateController = TextEditingController();
 final _bulkRegularHourlyRateController = TextEditingController();
 final _bulkOvertimeHourlyRateController = TextEditingController();
 final _bulkReasonController = TextEditingController();
+final _bulkEffectiveDateController = TextEditingController();
 bool _bulkApplyToAll = true;
 final Set<int> _bulkSelectedWorkerIds = <int>{};
 bool _isBulkSubmitting = false;
@@ -63,7 +64,7 @@ bool _isBulkSubmitting = false;
   final _birthDateController = TextEditingController();
   final _birthPlaceController = TextEditingController();
   final _locationController = TextEditingController();
-
+final _effectiveDateController = TextEditingController();
   @override
   void initState() {
     super.initState();
@@ -92,6 +93,8 @@ _reasonController.dispose();
 _bulkRegularHourlyRateController.dispose();
 _bulkOvertimeHourlyRateController.dispose();
 _bulkReasonController.dispose();
+_effectiveDateController.dispose();
+_bulkEffectiveDateController.dispose();
     super.dispose();
   }
 
@@ -145,6 +148,7 @@ _bulkReasonController.dispose();
 
 Future<void> _saveWorker({String? workerUniqueId, Map<String, dynamic>? originalWorker}) async {
   final name = _nameController.text.trim();
+    
 
   if (name.isEmpty) {
     _showSnackBar('Please fill in the worker name', Colors.orange);
@@ -220,11 +224,13 @@ Future<void> _saveWorker({String? workerUniqueId, Map<String, dynamic>? original
 
       if (isEditing) {
         mapData['reason'] = _reasonController.text.trim();
-        
-        // (اختياري) إذا كنت تريد إرسال تاريخ نفاذ يتم تحديده من الواجهة، يمكنك جعله يقرأ من حقل نصي،
-        // أو إرسال تاريخ اليوم تلقائياً عند تعديل الراتب لتجنب أي مشاكل:
-        final now = DateTime.now();
-        mapData['effective_date'] = "${now.year}-${now.month.toString().padLeft(2, '0')}-${now.day.toString().padLeft(2, '0')}";
+
+        if (_effectiveDateController.text.trim().isEmpty) {
+          _showSnackBar('Please select the effective date for this change.', Colors.orange);
+          return;
+        }
+        mapData['effective_date'] = _effectiveDateController.text.trim();
+        // ❌ تم إزالة الـ clear من هنا لئلا يمسح التاريخ قبل الإرسال
       }
     }
 
@@ -245,6 +251,8 @@ Future<void> _saveWorker({String? workerUniqueId, Map<String, dynamic>? original
     if (workerUniqueId != null) {
       final response = await ApiConfig.dio.put('/workers/$workerUniqueId', data: formData);
       if (response.statusCode == 200) {
+        // ✅ تم نقل مسح حقل التاريخ إلى هنا بعد نجاح العملية تماماً
+        _effectiveDateController.clear(); 
         Navigator.pop(context);
         _clearControllers();
         _fetchWorkers();
@@ -275,6 +283,7 @@ void _openBulkCompensationSheet() {
   _bulkRegularHourlyRateController.clear();
   _bulkOvertimeHourlyRateController.clear();
   _bulkReasonController.clear();
+  _bulkEffectiveDateController.text = DateTime.now().toIso8601String().split('T')[0];
   _bulkApplyToAll = true;
   _bulkSelectedWorkerIds.clear();
 
@@ -381,6 +390,33 @@ void _openBulkCompensationSheet() {
               ),
 
               const SizedBox(height: 16),
+              TextField(
+                controller: _bulkEffectiveDateController,
+                readOnly: true,
+                decoration: const InputDecoration(
+                  labelText: 'Effective Date *',
+                  hintText: 'YYYY-MM-DD',
+                  prefixIcon: Icon(Icons.event_available),
+                  border: OutlineInputBorder(),
+                ),
+                onTap: () async {
+                  final picked = await showDatePicker(
+                    context: context,
+                    initialDate: DateTime.tryParse(_bulkEffectiveDateController.text) ?? DateTime.now(),
+                    firstDate: DateTime(2020),
+                    lastDate: DateTime.now().add(const Duration(days: 365)),
+                    helpText: 'Select the date this change actually takes effect for all selected workers',
+                  );
+                  if (picked != null) {
+                    setModalState(() {
+                      _bulkEffectiveDateController.text =
+                          "${picked.year}-${picked.month.toString().padLeft(2, '0')}-${picked.day.toString().padLeft(2, '0')}";
+                    });
+                  }
+                },
+              ),
+
+              const SizedBox(height: 16),
               CheckboxListTile(
                 contentPadding: EdgeInsets.zero,
                 title: const Text('Apply to all active workers', style: TextStyle(fontWeight: FontWeight.bold)),
@@ -483,8 +519,11 @@ Future<void> _submitBulkCompensation(void Function(void Function()) setModalStat
   setState(() => _isBulkSubmitting = true);
 
   try {
-    final now = DateTime.now();
-    final effectiveDate = "${now.year}-${now.month.toString().padLeft(2, '0')}-${now.day.toString().padLeft(2, '0')}";
+    if (_bulkEffectiveDateController.text.trim().isEmpty) {
+      _showSnackBar('Please select the effective date.', Colors.orange);
+      return;
+    }
+    final effectiveDate = _bulkEffectiveDateController.text.trim();
 
     final Map<String, dynamic> data = {
       'payment_type': _bulkPaymentType,
@@ -560,6 +599,7 @@ _dailyRateController.text = worker['daily_rate']?.toString() ?? '';
 _regularHourlyRateController.text = worker['regular_hourly_rate']?.toString() ?? '';
 _overtimeHourlyRateController.text = worker['overtime_hourly_rate']?.toString() ?? '';
 _reasonController.clear();
+_effectiveDateController.text = DateTime.now().toIso8601String().split('T')[0]; // default قابل للتعديل
     } else {
       _clearControllers();
     }
@@ -695,6 +735,32 @@ if (isEditing) ...[
       border: OutlineInputBorder(),
     ),
   ),
+  const SizedBox(height: 12),
+  TextField(
+    controller: _effectiveDateController,
+    readOnly: true,
+    decoration: const InputDecoration(
+      labelText: 'Effective Date *',
+      hintText: 'YYYY-MM-DD',
+      prefixIcon: Icon(Icons.event_available),
+      border: OutlineInputBorder(),
+    ),
+    onTap: () async {
+      final picked = await showDatePicker(
+        context: context,
+        initialDate: DateTime.tryParse(_effectiveDateController.text) ?? DateTime.now(),
+        firstDate: DateTime(2020),
+        lastDate: DateTime.now().add(const Duration(days: 365)),
+        helpText: 'Select the date this change actually takes effect',
+      );
+      if (picked != null) {
+        setModalState(() {
+          _effectiveDateController.text =
+              "${picked.year}-${picked.month.toString().padLeft(2, '0')}-${picked.day.toString().padLeft(2, '0')}";
+        });
+      }
+    },
+  ),
 ],
                 // أزرار اختيار الصور بدل الحقول النصية القديمة
                 Row(
@@ -786,6 +852,7 @@ if (isEditing) ...[
   _regularHourlyRateController.clear();
   _overtimeHourlyRateController.clear();
   _reasonController.clear();
+  _effectiveDateController.clear();
   _paymentType = 'Daily';
   _selectedPersonalPhoto = null;
   _selectedIdPhoto = null;
