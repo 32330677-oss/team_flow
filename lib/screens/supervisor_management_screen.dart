@@ -272,6 +272,7 @@ class _AddEditSupervisorSheetState extends State<_AddEditSupervisorSheet> {
   final _formKey = GlobalKey<FormState>();
   late TextEditingController _nameController;
   late TextEditingController _usernameController;
+  late TextEditingController _emailController; // <--- 1. أضفنا الـ Controller للإيميل
   late TextEditingController _passwordController;
   bool _isSubmitting = false;
   String? _errorMessage;
@@ -281,6 +282,7 @@ class _AddEditSupervisorSheetState extends State<_AddEditSupervisorSheet> {
     super.initState();
     _nameController = TextEditingController(text: widget.supervisor?['full_name'] ?? '');
     _usernameController = TextEditingController(text: widget.supervisor?['username'] ?? '');
+    _emailController = TextEditingController(text: widget.supervisor?['email'] ?? ''); // <--- تهيئة الإيميل
     _passwordController = TextEditingController();
   }
 
@@ -288,6 +290,7 @@ class _AddEditSupervisorSheetState extends State<_AddEditSupervisorSheet> {
   void dispose() {
     _nameController.dispose();
     _usernameController.dispose();
+    _emailController.dispose(); // <--- التخلص من الـ Controller
     _passwordController.dispose();
     super.dispose();
   }
@@ -295,10 +298,10 @@ class _AddEditSupervisorSheetState extends State<_AddEditSupervisorSheet> {
   Future<void> _submit() async {
     if (!_formKey.currentState!.validate()) return;
 
-   setState(() {
-  _isSubmitting = true;
-  _errorMessage = null;
-});
+    setState(() {
+      _isSubmitting = true;
+      _errorMessage = null;
+    });
 
     try {
       final isEditing = widget.supervisor != null;
@@ -308,6 +311,7 @@ class _AddEditSupervisorSheetState extends State<_AddEditSupervisorSheet> {
         final response = await ApiConfig.dio.put('${widget.apiUrl}/$supervisorId', data: {
           'full_name': _nameController.text.trim(),
           'username': _usernameController.text.trim(),
+          'email': _emailController.text.trim(), // <--- إرسال الإيميل عند التعديل
         });
         if (response.statusCode == 200) {
           Navigator.pop(context);
@@ -317,6 +321,7 @@ class _AddEditSupervisorSheetState extends State<_AddEditSupervisorSheet> {
         final response = await ApiConfig.dio.post(widget.apiUrl, data: {
           'full_name': _nameController.text.trim(),
           'username': _usernameController.text.trim(),
+          'email': _emailController.text.trim(), // <--- إرسال الإيميل عند الإضافة
           'password': _passwordController.text.trim(),
         });
         if (response.statusCode == 201 || response.statusCode == 200) {
@@ -381,6 +386,23 @@ class _AddEditSupervisorSheetState extends State<_AddEditSupervisorSheet> {
               ),
               validator: (val) => val == null || val.isEmpty ? 'Please enter username' : null,
             ),
+            const SizedBox(height: 16),
+            // --- حقل الإيميل الجديد ---
+            TextFormField(
+              controller: _emailController,
+              keyboardType: TextInputType.emailAddress,
+              decoration: const InputDecoration(
+                labelText: 'Email',
+                border: OutlineInputBorder(),
+                prefixIcon: Icon(Icons.email),
+              ),
+              validator: (val) {
+                if (val == null || val.isEmpty) return 'Please enter email';
+                if (!val.contains('@')) return 'Please enter a valid email';
+                return null;
+              },
+            ),
+            // -------------------------
             if (!isEditing) ...[
               const SizedBox(height: 16),
               TextFormField(

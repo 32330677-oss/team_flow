@@ -4,7 +4,7 @@ import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import '../services/auth_service.dart'; // Make sure this path matches your project structure
 import 'admin_dashboard_screen.dart';
 import 'supervisor_dashboard.dart';
-
+import 'forgot_password_screen.dart';
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
 
@@ -281,8 +281,7 @@ Widget _buildLogo() {
 }
 
 
-
-  Widget _buildLoginCard() {
+Widget _buildLoginCard() {
     return Container(
       width: double.infinity,
       constraints: const BoxConstraints(maxWidth: 420),
@@ -383,6 +382,22 @@ Widget _buildLogo() {
                     ),
             ),
           ),
+
+          // --- تمت إضافة زر Forgot Password هنا تحت زر Sign In ---
+          const SizedBox(height: 16),
+          TextButton(
+            onPressed: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(builder: (_) => const ForgotPasswordScreen()),
+              );
+            },
+            child: const Text(
+              'Forgot Password?',
+              style: TextStyle(color: _primaryDark, fontWeight: FontWeight.w600),
+            ),
+          ),
+          // -----------------------------------------------------
         ],
       ),
     );
