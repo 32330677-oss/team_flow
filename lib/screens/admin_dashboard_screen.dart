@@ -9,7 +9,7 @@ import 'attendance_payroll_hub.dart';
 import 'workers_screen.dart';
 import 'supervisor_management_screen.dart';
 import 'pending_transfers_screen.dart';
-
+import 'staff_attendance_payroll_hub.dart';
 class AdminDashboardScreen extends StatefulWidget {
   const AdminDashboardScreen({super.key});
 
@@ -46,7 +46,8 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
     _SidebarItem(icon: Icons.alt_route_rounded, label: 'Worker Distribution'),
     _SidebarItem(icon: Icons.people_alt_rounded, label: 'HR Management'),
     _SidebarItem(icon: Icons.fact_check_rounded, label: 'Attendance & Payroll'),
-    _SidebarItem(icon: Icons.swap_horiz_rounded, label: 'Transfer Requests'), // <-- العنصر الجديد
+    _SidebarItem(icon: Icons.swap_horiz_rounded, label: 'Transfer Requests'),
+    _SidebarItem(icon: Icons.badge_rounded, label: 'Staff Attendance & Payroll'),
   ];
 
   @override
@@ -161,6 +162,9 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
         break;
       case 6:
         destination = const PendingTransfersScreen();
+        break;
+      case 7:
+        destination = const StaffAttendancePayrollHub();
         break;
       default:
         return;
