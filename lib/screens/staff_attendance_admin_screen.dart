@@ -314,313 +314,268 @@ class _StaffAttendanceAdminScreenState extends State<StaffAttendanceAdminScreen>
         ),
         unitStepper(
           label: value.minute.toString().padLeft(2, '0'),
-          onMinus: () => onChanged(addMinutes(-15)),
-          onPlus: () => onChanged(addMinutes(15)),
+          onMinus: () => onChanged(addMinutes(-5)),
+          onPlus: () => onChanged(addMinutes(5)),
         ),
       ],
     );
   }
 
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: Colors.grey[100],
-      appBar: CustomAppBar(
-        title: 'Staff Attendance',
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.refresh),
-            onPressed: _loadDay,
-          ),
-        ],
-      ),
-      body: _isLoading
-          ? const Center(
-              child: CircularProgressIndicator(),
-            )
-          : Column(
-              children: [
-                Container(
-                  margin: const EdgeInsets.all(12),
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 16,
-                    vertical: 12,
-                  ),
-                  decoration: BoxDecoration(
-                    color: Colors.white,
-                    borderRadius: BorderRadius.circular(14),
-                  ),
-                  child: Row(
-                    children: [
-                      const Icon(
-                        Icons.calendar_today,
-                        color: primaryColor,
-                        size: 18,
-                      ),
-                      const SizedBox(width: 10),
-                      Expanded(
-                        child: GestureDetector(
-                          onTap: _pickDate,
-                          child: Text(
-                            DateFormat(
-                              'EEEE, dd MMM yyyy',
-                            ).format(_selectedDate),
-                            style: const TextStyle(
-                              fontWeight: FontWeight.bold,
-                            ),
-                          ),
-                        ),
-                      ),
-                      if (_isBackdated)
-                        Container(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 8,
-                            vertical: 4,
-                          ),
-                          decoration: BoxDecoration(
-                            color: Colors.orange.shade50,
-                            borderRadius: BorderRadius.circular(8),
-                          ),
-                          child: Text(
-                            'Backdated',
-                            style: TextStyle(
-                              color: Colors.orange.shade800,
-                              fontSize: 11,
-                              fontWeight: FontWeight.bold,
-                            ),
-                          ),
-                        ),
-                      TextButton.icon(
-                        onPressed: _pickDate,
-                        icon: const Icon(
-                          Icons.edit_calendar,
-                          size: 16,
-                        ),
-                        label: const Text('Change'),
-                      ),
-                    ],
-                  ),
-                ),
 
-                Container(
-                  margin: const EdgeInsets.symmetric(horizontal: 12),
-                  padding: const EdgeInsets.all(12),
-                  decoration: BoxDecoration(
-                    color: Colors.white,
-                    borderRadius: BorderRadius.circular(14),
-                  ),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      const Text(
-                        'Bulk apply Check-in / Check-out to everyone Present:',
-                        style: TextStyle(
-                          fontWeight: FontWeight.w600,
+@override
+Widget build(BuildContext context) {
+  return Scaffold(
+    backgroundColor: Colors.grey[100],
+    appBar: CustomAppBar(
+      title: 'Staff Attendance',
+      actions: [
+        IconButton(
+          icon: const Icon(Icons.refresh),
+          onPressed: _loadDay,
+        ),
+      ],
+    ),
+    body: _isLoading
+        ? const Center(
+            child: CircularProgressIndicator(),
+          )
+        : Column(
+            children: [
+              Container(
+                margin: const EdgeInsets.all(12),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 16,
+                  vertical: 12,
+                ),
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(14),
+                ),
+                child: Row(
+                  children: [
+                    const Icon(
+                      Icons.calendar_today,
+                      color: primaryColor,
+                      size: 18,
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: GestureDetector(
+                        onTap: _pickDate,
+                        child: Text(
+                          DateFormat(
+                            'EEEE, dd MMM yyyy',
+                          ).format(_selectedDate),
+                          style: const TextStyle(
+                            fontWeight: FontWeight.bold,
+                          ),
                         ),
                       ),
-                      const SizedBox(height: 8),
-                      Row(
-                        children: [
-                          const Text('In: '),
-                          _timeStepper(
-                            _globalCheckIn,
-                            (v) => setState(
-                              () => _globalCheckIn = v,
-                            ),
+                    ),
+                    if (_isBackdated)
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 8,
+                          vertical: 4,
+                        ),
+                        decoration: BoxDecoration(
+                          color: Colors.orange.shade50,
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: Text(
+                          'Backdated',
+                          style: TextStyle(
+                            color: Colors.orange.shade800,
+                            fontSize: 11,
+                            fontWeight: FontWeight.bold,
                           ),
-                          const SizedBox(width: 20),
-                          const Text('Out: '),
-                          _timeStepper(
-                            _globalCheckOut,
-                            (v) => setState(
-                              () => _globalCheckOut = v,
-                            ),
-                          ),
-                          const Spacer(),
-                          ElevatedButton(
-                            onPressed: _applyGlobalToAllPresent,
-                            style: ElevatedButton.styleFrom(
-                              backgroundColor: primaryColor,
-                            ),
-                            child: const Text(
-                              'Apply to All',
-                              style: TextStyle(
+                        ),
+                      ),
+                    TextButton.icon(
+                      onPressed: _pickDate,
+                      icon: const Icon(
+                        Icons.edit_calendar,
+                        size: 16,
+                      ),
+                      label: const Text('Change'),
+                    ),
+                  ],
+                ),
+              ),
+
+              const SizedBox(height: 8),
+
+              Expanded(
+                child: _rows.isEmpty
+                    ? const Center(
+                        child: Text('No active staff found'),
+                      )
+                    : ListView.builder(
+                        padding: const EdgeInsets.symmetric(horizontal: 12),
+                        itemCount: _rows.length + 1,
+                        itemBuilder: (context, index) {
+                          if (index == 0) {
+                            return Container(
+                              margin: const EdgeInsets.only(bottom: 8),
+                              padding: const EdgeInsets.all(12),
+                              decoration: BoxDecoration(
                                 color: Colors.white,
+                                borderRadius: BorderRadius.circular(14),
                               ),
-                            ),
-                          ),
-                        ],
-                      ),
-                    ],
-                  ),
-                ),
-
-                const SizedBox(height: 8),
-
-                Expanded(
-                  child: _rows.isEmpty
-                      ? const Center(
-                          child: Text('No active staff found'),
-                        )
-                      : ListView.builder(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 12,
-                          ),
-                          itemCount: _rows.length,
-                          itemBuilder: (context, index) {
-                            final row = _rows[index];
-
-                            return Card(
-                              margin: const EdgeInsets.only(
-                                bottom: 8,
-                              ),
-                              child: Padding(
-                                padding: const EdgeInsets.all(12),
-                                child: Column(
-                                  crossAxisAlignment:
-                                      CrossAxisAlignment.start,
-                                  children: [
-                                    Row(
-                                      children: [
-                                        Expanded(
-                                          child: Column(
-                                            crossAxisAlignment:
-                                                CrossAxisAlignment.start,
-                                            children: [
-                                              Text(
-                                                row.fullName,
-                                                style: const TextStyle(
-                                                  fontWeight:
-                                                      FontWeight.bold,
-                                                ),
-                                              ),
-                                              Text(
-                                                '${row.uniqueId} • ${row.position}',
-                                                style: TextStyle(
-                                                  fontSize: 11,
-                                                  color: Colors
-                                                      .grey
-                                                      .shade600,
-                                                ),
-                                              ),
-                                            ],
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  const Text(
+                                    'Bulk apply Check-in / Check-out to everyone Present:',
+                                    style: TextStyle(
+                                      fontWeight: FontWeight.w600,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 8),
+                                  Row(
+                                    children: [
+                                      const Text('In: '),
+                                      _timeStepper(
+                                        _globalCheckIn,
+                                        (v) => setState(
+                                          () => _globalCheckIn = v,
+                                        ),
+                                      ),
+                                      const SizedBox(width: 20),
+                                      const Text('Out: '),
+                                      _timeStepper(
+                                        _globalCheckOut,
+                                        (v) => setState(
+                                          () => _globalCheckOut = v,
+                                        ),
+                                      ),
+                                      const Spacer(),
+                                      ElevatedButton(
+                                        onPressed: _applyGlobalToAllPresent,
+                                        style: ElevatedButton.styleFrom(
+                                          backgroundColor: primaryColor,
+                                        ),
+                                        child: const Text(
+                                          'Apply to All',
+                                          style: TextStyle(
+                                            color: Colors.white,
                                           ),
                                         ),
-                                        DropdownButton<String>(
-                                          value: row.status,
-                                          items: _statuses
-                                              .map(
-                                                (s) =>
-                                                    DropdownMenuItem(
-                                                  value: s,
-                                                  child: Text(s),
-                                                ),
-                                              )
-                                              .toList(),
-                                          onChanged: (v) => setState(
-                                            () => row.status =
-                                                v ?? row.status,
-                                          ),
+                                      ),
+                                    ],
+                                  ),
+                                ],
+                              ),
+                            );
+                          }
+
+                          final row = _rows[index - 1];
+
+                          return Card(
+                            margin: const EdgeInsets.only(
+                              bottom: 8,
+                            ),
+                            child: Padding(
+                              padding: const EdgeInsets.all(12),
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Row(
+                                    children: [
+                                      Expanded(
+                                        child: Column(
+                                          crossAxisAlignment:
+                                              CrossAxisAlignment.start,
+                                          children: [
+                                            Text(
+                                              row.fullName,
+                                              style: const TextStyle(
+                                                fontWeight: FontWeight.bold,
+                                              ),
+                                            ),
+                                            Text(
+                                              '${row.uniqueId} • ${row.position}',
+                                              style: TextStyle(
+                                                fontSize: 11,
+                                                color: Colors.grey.shade600,
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                                      DropdownButton<String>(
+                                        value: row.status,
+                                        items: _statuses
+                                            .map(
+                                              (s) => DropdownMenuItem(
+                                                value: s,
+                                                child: Text(s),
+                                              ),
+                                            )
+                                            .toList(),
+                                        onChanged: (v) => setState(
+                                          () => row.status =
+                                              v ?? row.status,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                  if (row.status == 'Present') ...[
+                                    const SizedBox(height: 8),
+                                    Row(
+                                      mainAxisAlignment:
+                                          MainAxisAlignment.spaceBetween,
+                                      children: [
+                                        Column(
+                                          crossAxisAlignment:
+                                              CrossAxisAlignment.start,
+                                          children: [
+                                            Text(
+                                              'Check-in',
+                                              style: TextStyle(
+                                                fontSize: 11,
+                                                color: Colors.grey.shade600,
+                                              ),
+                                            ),
+                                            _timeStepper(
+                                              row.checkIn,
+                                              (v) => setState(
+                                                () => row.checkIn = v,
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                        Column(
+                                          crossAxisAlignment:
+                                              CrossAxisAlignment.start,
+                                          children: [
+                                            Text(
+                                              'Check-out',
+                                              style: TextStyle(
+                                                fontSize: 11,
+                                                color: Colors.grey.shade600,
+                                              ),
+                                            ),
+                                            _timeStepper(
+                                              row.checkOut,
+                                              (v) => setState(
+                                                () => row.checkOut = v,
+                                              ),
+                                            ),
+                                          ],
                                         ),
                                       ],
                                     ),
-
-                                    if (row.status == 'Present') ...[
-                                      const SizedBox(height: 8),
-                                      Row(
-                                        mainAxisAlignment:
-                                            MainAxisAlignment.spaceBetween,
-                                        children: [
-                                          Column(
-                                            crossAxisAlignment:
-                                                CrossAxisAlignment.start,
-                                            children: [
-                                              Text(
-                                                'Check-in',
-                                                style: TextStyle(
-                                                  fontSize: 11,
-                                                  color: Colors
-                                                      .grey
-                                                      .shade600,
-                                                ),
-                                              ),
-                                              _timeStepper(
-                                                row.checkIn,
-                                                (v) => setState(
-                                                  () => row.checkIn = v,
-                                                ),
-                                              ),
-                                            ],
-                                          ),
-                                          Column(
-                                            crossAxisAlignment:
-                                                CrossAxisAlignment.start,
-                                            children: [
-                                              Text(
-                                                'Check-out',
-                                                style: TextStyle(
-                                                  fontSize: 11,
-                                                  color: Colors
-                                                      .grey
-                                                      .shade600,
-                                                ),
-                                              ),
-                                              _timeStepper(
-                                                row.checkOut,
-                                                (v) => setState(
-                                                  () => row.checkOut = v,
-                                                ),
-                                              ),
-                                            ],
-                                          ),
-                                        ],
-                                      ),
-                                    ],
                                   ],
-                                ),
+                                ],
                               ),
-                            );
-                          },
-                        ),
-                ),
-
-                Container(
-                  padding: const EdgeInsets.all(16),
-                  color: Colors.white,
-                  child: SizedBox(
-                    width: double.infinity,
-                    height: 48,
-                    child: ElevatedButton.icon(
-                      onPressed: _isSaving ? null : _save,
-                      icon: _isSaving
-                          ? const SizedBox(
-                              width: 18,
-                              height: 18,
-                              child: CircularProgressIndicator(
-                                strokeWidth: 2,
-                                color: Colors.white,
-                              ),
-                            )
-                          : const Icon(
-                              Icons.save,
-                              color: Colors.white,
                             ),
-                      label: Text(
-                        _isSaving
-                            ? 'Saving...'
-                            : 'Save Attendance for This Day',
-                        style: const TextStyle(
-                          color: Colors.white,
-                        ),
+                          );
+                        },
                       ),
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: primaryColor,
-                      ),
-                    ),
-                  ),
-                ),
-              ],
-            ),
-    );
-  }
+              ),
+            ],
+          ),
+  );
+}
 }
