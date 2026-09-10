@@ -3,7 +3,7 @@ import 'package:dio/dio.dart';
 import 'package:intl/intl.dart';
 import '../constants.dart';
 import '../widgets/custom_app_bar.dart';
-
+import 'staff_absence_review_screen.dart';
 class AppColors {
   static const Color primary = Color(0xFF1A2A6C);
   static const Color danger = Colors.red;
@@ -83,6 +83,29 @@ class _StaffPayrollScreenState extends State<StaffPayrollScreen> {
       if (mounted) setState(() => _isGenerating = false);
     }
   }
+
+
+  Future<void> _openAbsenceReview() async {
+    if (_startDateController.text.isEmpty || _endDateController.text.isEmpty) {
+      _showSnack('Please select the start and end dates first', Colors.orange);
+      return;
+    }
+    final start = DateTime.tryParse(_startDateController.text);
+    final end = DateTime.tryParse(_endDateController.text);
+    if (start == null || end == null) {
+      _showSnack('Invalid date range', Colors.orange);
+      return;
+    }
+    await Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => StaffAbsenceReviewScreen(startDate: start, endDate: end),
+      ),
+    );
+  }
+
+
+
 
   Future<void> _openBatchDetails(int batchId) async {
     showDialog(context: context, barrierDismissible: false, builder: (_) => const Center(child: CircularProgressIndicator()));
@@ -222,12 +245,13 @@ class _StaffPayrollScreenState extends State<StaffPayrollScreen> {
                                   ),
                                   Text('ID: ${s['staff_unique_id'] ?? ''} • Position: ${s['position'] ?? '-'}', style: TextStyle(fontSize: 12, color: Colors.grey.shade600)),
                                   const SizedBox(height: 6),
-                                  Wrap(spacing: 14, runSpacing: 4, children: [
+                                                                   Wrap(spacing: 14, runSpacing: 4, children: [
                                     Text('Base salary: ${s['monthly_salary_snapshot']}', style: const TextStyle(fontSize: 12)),
                                     Text('Working days: ${s['working_days_in_period']}', style: const TextStyle(fontSize: 12)),
                                     Text('Present: ${s['present_days']}', style: const TextStyle(fontSize: 12, color: Colors.green)),
                                     Text('Paid leave: ${s['paid_leave_days']}', style: const TextStyle(fontSize: 12, color: Colors.blue)),
-                                    Text('Absences: ${s['unpaid_absence_days']}', style: const TextStyle(fontSize: 12, color: Colors.red)),
+                                    Text('Mgmt-paid absence: ${s['management_paid_days'] ?? 0}', style: const TextStyle(fontSize: 12, color: Colors.teal)),
+                                    Text('Unpaid absences: ${s['unpaid_absence_days']}', style: const TextStyle(fontSize: 12, color: Colors.red)),
                                   ]),
                                 ],
                               ),
@@ -310,7 +334,17 @@ class _StaffPayrollScreenState extends State<StaffPayrollScreen> {
                           Expanded(child: TextField(controller: _endDateController, readOnly: true, onTap: () => _pickDate(_endDateController), decoration: const InputDecoration(labelText: 'End Date', border: OutlineInputBorder()))),
                         ],
                       ),
-                      const SizedBox(height: 12),
+                                          const SizedBox(height: 12),
+                      SizedBox(
+                        width: double.infinity,
+                        child: OutlinedButton.icon(
+                          onPressed: _isGenerating ? null : _openAbsenceReview,
+                          icon: const Icon(Icons.event_busy, size: 18),
+                          label: const Text('Review Absences (Management-Paid Leave)'),
+                          style: OutlinedButton.styleFrom(padding: const EdgeInsets.symmetric(vertical: 12)),
+                        ),
+                      ),
+                      const SizedBox(height: 10),
                       SizedBox(
                         width: double.infinity,
                         child: ElevatedButton.icon(
