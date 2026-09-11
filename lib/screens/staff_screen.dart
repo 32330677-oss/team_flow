@@ -6,6 +6,7 @@ import '../widgets/app_data_table.dart';
 import 'staff_lifecycle_screen.dart';
 import 'staff_supervisor_assignment_screen.dart';
 import 'staff_overtime_screen.dart';
+
 class StaffScreen extends StatefulWidget {
   const StaffScreen({Key? key}) : super(key: key);
 
@@ -20,10 +21,26 @@ class _StaffScreenState extends State<StaffScreen> {
   bool _isLoading = true;
   String _searchQuery = "";
 
+  List<dynamic> _staffSupervisorsForBulk = [];
+  final Set<int> _bulkAssignSelectedStaffIds = <int>{};
+  int? _bulkAssignSelectedSupervisorId;
+  final TextEditingController _bulkAssignDateController =
+      TextEditingController();
+  final TextEditingController _bulkAssignNotesController =
+      TextEditingController();
+  bool _isBulkAssignSubmitting = false;
+
   @override
   void initState() {
     super.initState();
     _loadStaff();
+  }
+
+  @override
+  void dispose() {
+    _bulkAssignDateController.dispose();
+    _bulkAssignNotesController.dispose();
+    super.dispose();
   }
 
   Future<void> _loadStaff() async {
@@ -89,6 +106,7 @@ class _StaffScreenState extends State<StaffScreen> {
       ),
     ).then((_) => _loadStaff());
   }
+
   void _openSupervisorAssignmentScreen(Map<String, dynamic> staff) {
     Navigator.push(
       context,
@@ -106,14 +124,392 @@ class _StaffScreenState extends State<StaffScreen> {
       ),
     );
   }
+
+  Future<void> _openBulkAssignSupervisorSheet() async {
+    try {
+      final response = await ApiConfig.dio.get(
+        '/users/supervisors',
+        queryParameters: {'role': 'StaffSupervisor'},
+      );
+      _staffSupervisorsForBulk =
+          (response.data['data'] as List? ?? [])
+              .where((s) => s['status'] == 'Active')
+              .toList();
+    } catch (_) {
+      _showSnackBar(
+        'Failed to load staff supervisors',
+        AppColors.danger,
+      );
+      return;
+    }
+
+    if (!mounted) return;
+
+    if (_staffSupervisorsForBulk.isEmpty) {
+      _showSnackBar(
+        'No active Staff Supervisors available.',
+        Colors.orange,
+      );
+      return;
+    }
+
+    _bulkAssignSelectedStaffIds.clear();
+    _bulkAssignSelectedSupervisorId = null;
+    _bulkAssignDateController.text =
+        DateTime.now().toIso8601String().split('T')[0];
+    _bulkAssignNotesController.clear();
+
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.white,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(
+          top: Radius.circular(24),
+        ),
+      ),
+      builder: (context) => StatefulBuilder(
+        builder: (context, setModalState) => Padding(
+          padding: EdgeInsets.only(
+            bottom: MediaQuery.of(context).viewInsets.bottom,
+            top: 24,
+            left: 24,
+            right: 24,
+          ),
+          child: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Center(
+                  child: Container(
+                    width: 40,
+                    height: 4,
+                    decoration: BoxDecoration(
+                      color: Colors.grey[300],
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 16),
+                const Text(
+                  'Bulk Assign Staff Supervisor',
+                  style: TextStyle(
+                    fontSize: 20,
+                    fontWeight: FontWeight.bold,
+                    color: AppColors.primary,
+                  ),
+                ),
+                const SizedBox(height: 6),
+                Text(
+                  'This assigns ONE supervisor to all selected staff members. Each staff member keeps their own independent assignment history.',
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: Colors.grey.shade600,
+                  ),
+                ),
+                const SizedBox(height: 20),
+
+                DropdownButtonFormField<int>(
+                  value: _bulkAssignSelectedSupervisorId,
+                  decoration: const InputDecoration(
+                    labelText: 'Staff Supervisor *',
+                    border: OutlineInputBorder(),
+                  ),
+                  items: _staffSupervisorsForBulk
+                      .map<DropdownMenuItem<int>>(
+                        (s) => DropdownMenuItem(
+                          value: s['user_id'] as int,
+                          child: Text(s['full_name'] ?? ''),
+                        ),
+                      )
+                      .toList(),
+                  onChanged: (v) => setModalState(
+                    () => _bulkAssignSelectedSupervisorId = v,
+                  ),
+                ),
+                const SizedBox(height: 16),
+
+                TextField(
+                  controller: _bulkAssignDateController,
+                  readOnly: true,
+                  decoration: const InputDecoration(
+                    labelText: 'Effective Date *',
+                    prefixIcon: Icon(Icons.event_available),
+                    border: OutlineInputBorder(),
+                  ),
+                  onTap: () async {
+                    final picked = await showDatePicker(
+                      context: context,
+                      initialDate: DateTime.now(),
+                      firstDate: DateTime(2020),
+                      lastDate:
+                          DateTime.now().add(const Duration(days: 365)),
+                    );
+                    if (picked != null) {
+                      setModalState(() {
+                        _bulkAssignDateController.text =
+                            picked.toIso8601String().split('T')[0];
+                      });
+                    }
+                  },
+                ),
+                const SizedBox(height: 16),
+
+                TextField(
+                  controller: _bulkAssignNotesController,
+                  maxLines: 2,
+                  decoration: const InputDecoration(
+                    labelText: 'Notes (optional)',
+                    border: OutlineInputBorder(),
+                  ),
+                ),
+                const SizedBox(height: 16),
+
+                Row(
+                  children: [
+                    Text(
+                      'Select Staff (${_bulkAssignSelectedStaffIds.length} selected)',
+                      style: const TextStyle(
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                    const Spacer(),
+                  TextButton(
+  onPressed: () => setModalState(() {
+    final selectableStaff = _staffList
+        .where(
+          (s) =>
+              s['status'] != 'Terminated' &&
+              s['status'] != 'Inactive',
+        )
+        .map<int>(
+          (s) => s['staff_id'] as int,
+        )
+        .toList();
+
+    if (_bulkAssignSelectedStaffIds.length ==
+        selectableStaff.length) {
+      _bulkAssignSelectedStaffIds.clear();
+    } else {
+      _bulkAssignSelectedStaffIds
+        ..clear()
+        ..addAll(selectableStaff);
+    }
+  }),
+  child: Builder(
+    builder: (_) {
+      final selectableCount = _staffList
+          .where(
+            (s) =>
+                s['status'] != 'Terminated' &&
+                s['status'] != 'Inactive',
+          )
+          .length;
+
+      return Text(
+        _bulkAssignSelectedStaffIds.length ==
+                selectableCount
+            ? 'Deselect All'
+            : 'Select All',
+      );
+    },
+  ),
+),
+                  ],
+                ),
+
+                Container(
+                  constraints: const BoxConstraints(
+                    maxHeight: 280,
+                  ),
+                  decoration: BoxDecoration(
+                    border: Border.all(
+                      color: Colors.grey.shade300,
+                    ),
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: ListView.builder(
+                    shrinkWrap: true,
+                    itemCount: _staffList.length,
+                    itemBuilder: (context, index) {
+                      final staff = _staffList[index];
+                      final id = staff['staff_id'] as int;
+                      final isDisabled =
+    staff['status'] == 'Terminated' ||
+    staff['status'] == 'Inactive';
+                      final selected =
+                          _bulkAssignSelectedStaffIds.contains(id);
+
+                      return CheckboxListTile(
+                        dense: true,
+                        enabled: !isDisabled,
+                        value: selected,
+                        title: Text(
+                          staff['full_name'] ?? '',
+                        ),
+                        subtitle: Text(
+                         '${staff['staff_unique_id'] ?? ''}${isDisabled ? ' • ${staff['status']}' : ''}'
+                        ),
+                        onChanged: isDisabled
+                            ? null
+                            : (checked) => setModalState(() {
+                                  if (checked == true) {
+                                    _bulkAssignSelectedStaffIds.add(id);
+                                  } else {
+                                    _bulkAssignSelectedStaffIds.remove(id);
+                                  }
+                                }),
+                      );
+                    },
+                  ),
+                ),
+
+                const SizedBox(height: 24),
+
+                SizedBox(
+                  width: double.infinity,
+                  height: 50,
+                  child: ElevatedButton(
+                    onPressed: _isBulkAssignSubmitting
+                        ? null
+                        : () => _submitBulkAssignSupervisor(
+                              setModalState,
+                            ),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: AppColors.primary,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                    ),
+                    child: _isBulkAssignSubmitting
+                        ? const SizedBox(
+                            width: 22,
+                            height: 22,
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2,
+                              color: Colors.white,
+                            ),
+                          )
+                        : const Text(
+                            'Assign Supervisor to Selected',
+                            style: TextStyle(
+                              color: Colors.white,
+                              fontSize: 16,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                  ),
+                ),
+                const SizedBox(height: 20),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Future<void> _submitBulkAssignSupervisor(
+    void Function(void Function()) setModalState,
+  ) async {
+    if (_bulkAssignSelectedSupervisorId == null) {
+      _showSnackBar(
+        'Please select a supervisor.',
+        Colors.orange,
+      );
+      return;
+    }
+
+    if (_bulkAssignSelectedStaffIds.isEmpty) {
+      _showSnackBar(
+        'Please select at least one staff member.',
+        Colors.orange,
+      );
+      return;
+    }
+
+    setModalState(
+      () => _isBulkAssignSubmitting = true,
+    );
+    setState(
+      () => _isBulkAssignSubmitting = true,
+    );
+
+    try {
+      final response = await ApiConfig.dio.post(
+        '/staff/supervisor-assignments/bulk',
+        data: {
+          'staff_ids': _bulkAssignSelectedStaffIds.toList(),
+          'supervisor_user_id': _bulkAssignSelectedSupervisorId,
+          'assigned_date':
+              _bulkAssignDateController.text.trim(),
+          'notes':
+              _bulkAssignNotesController.text.trim().isEmpty
+                  ? null
+                  : _bulkAssignNotesController.text.trim(),
+        },
+      );
+
+      if (mounted) {
+        Navigator.pop(context);
+
+        final message =
+            response.data is Map &&
+                    response.data['message'] != null
+                ? response.data['message'].toString()
+                : 'Supervisor assigned successfully';
+
+        _showSnackBar(
+          message,
+          Colors.green.shade700,
+        );
+
+        _loadStaff();
+      }
+    } on DioException catch (e) {
+      final msg = e.response?.data is Map
+          ? (e.response?.data['message'] ??
+              'Bulk assign failed')
+          : 'Bulk assign failed';
+
+      setModalState(
+        () => _isBulkAssignSubmitting = false,
+      );
+      setState(
+        () => _isBulkAssignSubmitting = false,
+      );
+
+      _showSnackBar(
+        msg,
+        AppColors.danger,
+      );
+    } catch (e) {
+      setModalState(
+        () => _isBulkAssignSubmitting = false,
+      );
+      setState(
+        () => _isBulkAssignSubmitting = false,
+      );
+
+      _showSnackBar(
+        'Bulk assign failed: ${e.toString()}',
+        AppColors.danger,
+      );
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final filteredStaff = _staffList.where((s) {
-      final fullName = (s['full_name'] ?? '').toString().toLowerCase();
-      final position = (s['position'] ?? '').toString().toLowerCase();
+      final fullName =
+          (s['full_name'] ?? '').toString().toLowerCase();
+      final position =
+          (s['position'] ?? '').toString().toLowerCase();
       final query = _searchQuery.toLowerCase();
 
-      return fullName.contains(query) || position.contains(query);
+      return fullName.contains(query) ||
+          position.contains(query);
     }).toList();
 
     final activeCount =
@@ -124,11 +520,22 @@ class _StaffScreenState extends State<StaffScreen> {
 
     return Scaffold(
       backgroundColor: Colors.grey[100],
-      appBar: const CustomAppBar(
+      appBar: CustomAppBar(
         title: 'Staff Management',
+        actions: [
+          IconButton(
+            icon: const Icon(
+              Icons.supervisor_account_rounded,
+            ),
+            tooltip: 'Bulk Assign Supervisor',
+            onPressed: _openBulkAssignSupervisorSheet,
+          ),
+        ],
       ),
       body: _isLoading
-          ? const Center(child: CircularProgressIndicator())
+          ? const Center(
+              child: CircularProgressIndicator(),
+            )
           : Column(
               children: [
                 Padding(
@@ -156,21 +563,27 @@ class _StaffScreenState extends State<StaffScreen> {
                   ),
                 ),
                 Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 12),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 12,
+                  ),
                   child: TextField(
                     onChanged: (val) =>
                         setState(() => _searchQuery = val),
                     decoration: InputDecoration(
-                      hintText: 'Search by name or position...',
-                      prefixIcon: const Icon(Icons.search),
+                      hintText:
+                          'Search by name or position...',
+                      prefixIcon:
+                          const Icon(Icons.search),
                       filled: true,
                       fillColor: Colors.white,
-                      contentPadding: const EdgeInsets.symmetric(
+                      contentPadding:
+                          const EdgeInsets.symmetric(
                         vertical: 0,
                         horizontal: 20,
                       ),
                       border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(30),
+                        borderRadius:
+                            BorderRadius.circular(30),
                         borderSide: BorderSide.none,
                       ),
                     ),
@@ -189,74 +602,109 @@ class _StaffScreenState extends State<StaffScreen> {
                           ),
                         )
                       : ListView(
-                          padding: const EdgeInsets.all(12),
+                          padding:
+                              const EdgeInsets.all(12),
                           children: [
                             AppDataTableCard(
                               title: 'Staff List',
                               icon: Icons.badge_rounded,
-                              accentColor: AppColors.primary,
+                              accentColor:
+                                  AppColors.primary,
                               emptyMessage:
                                   'No staff members registered yet.',
                               trailing: Container(
-                                padding: const EdgeInsets.symmetric(
+                                padding:
+                                    const EdgeInsets.symmetric(
                                   horizontal: 10,
                                   vertical: 4,
                                 ),
-                                decoration: BoxDecoration(
-                                  color: Colors.blue.shade50,
-                                  borderRadius: BorderRadius.circular(10),
+                                decoration:
+                                    BoxDecoration(
+                                  color:
+                                      Colors.blue.shade50,
+                                  borderRadius:
+                                      BorderRadius.circular(
+                                    10,
+                                  ),
                                 ),
                                 child: Text(
                                   'Total: ${filteredStaff.length}',
                                   style: TextStyle(
-                                    color: Colors.blue.shade900,
-                                    fontWeight: FontWeight.bold,
+                                    color:
+                                        Colors.blue.shade900,
+                                    fontWeight:
+                                        FontWeight.bold,
                                     fontSize: 12,
                                   ),
                                 ),
                               ),
                               columns: const [
-                                DataColumn(label: Text('#')),
-                                DataColumn(label: Text('Staff Info')),
-                                DataColumn(label: Text('Salary')),
-                                DataColumn(label: Text('Status')),
-                                DataColumn(label: Text('Actions')),
+                                DataColumn(
+                                  label: Text('#'),
+                                ),
+                                DataColumn(
+                                  label: Text('Staff Info'),
+                                ),
+                                DataColumn(
+                                  label: Text('Salary'),
+                                ),
+                                DataColumn(
+                                  label: Text('Status'),
+                                ),
+                                DataColumn(
+                                  label: Text('Actions'),
+                                ),
                               ],
                               rows: List.generate(
                                 filteredStaff.length,
                                 (index) {
-                                  final stf = filteredStaff[index];
+                                  final stf =
+                                      filteredStaff[index];
 
                                   final status =
-                                      stf['status']?.toString() ?? 'Inactive';
+                                      stf['status']
+                                              ?.toString() ??
+                                          'Inactive';
 
-                                  final isActive = status == 'Active';
+                                  final isActive =
+                                      status == 'Active';
                                   final isTerminated =
-                                      status == 'Terminated';
+                                      status ==
+                                          'Terminated';
 
                                   return DataRow(
                                     cells: [
                                       DataCell(
-                                        Text('${index + 1}'),
+                                        Text(
+                                          '${index + 1}',
+                                        ),
                                       ),
                                       DataCell(
                                         Column(
                                           crossAxisAlignment:
-                                              CrossAxisAlignment.start,
+                                              CrossAxisAlignment
+                                                  .start,
                                           mainAxisAlignment:
-                                              MainAxisAlignment.center,
+                                              MainAxisAlignment
+                                                  .center,
                                           children: [
                                             Text(
-                                              stf['full_name'] ?? 'N/A',
-                                              style: const TextStyle(
-                                                fontWeight: FontWeight.bold,
+                                              stf['full_name'] ??
+                                                  'N/A',
+                                              style:
+                                                  const TextStyle(
+                                                fontWeight:
+                                                    FontWeight
+                                                        .bold,
                                               ),
                                             ),
                                             Text(
                                               '${stf['staff_unique_id'] ?? ''} • ${stf['position'] ?? 'No Position'}',
-                                              style: const TextStyle(
+                                              style:
+                                                  const TextStyle(
                                                 fontSize: 11,
-                                                color: Colors.grey,
+                                                color:
+                                                    Colors.grey,
                                               ),
                                             ),
                                           ],
@@ -270,42 +718,62 @@ class _StaffScreenState extends State<StaffScreen> {
                                       DataCell(
                                         Container(
                                           padding:
-                                              const EdgeInsets.symmetric(
+                                              const EdgeInsets
+                                                  .symmetric(
                                             horizontal: 8,
                                             vertical: 3,
                                           ),
-                                          decoration: BoxDecoration(
+                                          decoration:
+                                              BoxDecoration(
                                             color: isActive
-                                                ? Colors.green.shade50
+                                                ? Colors.green
+                                                    .shade50
                                                 : isTerminated
-                                                    ? Colors.grey.shade200
-                                                    : Colors.red.shade50,
+                                                    ? Colors
+                                                        .grey
+                                                        .shade200
+                                                    : Colors
+                                                        .red
+                                                        .shade50,
                                             borderRadius:
-                                                BorderRadius.circular(6),
+                                                BorderRadius
+                                                    .circular(
+                                              6,
+                                            ),
                                           ),
                                           child: Text(
                                             status,
                                             style: TextStyle(
                                               color: isActive
-                                                  ? Colors.green.shade700
+                                                  ? Colors.green
+                                                      .shade700
                                                   : isTerminated
-                                                      ? Colors.grey.shade700
-                                                      : Colors.red.shade700,
+                                                      ? Colors
+                                                          .grey
+                                                          .shade700
+                                                      : Colors
+                                                          .red
+                                                          .shade700,
                                               fontSize: 11,
                                               fontWeight:
-                                                  FontWeight.bold,
+                                                  FontWeight
+                                                      .bold,
                                             ),
                                           ),
                                         ),
                                       ),
                                       DataCell(
                                         Row(
-                                          mainAxisSize: MainAxisSize.min,
+                                          mainAxisSize:
+                                              MainAxisSize.min,
                                           children: [
                                             IconButton(
-                                              icon: const Icon(
-                                                Icons.edit_rounded,
-                                                color: Colors.blue,
+                                              icon:
+                                                  const Icon(
+                                                Icons
+                                                    .edit_rounded,
+                                                color:
+                                                    Colors.blue,
                                                 size: 20,
                                               ),
                                               tooltip: 'Edit',
@@ -318,61 +786,93 @@ class _StaffScreenState extends State<StaffScreen> {
                                             // All staff status changes
                                             // now go through the lifecycle screen.
                                             IconButton(
-                                              icon: const Icon(
-                                                Icons.swap_horiz,
+                                              icon:
+                                                  const Icon(
+                                                Icons
+                                                    .swap_horiz,
                                               ),
-                                              tooltip: 'Change status',
+                                              tooltip:
+                                                  'Change status',
                                               onPressed: () =>
-                                                  _openLifecycleScreen(stf),
+                                                  _openLifecycleScreen(
+                                                    stf,
+                                                  ),
                                             ),
 
-                                            PopupMenuButton<String>(
-                                              icon: const Icon(
+                                            PopupMenuButton<
+                                                String>(
+                                              icon:
+                                                  const Icon(
                                                 Icons.more_vert,
                                                 size: 20,
-                                                color: Colors.grey,
+                                                color:
+                                                    Colors.grey,
                                               ),
-                                                                                           onSelected: (value) {
-                                                if (value == 'edit') {
+                                              onSelected:
+                                                  (value) {
+                                                if (value ==
+                                                    'edit') {
                                                   _openAddOrEditSheet(
                                                     staff: stf,
                                                   );
                                                 } else if (value ==
                                                     'lifecycle') {
-                                                  _openLifecycleScreen(stf);
+                                                  _openLifecycleScreen(
+                                                    stf,
+                                                  );
                                                 } else if (value ==
                                                     'supervisor') {
-                                                  _openSupervisorAssignmentScreen(stf);
+                                                  _openSupervisorAssignmentScreen(
+                                                    stf,
+                                                  );
                                                 } else if (value ==
                                                     'overtime') {
-                                                  _openOvertimeScreen(stf);
+                                                  _openOvertimeScreen(
+                                                    stf,
+                                                  );
                                                 }
                                               },
-                                              itemBuilder: (context) => [
+                                              itemBuilder:
+                                                  (context) => [
                                                 const PopupMenuItem(
                                                   value: 'edit',
                                                   child: Row(
                                                     children: [
                                                       Icon(
-                                                        Icons.edit,
-                                                        size: 18,
-                                                        color: Colors.blue,
+                                                        Icons
+                                                            .edit,
+                                                        size:
+                                                            18,
+                                                        color:
+                                                            Colors.blue,
                                                       ),
-                                                      SizedBox(width: 8),
-                                                      Text('Edit'),
+                                                      SizedBox(
+                                                        width:
+                                                            8,
+                                                      ),
+                                                      Text(
+                                                        'Edit',
+                                                      ),
                                                     ],
                                                   ),
                                                 ),
                                                 const PopupMenuItem(
-                                                  value: 'lifecycle',
+                                                  value:
+                                                      'lifecycle',
                                                   child: Row(
                                                     children: [
                                                       Icon(
-                                                        Icons.timeline,
-                                                        size: 18,
-                                                        color: Colors.purple,
+                                                        Icons
+                                                            .timeline,
+                                                        size:
+                                                            18,
+                                                        color:
+                                                            Colors.purple,
                                                       ),
-                                                      SizedBox(width: 8),
+                                                      SizedBox(
+                                                        width:
+                                                            8,
+                                                      ),
                                                       Text(
                                                         'Lifecycle & Site',
                                                       ),
@@ -380,15 +880,22 @@ class _StaffScreenState extends State<StaffScreen> {
                                                   ),
                                                 ),
                                                 const PopupMenuItem(
-                                                  value: 'supervisor',
+                                                  value:
+                                                      'supervisor',
                                                   child: Row(
                                                     children: [
                                                       Icon(
-                                                        Icons.supervisor_account,
-                                                        size: 18,
-                                                        color: Colors.teal,
+                                                        Icons
+                                                            .supervisor_account,
+                                                        size:
+                                                            18,
+                                                        color:
+                                                            Colors.teal,
                                                       ),
-                                                      SizedBox(width: 8),
+                                                      SizedBox(
+                                                        width:
+                                                            8,
+                                                      ),
                                                       Text(
                                                         'Assign Supervisor',
                                                       ),
@@ -396,15 +903,23 @@ class _StaffScreenState extends State<StaffScreen> {
                                                   ),
                                                 ),
                                                 const PopupMenuItem(
-                                                  value: 'overtime',
+                                                  value:
+                                                      'overtime',
                                                   child: Row(
                                                     children: [
                                                       Icon(
-                                                        Icons.more_time_rounded,
-                                                        size: 18,
-                                                        color: Colors.deepOrange,
+                                                        Icons
+                                                            .more_time_rounded,
+                                                        size:
+                                                            18,
+                                                        color:
+                                                            Colors
+                                                                .deepOrange,
                                                       ),
-                                                      SizedBox(width: 8),
+                                                      SizedBox(
+                                                        width:
+                                                            8,
+                                                      ),
                                                       Text(
                                                         'Overtime Compensation',
                                                       ),
@@ -428,7 +943,8 @@ class _StaffScreenState extends State<StaffScreen> {
             ),
       floatingActionButton: FloatingActionButton(
         backgroundColor: AppColors.primary,
-        onPressed: () => _openAddOrEditSheet(),
+        onPressed: () =>
+            _openAddOrEditSheet(),
         child: const Icon(
           Icons.person_add_alt_1,
           color: Colors.white,
@@ -454,7 +970,9 @@ class _StaffScreenState extends State<StaffScreen> {
             children: [
               Text(
                 title,
-                style: const TextStyle(color: Colors.grey),
+                style: const TextStyle(
+                  color: Colors.grey,
+                ),
               ),
               const SizedBox(height: 5),
               Text(
@@ -489,7 +1007,8 @@ class _AddEditStaffSheet extends StatefulWidget {
       _AddEditStaffSheetState();
 }
 
-class _AddEditStaffSheetState extends State<_AddEditStaffSheet> {
+class _AddEditStaffSheetState
+    extends State<_AddEditStaffSheet> {
   final _formKey = GlobalKey<FormState>();
 
   late TextEditingController _nameController;
@@ -518,11 +1037,16 @@ class _AddEditStaffSheetState extends State<_AddEditStaffSheet> {
     );
 
     _salaryController = TextEditingController(
-      text: widget.staff?['monthly_salary']?.toString() ?? '',
+      text:
+          widget.staff?['monthly_salary']?.toString() ??
+              '',
     );
 
     _dailyHoursController = TextEditingController(
-      text: widget.staff?['standard_daily_hours']?.toString() ?? '8.00',
+      text:
+          widget.staff?['standard_daily_hours']
+                  ?.toString() ??
+              '8.00',
     );
   }
 
@@ -549,7 +1073,8 @@ class _AddEditStaffSheetState extends State<_AddEditStaffSheet> {
       final staffId = widget.staff?['staff_id'];
 
       final payload = {
-        'full_name': _nameController.text.trim(),
+        'full_name':
+            _nameController.text.trim(),
         'phone_number':
             _phoneController.text.trim().isEmpty
                 ? null
@@ -559,7 +1084,9 @@ class _AddEditStaffSheetState extends State<_AddEditStaffSheet> {
                 ? null
                 : _positionController.text.trim(),
         'monthly_salary':
-            double.parse(_salaryController.text.trim()),
+            double.parse(
+          _salaryController.text.trim(),
+        ),
         'standard_daily_hours':
             double.tryParse(
                   _dailyHoursController.text.trim(),
@@ -568,7 +1095,8 @@ class _AddEditStaffSheetState extends State<_AddEditStaffSheet> {
       };
 
       if (isEditing) {
-        final response = await ApiConfig.dio.put(
+        final response =
+            await ApiConfig.dio.put(
           '${widget.apiUrl}/$staffId',
           data: payload,
         );
@@ -578,7 +1106,8 @@ class _AddEditStaffSheetState extends State<_AddEditStaffSheet> {
           widget.onSaved();
         }
       } else {
-        final response = await ApiConfig.dio.post(
+        final response =
+            await ApiConfig.dio.post(
           widget.apiUrl,
           data: payload,
         );
@@ -591,10 +1120,13 @@ class _AddEditStaffSheetState extends State<_AddEditStaffSheet> {
       }
     } on DioException catch (e) {
       final msg = e.response?.data is Map
-          ? (e.response?.data['message'] ?? 'Operation failed')
+          ? (e.response?.data['message'] ??
+              'Operation failed')
           : 'Operation failed';
 
-      setState(() => _errorMessage = msg);
+      setState(
+        () => _errorMessage = msg,
+      );
     } catch (e) {
       setState(
         () => _errorMessage =
@@ -602,7 +1134,9 @@ class _AddEditStaffSheetState extends State<_AddEditStaffSheet> {
       );
     } finally {
       if (mounted) {
-        setState(() => _isSubmitting = false);
+        setState(
+          () => _isSubmitting = false,
+        );
       }
     }
   }
@@ -614,7 +1148,8 @@ class _AddEditStaffSheetState extends State<_AddEditStaffSheet> {
     return Container(
       padding: EdgeInsets.only(
         bottom:
-            MediaQuery.of(context).viewInsets.bottom + 20,
+            MediaQuery.of(context).viewInsets.bottom +
+                20,
         top: 20,
         left: 20,
         right: 20,
@@ -650,7 +1185,8 @@ class _AddEditStaffSheetState extends State<_AddEditStaffSheet> {
                 decoration: const InputDecoration(
                   labelText: 'Full Name *',
                   border: OutlineInputBorder(),
-                  prefixIcon: Icon(Icons.person),
+                  prefixIcon:
+                      Icon(Icons.person),
                 ),
                 validator: (val) =>
                     val == null || val.isEmpty
@@ -660,40 +1196,56 @@ class _AddEditStaffSheetState extends State<_AddEditStaffSheet> {
               const SizedBox(height: 16),
               TextFormField(
                 controller: _phoneController,
-                keyboardType: TextInputType.phone,
+                keyboardType:
+                    TextInputType.phone,
                 decoration: const InputDecoration(
                   labelText: 'Phone Number',
                   border: OutlineInputBorder(),
-                  prefixIcon: Icon(Icons.phone),
+                  prefixIcon:
+                      Icon(Icons.phone),
                 ),
               ),
               const SizedBox(height: 16),
               TextFormField(
-                controller: _positionController,
-                decoration: const InputDecoration(
-                  labelText: 'Position / Job Title',
-                  border: OutlineInputBorder(),
-                  prefixIcon: Icon(Icons.work_outline),
+                controller:
+                    _positionController,
+                decoration:
+                    const InputDecoration(
+                  labelText:
+                      'Position / Job Title',
+                  border:
+                      OutlineInputBorder(),
+                  prefixIcon: Icon(
+                    Icons.work_outline,
+                  ),
                 ),
               ),
               const SizedBox(height: 16),
               TextFormField(
-                controller: _salaryController,
+                controller:
+                    _salaryController,
                 keyboardType:
                     const TextInputType.numberWithOptions(
                   decimal: true,
                 ),
-                decoration: const InputDecoration(
-                  labelText: 'Monthly Salary *',
-                  border: OutlineInputBorder(),
-                  prefixIcon: Icon(Icons.attach_money),
+                decoration:
+                    const InputDecoration(
+                  labelText:
+                      'Monthly Salary *',
+                  border:
+                      OutlineInputBorder(),
+                  prefixIcon: Icon(
+                    Icons.attach_money,
+                  ),
                 ),
                 validator: (val) {
-                  if (val == null || val.isEmpty) {
+                  if (val == null ||
+                      val.isEmpty) {
                     return 'Please enter monthly salary';
                   }
 
-                  if (double.tryParse(val) == null ||
+                  if (double.tryParse(val) ==
+                          null ||
                       double.parse(val) < 0) {
                     return 'Invalid salary value';
                   }
@@ -703,42 +1255,59 @@ class _AddEditStaffSheetState extends State<_AddEditStaffSheet> {
               ),
               const SizedBox(height: 16),
               TextFormField(
-                controller: _dailyHoursController,
+                controller:
+                    _dailyHoursController,
                 keyboardType:
                     const TextInputType.numberWithOptions(
                   decimal: true,
                 ),
-                decoration: const InputDecoration(
-                  labelText: 'Standard Daily Hours',
-                  border: OutlineInputBorder(),
-                  prefixIcon: Icon(Icons.access_time),
+                decoration:
+                    const InputDecoration(
+                  labelText:
+                      'Standard Daily Hours',
+                  border:
+                      OutlineInputBorder(),
+                  prefixIcon: Icon(
+                    Icons.access_time,
+                  ),
                 ),
               ),
               if (_errorMessage != null) ...[
                 const SizedBox(height: 16),
                 Container(
-                  padding: const EdgeInsets.all(12),
+                  padding:
+                      const EdgeInsets.all(12),
                   decoration: BoxDecoration(
-                    color: Colors.red.shade50,
+                    color:
+                        Colors.red.shade50,
                     border: Border.all(
-                      color: Colors.red.shade300,
+                      color:
+                          Colors.red.shade300,
                     ),
-                    borderRadius: BorderRadius.circular(10),
+                    borderRadius:
+                        BorderRadius.circular(
+                      10,
+                    ),
                   ),
                   child: Row(
                     children: [
                       const Icon(
                         Icons.error_outline,
-                        color: AppColors.danger,
+                        color:
+                            AppColors.danger,
                         size: 22,
                       ),
-                      const SizedBox(width: 10),
+                      const SizedBox(
+                        width: 10,
+                      ),
                       Expanded(
                         child: Text(
                           _errorMessage!,
                           style: TextStyle(
-                            color: Colors.red.shade900,
-                            fontWeight: FontWeight.bold,
+                            color:
+                                Colors.red.shade900,
+                            fontWeight:
+                                FontWeight.bold,
                             fontSize: 13,
                           ),
                         ),
@@ -749,16 +1318,26 @@ class _AddEditStaffSheetState extends State<_AddEditStaffSheet> {
               ],
               const SizedBox(height: 24),
               ElevatedButton(
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: AppColors.primary,
+                style:
+                    ElevatedButton.styleFrom(
+                  backgroundColor:
+                      AppColors.primary,
                   padding:
-                      const EdgeInsets.symmetric(vertical: 15),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(10),
+                      const EdgeInsets.symmetric(
+                    vertical: 15,
+                  ),
+                  shape:
+                      RoundedRectangleBorder(
+                    borderRadius:
+                        BorderRadius.circular(
+                      10,
+                    ),
                   ),
                 ),
                 onPressed:
-                    _isSubmitting ? null : _submit,
+                    _isSubmitting
+                        ? null
+                        : _submit,
                 child: _isSubmitting
                     ? const SizedBox(
                         width: 20,
@@ -773,7 +1352,8 @@ class _AddEditStaffSheetState extends State<_AddEditStaffSheet> {
                         isEditing
                             ? 'Update Staff Member'
                             : 'Save Staff Member',
-                        style: const TextStyle(
+                        style:
+                            const TextStyle(
                           color: Colors.white,
                           fontSize: 16,
                         ),
