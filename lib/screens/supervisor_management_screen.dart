@@ -14,6 +14,9 @@ class SupervisorManagementScreen extends StatefulWidget {
 class _SupervisorManagementScreenState extends State<SupervisorManagementScreen> {
   final String _apiUrl = '/users/supervisors';
 
+  // Toggle between the two supervisor roles this screen manages.
+  String _activeRole = 'Supervisor'; // 'Supervisor' = Worker Supervisor, 'StaffSupervisor' = Staff Supervisor
+
   List<dynamic> _supervisors = [];
   bool _isLoading = true;
   String _searchQuery = "";
@@ -27,7 +30,7 @@ class _SupervisorManagementScreenState extends State<SupervisorManagementScreen>
   Future<void> _loadSupervisors() async {
     setState(() => _isLoading = true);
     try {
-      final response = await ApiConfig.dio.get(_apiUrl);
+      final response = await ApiConfig.dio.get(_apiUrl, queryParameters: {'role': _activeRole});
       if (response.statusCode == 200 && response.data['status'] == 'success') {
         setState(() {
           _supervisors = response.data['data'] ?? [];
@@ -38,6 +41,15 @@ class _SupervisorManagementScreenState extends State<SupervisorManagementScreen>
       _showSnackBar('Failed to load supervisors', AppColors.danger);
     }
     setState(() => _isLoading = false);
+  }
+
+  void _switchRole(String role) {
+    if (role == _activeRole) return;
+    setState(() {
+      _activeRole = role;
+      _searchQuery = '';
+    });
+    _loadSupervisors();
   }
 
   Future<void> _toggleStatus(int userId, String currentStatus) async {
@@ -77,6 +89,7 @@ class _SupervisorManagementScreenState extends State<SupervisorManagementScreen>
       builder: (sheetContext) => _AddEditSupervisorSheet(
         supervisor: supervisor,
         apiUrl: _apiUrl,
+        role: _activeRole,
         onSaved: () {
           _loadSupervisors();
           _showSnackBar(
@@ -84,6 +97,71 @@ class _SupervisorManagementScreenState extends State<SupervisorManagementScreen>
             Colors.green.shade700,
           );
         },
+      ),
+    );
+  }
+
+  Widget _roleToggle() {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(12, 12, 12, 0),
+      child: Row(
+        children: [
+          Expanded(
+            child: _roleChip(
+              label: 'Worker Supervisors',
+              icon: Icons.engineering_rounded,
+              selected: _activeRole == 'Supervisor',
+              onTap: () => _switchRole('Supervisor'),
+            ),
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: _roleChip(
+              label: 'Staff Supervisors',
+              icon: Icons.badge_rounded,
+              selected: _activeRole == 'StaffSupervisor',
+              onTap: () => _switchRole('StaffSupervisor'),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _roleChip({
+    required String label,
+    required IconData icon,
+    required bool selected,
+    required VoidCallback onTap,
+  }) {
+    return Material(
+      color: selected ? AppColors.primary : Colors.white,
+      borderRadius: BorderRadius.circular(12),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(12),
+        onTap: onTap,
+        child: Container(
+          padding: const EdgeInsets.symmetric(vertical: 12),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(color: selected ? AppColors.primary : Colors.grey.shade300),
+          ),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(icon, size: 18, color: selected ? Colors.white : AppColors.primary),
+              const SizedBox(width: 8),
+              Text(
+                label,
+                style: TextStyle(
+                  color: selected ? Colors.white : AppColors.primary,
+                  fontWeight: FontWeight.bold,
+                  fontSize: 13,
+                ),
+              ),
+            ],
+          ),
+        ),
       ),
     );
   }
@@ -99,132 +177,140 @@ class _SupervisorManagementScreenState extends State<SupervisorManagementScreen>
 
     final activeCount = _supervisors.where((s) => s['status'] == 'Active').length;
     final inactiveCount = _supervisors.length - activeCount;
+    final isStaffTab = _activeRole == 'StaffSupervisor';
 
     return Scaffold(
       backgroundColor: Colors.grey[100],
-      appBar: const CustomAppBar(
-        title: 'Supervisors Management',
+      appBar: CustomAppBar(
+        title: isStaffTab ? 'Staff Supervisors' : 'Supervisors Management',
       ),
-      body: _isLoading
-          ? const Center(child: CircularProgressIndicator())
-          : Column(
-              children: [
-                Padding(
-                  padding: const EdgeInsets.all(12),
-                  child: Row(
+      body: Column(
+        children: [
+          _roleToggle(),
+          Expanded(
+            child: _isLoading
+                ? const Center(child: CircularProgressIndicator())
+                : Column(
                     children: [
-                      _buildStatCard('Total', _supervisors.length.toString(), AppColors.primary),
-                      const SizedBox(width: 10),
-                      _buildStatCard('Active', activeCount.toString(), Colors.green.shade700),
-                      const SizedBox(width: 10),
-                      _buildStatCard('Inactive', inactiveCount.toString(), AppColors.danger),
-                    ],
-                  ),
-                ),
-                Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 12),
-                  child: TextField(
-                    onChanged: (val) => setState(() => _searchQuery = val),
-                    decoration: InputDecoration(
-                      hintText: 'Search by name or username...',
-                      prefixIcon: const Icon(Icons.search),
-                      filled: true,
-                      fillColor: Colors.white,
-                      contentPadding: const EdgeInsets.symmetric(vertical: 0, horizontal: 20),
-                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(30), borderSide: BorderSide.none),
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 10),
-                Expanded(
-                  child: filteredSupervisors.isEmpty
-                      ? const Center(child: Text('No supervisors found', style: TextStyle(color: Colors.grey, fontSize: 16)))
-                      : ListView(
-                          padding: const EdgeInsets.all(12),
+                      Padding(
+                        padding: const EdgeInsets.all(12),
+                        child: Row(
                           children: [
-                            AppDataTableCard(
-                              title: 'Supervisors List',
-                              icon: Icons.supervisor_account,
-                              accentColor: AppColors.primary,
-                              emptyMessage: 'No supervisors registered yet.',
-                              trailing: Container(
-                                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                                decoration: BoxDecoration(
-                                  color: Colors.blue.shade50,
-                                  borderRadius: BorderRadius.circular(10),
-                                ),
-                                child: Text(
-                                  'Total: ${filteredSupervisors.length}',
-                                  style: TextStyle(color: Colors.blue.shade900, fontWeight: FontWeight.bold, fontSize: 12),
-                                ),
-                              ),
-                              columns: const [
-                                DataColumn(label: Text('#')),
-                                DataColumn(label: Text('Full Name')),
-                                DataColumn(label: Text('Status')),
-                                DataColumn(label: Text('Actions')),
-                              ],
-                              rows: List.generate(filteredSupervisors.length, (index) {
-                                final sup = filteredSupervisors[index];
-                                final isActive = sup['status'] == 'Active';
-
-                                return DataRow(
-                                  cells: [
-                                    DataCell(Text('${index + 1}')),
-                                    DataCell(
-                                      Row(
-                                        children: [
-                                          const Icon(Icons.person_outline, size: 16, color: Colors.grey),
-                                          const SizedBox(width: 8),
-                                          Text(sup['full_name'] ?? 'N/A', style: const TextStyle(fontWeight: FontWeight.w500)),
-                                        ],
-                                      ),
-                                    ),
-                                    DataCell(
-                                      Container(
-                                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                                        decoration: BoxDecoration(
-                                          color: isActive ? Colors.green.shade50 : Colors.red.shade50,
-                                          borderRadius: BorderRadius.circular(6),
-                                        ),
-                                        child: Text(
-                                          isActive ? 'Active' : 'Inactive',
-                                          style: TextStyle(
-                                            color: isActive ? Colors.green.shade700 : Colors.red.shade700,
-                                            fontSize: 11,
-                                            fontWeight: FontWeight.bold,
-                                          ),
-                                        ),
-                                      ),
-                                    ),
-                                    DataCell(
-                                      Row(
-                                        mainAxisSize: MainAxisSize.min,
-                                        children: [
-                                          IconButton(
-                                            icon: const Icon(Icons.edit_rounded, color: Colors.blue, size: 20),
-                                            onPressed: () => _openAddOrEditSheet(supervisor: sup),
-                                          ),
-                                          IconButton(
-                                            icon: Icon(
-                                              isActive ? Icons.block_rounded : Icons.check_circle_rounded,
-                                              color: isActive ? Colors.orange : Colors.green,
-                                              size: 20,
-                                            ),
-                                            onPressed: () => _toggleStatus(sup['user_id'], sup['status']),
-                                          ),
-                                        ],
-                                      ),
-                                    ),
-                                  ],
-                                );
-                              }),
-                            ),
+                            _buildStatCard('Total', _supervisors.length.toString(), AppColors.primary),
+                            const SizedBox(width: 10),
+                            _buildStatCard('Active', activeCount.toString(), Colors.green.shade700),
+                            const SizedBox(width: 10),
+                            _buildStatCard('Inactive', inactiveCount.toString(), AppColors.danger),
                           ],
                         ),
-                ),
-              ],
-            ),
+                      ),
+                      Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 12),
+                        child: TextField(
+                          onChanged: (val) => setState(() => _searchQuery = val),
+                          decoration: InputDecoration(
+                            hintText: 'Search by name or username...',
+                            prefixIcon: const Icon(Icons.search),
+                            filled: true,
+                            fillColor: Colors.white,
+                            contentPadding: const EdgeInsets.symmetric(vertical: 0, horizontal: 20),
+                            border: OutlineInputBorder(borderRadius: BorderRadius.circular(30), borderSide: BorderSide.none),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 10),
+                      Expanded(
+                        child: filteredSupervisors.isEmpty
+                            ? const Center(child: Text('No supervisors found', style: TextStyle(color: Colors.grey, fontSize: 16)))
+                            : ListView(
+                                padding: const EdgeInsets.all(12),
+                                children: [
+                                  AppDataTableCard(
+                                    title: isStaffTab ? 'Staff Supervisors List' : 'Supervisors List',
+                                    icon: Icons.supervisor_account,
+                                    accentColor: AppColors.primary,
+                                    emptyMessage: 'No supervisors registered yet.',
+                                    trailing: Container(
+                                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                                      decoration: BoxDecoration(
+                                        color: Colors.blue.shade50,
+                                        borderRadius: BorderRadius.circular(10),
+                                      ),
+                                      child: Text(
+                                        'Total: ${filteredSupervisors.length}',
+                                        style: TextStyle(color: Colors.blue.shade900, fontWeight: FontWeight.bold, fontSize: 12),
+                                      ),
+                                    ),
+                                    columns: const [
+                                      DataColumn(label: Text('#')),
+                                      DataColumn(label: Text('Full Name')),
+                                      DataColumn(label: Text('Status')),
+                                      DataColumn(label: Text('Actions')),
+                                    ],
+                                    rows: List.generate(filteredSupervisors.length, (index) {
+                                      final sup = filteredSupervisors[index];
+                                      final isActive = sup['status'] == 'Active';
+
+                                      return DataRow(
+                                        cells: [
+                                          DataCell(Text('${index + 1}')),
+                                          DataCell(
+                                            Row(
+                                              children: [
+                                                const Icon(Icons.person_outline, size: 16, color: Colors.grey),
+                                                const SizedBox(width: 8),
+                                                Text(sup['full_name'] ?? 'N/A', style: const TextStyle(fontWeight: FontWeight.w500)),
+                                              ],
+                                            ),
+                                          ),
+                                          DataCell(
+                                            Container(
+                                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                                              decoration: BoxDecoration(
+                                                color: isActive ? Colors.green.shade50 : Colors.red.shade50,
+                                                borderRadius: BorderRadius.circular(6),
+                                              ),
+                                              child: Text(
+                                                isActive ? 'Active' : 'Inactive',
+                                                style: TextStyle(
+                                                  color: isActive ? Colors.green.shade700 : Colors.red.shade700,
+                                                  fontSize: 11,
+                                                  fontWeight: FontWeight.bold,
+                                                ),
+                                              ),
+                                            ),
+                                          ),
+                                          DataCell(
+                                            Row(
+                                              mainAxisSize: MainAxisSize.min,
+                                              children: [
+                                                IconButton(
+                                                  icon: const Icon(Icons.edit_rounded, color: Colors.blue, size: 20),
+                                                  onPressed: () => _openAddOrEditSheet(supervisor: sup),
+                                                ),
+                                                IconButton(
+                                                  icon: Icon(
+                                                    isActive ? Icons.block_rounded : Icons.check_circle_rounded,
+                                                    color: isActive ? Colors.orange : Colors.green,
+                                                    size: 20,
+                                                  ),
+                                                  onPressed: () => _toggleStatus(sup['user_id'], sup['status']),
+                                                ),
+                                              ],
+                                            ),
+                                          ),
+                                        ],
+                                      );
+                                    }),
+                                  ),
+                                ],
+                              ),
+                      ),
+                    ],
+                  ),
+          ),
+        ],
+      ),
       floatingActionButton: FloatingActionButton(
         backgroundColor: AppColors.primary,
         onPressed: () => _openAddOrEditSheet(),
@@ -256,11 +342,13 @@ class _SupervisorManagementScreenState extends State<SupervisorManagementScreen>
 class _AddEditSupervisorSheet extends StatefulWidget {
   final Map<String, dynamic>? supervisor;
   final String apiUrl;
+  final String role;
   final VoidCallback onSaved;
 
   const _AddEditSupervisorSheet({
     this.supervisor,
     required this.apiUrl,
+    required this.role,
     required this.onSaved,
   });
 
@@ -272,7 +360,7 @@ class _AddEditSupervisorSheetState extends State<_AddEditSupervisorSheet> {
   final _formKey = GlobalKey<FormState>();
   late TextEditingController _nameController;
   late TextEditingController _usernameController;
-  late TextEditingController _emailController; // <--- 1. أضفنا الـ Controller للإيميل
+  late TextEditingController _emailController;
   late TextEditingController _passwordController;
   bool _isSubmitting = false;
   String? _errorMessage;
@@ -282,7 +370,7 @@ class _AddEditSupervisorSheetState extends State<_AddEditSupervisorSheet> {
     super.initState();
     _nameController = TextEditingController(text: widget.supervisor?['full_name'] ?? '');
     _usernameController = TextEditingController(text: widget.supervisor?['username'] ?? '');
-    _emailController = TextEditingController(text: widget.supervisor?['email'] ?? ''); // <--- تهيئة الإيميل
+    _emailController = TextEditingController(text: widget.supervisor?['email'] ?? '');
     _passwordController = TextEditingController();
   }
 
@@ -290,7 +378,7 @@ class _AddEditSupervisorSheetState extends State<_AddEditSupervisorSheet> {
   void dispose() {
     _nameController.dispose();
     _usernameController.dispose();
-    _emailController.dispose(); // <--- التخلص من الـ Controller
+    _emailController.dispose();
     _passwordController.dispose();
     super.dispose();
   }
@@ -311,7 +399,7 @@ class _AddEditSupervisorSheetState extends State<_AddEditSupervisorSheet> {
         final response = await ApiConfig.dio.put('${widget.apiUrl}/$supervisorId', data: {
           'full_name': _nameController.text.trim(),
           'username': _usernameController.text.trim(),
-          'email': _emailController.text.trim(), // <--- إرسال الإيميل عند التعديل
+          'email': _emailController.text.trim(),
         });
         if (response.statusCode == 200) {
           Navigator.pop(context);
@@ -321,8 +409,9 @@ class _AddEditSupervisorSheetState extends State<_AddEditSupervisorSheet> {
         final response = await ApiConfig.dio.post(widget.apiUrl, data: {
           'full_name': _nameController.text.trim(),
           'username': _usernameController.text.trim(),
-          'email': _emailController.text.trim(), // <--- إرسال الإيميل عند الإضافة
+          'email': _emailController.text.trim(),
           'password': _passwordController.text.trim(),
+          'role': widget.role,
         });
         if (response.statusCode == 201 || response.statusCode == 200) {
           Navigator.pop(context);
@@ -344,6 +433,7 @@ class _AddEditSupervisorSheetState extends State<_AddEditSupervisorSheet> {
   @override
   Widget build(BuildContext context) {
     final isEditing = widget.supervisor != null;
+    final roleLabel = widget.role == 'StaffSupervisor' ? 'Staff Supervisor' : 'Supervisor';
 
     return Container(
       padding: EdgeInsets.only(
@@ -362,7 +452,7 @@ class _AddEditSupervisorSheetState extends State<_AddEditSupervisorSheet> {
           children: [
             Center(
               child: Text(
-                isEditing ? 'Edit Supervisor' : 'Add New Supervisor',
+                isEditing ? 'Edit $roleLabel' : 'Add New $roleLabel',
                 style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
               ),
             ),
@@ -387,7 +477,6 @@ class _AddEditSupervisorSheetState extends State<_AddEditSupervisorSheet> {
               validator: (val) => val == null || val.isEmpty ? 'Please enter username' : null,
             ),
             const SizedBox(height: 16),
-            // --- حقل الإيميل الجديد ---
             TextFormField(
               controller: _emailController,
               keyboardType: TextInputType.emailAddress,
@@ -402,7 +491,6 @@ class _AddEditSupervisorSheetState extends State<_AddEditSupervisorSheet> {
                 return null;
               },
             ),
-            // -------------------------
             if (!isEditing) ...[
               const SizedBox(height: 16),
               TextFormField(

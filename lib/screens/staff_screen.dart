@@ -4,7 +4,8 @@ import '../constants.dart';
 import '../widgets/custom_app_bar.dart';
 import '../widgets/app_data_table.dart';
 import 'staff_lifecycle_screen.dart';
-
+import 'staff_supervisor_assignment_screen.dart';
+import 'staff_overtime_screen.dart';
 class StaffScreen extends StatefulWidget {
   const StaffScreen({Key? key}) : super(key: key);
 
@@ -88,7 +89,23 @@ class _StaffScreenState extends State<StaffScreen> {
       ),
     ).then((_) => _loadStaff());
   }
+  void _openSupervisorAssignmentScreen(Map<String, dynamic> staff) {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => StaffSupervisorAssignmentScreen(staff: staff),
+      ),
+    ).then((_) => _loadStaff());
+  }
 
+  void _openOvertimeScreen(Map<String, dynamic> staff) {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => StaffOvertimeScreen(staff: staff),
+      ),
+    );
+  }
   @override
   Widget build(BuildContext context) {
     final filteredStaff = _staffList.where((s) {
@@ -315,7 +332,7 @@ class _StaffScreenState extends State<StaffScreen> {
                                                 size: 20,
                                                 color: Colors.grey,
                                               ),
-                                              onSelected: (value) {
+                                                                                           onSelected: (value) {
                                                 if (value == 'edit') {
                                                   _openAddOrEditSheet(
                                                     staff: stf,
@@ -323,6 +340,12 @@ class _StaffScreenState extends State<StaffScreen> {
                                                 } else if (value ==
                                                     'lifecycle') {
                                                   _openLifecycleScreen(stf);
+                                                } else if (value ==
+                                                    'supervisor') {
+                                                  _openSupervisorAssignmentScreen(stf);
+                                                } else if (value ==
+                                                    'overtime') {
+                                                  _openOvertimeScreen(stf);
                                                 }
                                               },
                                               itemBuilder: (context) => [
@@ -352,6 +375,38 @@ class _StaffScreenState extends State<StaffScreen> {
                                                       SizedBox(width: 8),
                                                       Text(
                                                         'Lifecycle & Site',
+                                                      ),
+                                                    ],
+                                                  ),
+                                                ),
+                                                const PopupMenuItem(
+                                                  value: 'supervisor',
+                                                  child: Row(
+                                                    children: [
+                                                      Icon(
+                                                        Icons.supervisor_account,
+                                                        size: 18,
+                                                        color: Colors.teal,
+                                                      ),
+                                                      SizedBox(width: 8),
+                                                      Text(
+                                                        'Assign Supervisor',
+                                                      ),
+                                                    ],
+                                                  ),
+                                                ),
+                                                const PopupMenuItem(
+                                                  value: 'overtime',
+                                                  child: Row(
+                                                    children: [
+                                                      Icon(
+                                                        Icons.more_time_rounded,
+                                                        size: 18,
+                                                        color: Colors.deepOrange,
+                                                      ),
+                                                      SizedBox(width: 8),
+                                                      Text(
+                                                        'Overtime Compensation',
                                                       ),
                                                     ],
                                                   ),
