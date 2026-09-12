@@ -239,7 +239,7 @@ class _StaffPayrollScreenState extends State<StaffPayrollScreen> {
                                   Row(
                                     children: [
                                       Expanded(child: Text(s['full_name'] ?? '', style: const TextStyle(fontWeight: FontWeight.bold))),
-                                      Text('${(double.tryParse(s['net_salary'].toString()) ?? 0).toStringAsFixed(0)} ل.س',
+                                      Text('${(double.tryParse(s['net_salary'].toString()) ?? 0).toStringAsFixed(0)} USD',
                                           style: const TextStyle(fontWeight: FontWeight.bold, color: AppColors.primary)),
                                     ],
                                   ),
@@ -265,7 +265,7 @@ class _StaffPayrollScreenState extends State<StaffPayrollScreen> {
                 decoration: BoxDecoration(color: Colors.grey.shade50, border: Border(top: BorderSide(color: Colors.grey.shade200))),
                 child: Row(
                   children: [
-                    Expanded(child: Text('Total: ${batch['total_amount']} ل.س (${batch['total_staff']} staff)', style: const TextStyle(fontWeight: FontWeight.bold))),
+                    Expanded(child: Text('Total: ${batch['total_amount']} USD (${batch['total_staff']} staff)', style: const TextStyle(fontWeight: FontWeight.bold))),
                     if (status != 'Paid' && status != 'Superseded') ...[
                       if (!isFinalized)
                         ElevatedButton.icon(
@@ -379,7 +379,7 @@ class _StaffPayrollScreenState extends State<StaffPayrollScreen> {
                               child: ListTile(
                                 leading: CircleAvatar(backgroundColor: (isPaid ? Colors.green : Colors.orange).withOpacity(0.15), child: Icon(Icons.badge, color: isPaid ? Colors.green : AppColors.primary)),
                                 title: Text('Batch #${b['staff_payroll_batch_id']}'),
-                                subtitle: Text('${_fmtDate(b['start_date'])} → ${_fmtDate(b['end_date'])} • ${b['total_staff']} staff • ${b['total_amount']} ل.س'),
+                                subtitle: Text('${_fmtDate(b['start_date'])} → ${_fmtDate(b['end_date'])} • ${b['total_staff']} staff • ${b['total_amount']} USD'),
                                 trailing: Container(
                                   padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                                   decoration: BoxDecoration(color: (isPaid ? Colors.green : Colors.orange).withOpacity(0.12), borderRadius: BorderRadius.circular(20)),

@@ -69,19 +69,88 @@ class _StaffOvertimeScreenState extends State<StaffOvertimeScreen> {
     );
   }
 
-  Future<void> _pickMonth() async {
-    final picked = await showDatePicker(
+Future<void> _pickMonth() async {
+    // نحصل على الشهر والسنة الحاليين أو المختارين مسبقاً
+    int selectedYear = _selectedMonth.year;
+    int selectedMonth = _selectedMonth.month;
+
+    final result = await showDialog<DateTime>(
       context: context,
-      initialDate: _selectedMonth,
-      firstDate: DateTime(2023),
-      lastDate: DateTime.now().add(const Duration(days: 1)),
-      initialDatePickerMode: DatePickerMode.year,
-      helpText: 'Select any day in the target month',
+      builder: (BuildContext context) {
+        return AlertDialog(
+          title: const Text('Select Month'),
+          content: StatefulBuilder(
+            builder: (BuildContext context, StateSetter setStateDialog) {
+              return SizedBox(
+                width: 300,
+                height: 150,
+                child: Column(
+                  children: [
+                    // اختيار السنة
+                    DropdownButton<int>(
+                      value: selectedYear,
+                      isExpanded: true,
+                      items: List.generate(8, (index) => 2023 + index).map((year) {
+                        return DropdownMenuItem<int>(
+                          value: year,
+                          child: Text('$year', style: const TextStyle(fontSize: 16)),
+                        );
+                      }).toList(),
+                      onChanged: (val) {
+                        if (val != null) setStateDialog(() => selectedYear = val);
+                      },
+                    ),
+                    const SizedBox(height: 15),
+                    // اختيار الشهر
+                    DropdownButton<int>(
+                      value: selectedMonth,
+                      isExpanded: true,
+                      items: List.generate(12, (index) => index + 1).map((month) {
+                        // أسماء الأشهر أو أرقامها
+                        return DropdownMenuItem<int>(
+                          value: month,
+                          child: Text(_getMonthName(month), style: const TextStyle(fontSize: 16)),
+                        );
+                      }).toList(),
+                      onChanged: (val) {
+                        if (val != null) setStateDialog(() => selectedMonth = val);
+                      },
+                    ),
+                  ],
+                ),
+              );
+            },
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              onPressed: () {
+                // نعيد التاريخ مضافاً إليه اليوم الأول من الشهر المختار
+                Navigator.pop(context, DateTime(selectedYear, selectedMonth, 1));
+              },
+              child: const Text('OK'),
+            ),
+          ],
+        );
+      },
     );
-    if (picked != null) {
-      setState(() => _selectedMonth = picked);
+
+    if (result != null) {
+      setState(() => _selectedMonth = result);
       _loadAll();
     }
+  }
+
+  // دالة مساعدة لطباعة اسم الشهر بوضوح
+  String _getMonthName(int month) {
+    const months = [
+      'January', 'February', 'March', 'April', 'May', 'June',
+      'July', 'August', 'September', 'October', 'November', 'December'
+    ];
+    return months[month - 1];
   }
 
   Future<void> _openGrantDialog(Map day) async {
