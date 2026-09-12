@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
-
+import 'staff_supervisor_dashboard.dart';
 import '../services/auth_service.dart'; // Make sure this path matches your project structure
 import 'admin_dashboard_screen.dart';
 import 'supervisor_dashboard.dart';
@@ -93,27 +93,30 @@ class _LoginScreenState extends State<LoginScreen>
 
       Future.delayed(const Duration(milliseconds: 900), () {
         if (!mounted) return;
-        if (role == 'Admin') {
-          Navigator.pushReplacement(
-            context,
-            MaterialPageRoute(builder: (context) => const AdminDashboardScreen()),
-          );
-        } else {
-          final userIdRaw = result['user']['user_id'] ?? result['user']['id'];
-          final int supervisorId =
-              (userIdRaw != null) ? int.parse(userIdRaw.toString()) : 0;
-
-          Navigator.pushReplacement(
-            context,
-            MaterialPageRoute(
-              builder: (context) => SupervisorDashboard(
-                supervisorId: supervisorId,
-                supervisorName:
-                    result['user']['full_name'] ?? result['user']['username'] ?? 'New Supervisor',
-              ),
-            ),
-          );
-        }
+      if (role == 'Admin') {
+  Navigator.pushReplacement(context, MaterialPageRoute(builder: (context) => const AdminDashboardScreen()));
+} else if (role == 'StaffSupervisor') {
+  Navigator.pushReplacement(
+    context,
+    MaterialPageRoute(
+      builder: (context) => StaffSupervisorDashboard(
+        supervisorId: supervisorId,
+        supervisorName: result['user']['full_name'] ?? 'Staff Supervisor',
+      ),
+    ),
+  );
+} else {
+  // role == 'Supervisor' (worker supervisor)
+  Navigator.pushReplacement(
+    context,
+    MaterialPageRoute(
+      builder: (context) => SupervisorDashboard(
+        supervisorId: supervisorId,
+        supervisorName: result['user']['full_name'] ?? result['user']['username'] ?? 'New Supervisor',
+      ),
+    ),
+  );
+}
       });
     } else {
       String errorMsg = result?['message'] ?? "InCorrect Password or Username";

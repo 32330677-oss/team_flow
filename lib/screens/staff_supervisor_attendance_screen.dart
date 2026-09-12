@@ -1,29 +1,14 @@
-// not used
-// not used
-// not used
-// not used
-// not used
-// not used
-// not used
-// not used
-// not used
-// not used
-// not used
-// not used
-// not used
-// not used
-
 import 'package:flutter/material.dart';
 import 'package:dio/dio.dart';
 import 'package:intl/intl.dart';
 import '../constants.dart';
 import '../widgets/custom_app_bar.dart';
 
-class StaffAttendanceAdminScreen extends StatefulWidget {
-  const StaffAttendanceAdminScreen({super.key});
+class StaffSupervisorAttendanceScreen extends StatefulWidget {
+  const StaffSupervisorAttendanceScreen({super.key});
 
   @override
-  State<StaffAttendanceAdminScreen> createState() => _StaffAttendanceAdminScreenState();
+  State<StaffSupervisorAttendanceScreen> createState() => _StaffSupervisorAttendanceScreenState();
 }
 
 class _StaffRow {
@@ -50,7 +35,7 @@ class _StaffRow {
   });
 }
 
-class _StaffAttendanceAdminScreenState extends State<StaffAttendanceAdminScreen> {
+class _StaffSupervisorAttendanceScreenState extends State<StaffSupervisorAttendanceScreen> {
   static const Color primaryColor = Color(0xff1a2a6c);
   static const List<String> _statuses = ['Present', 'Absent', 'Sick', 'Vacation', 'Holiday'];
 
@@ -92,7 +77,7 @@ class _StaffAttendanceAdminScreenState extends State<StaffAttendanceAdminScreen>
 
     try {
       final response = await ApiConfig.dio.get(
-        '/staff-attendance/admin/day',
+        '/staff-attendance/supervisor/day',
         queryParameters: {'date': _dateStr},
       );
 
@@ -217,7 +202,7 @@ class _StaffAttendanceAdminScreenState extends State<StaffAttendanceAdminScreen>
           .toList();
 
       final response = await ApiConfig.dio.post(
-        '/staff-attendance/admin/bulk-set',
+        '/staff-attendance/supervisor/bulk-set',
         data: {
           'record_date': _dateStr,
           'entries': entries,

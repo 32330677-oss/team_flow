@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'staff_attendance_admin_screen.dart';
+import 'staff_attendance_review_screen.dart';
 import 'PayrollScreenStaff.dart';
 import '../widgets/custom_app_bar.dart';
 
@@ -25,7 +25,7 @@ class StaffAttendancePayrollHub extends StatelessWidget {
         ),
         body: const TabBarView(
           children: [
-            StaffAttendanceAdminScreen(),
+            StaffAttendanceReviewScreen(),
             StaffPayrollScreen(),
           ],
         ),
