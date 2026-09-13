@@ -58,18 +58,15 @@ class _StaffSupervisorAttendanceScreenState extends State<StaffSupervisorAttenda
   bool get _isBackdated =>
       _dateStr != DateFormat('yyyy-MM-dd').format(DateTime.now());
 
+  // يوم جمعة؟ (نفس تعريف isFriday بالباك اند: getUTCDay() == 5 لنفس التاريخ)
+  bool get _isFridaySelected => _selectedDate.weekday == DateTime.friday;
+
   TimeOfDay? _parseTime(dynamic value) {
     if (value == null) return null;
-
     final s = value.toString();
     final match = RegExp(r'(\d{2}):(\d{2})').firstMatch(s);
-
     if (match == null) return null;
-
-    return TimeOfDay(
-      hour: int.parse(match.group(1)!),
-      minute: int.parse(match.group(2)!),
-    );
+    return TimeOfDay(hour: int.parse(match.group(1)!), minute: int.parse(match.group(2)!));
   }
 
   Future<void> _loadDay() async {
@@ -86,11 +83,7 @@ class _StaffSupervisorAttendanceScreenState extends State<StaffSupervisorAttenda
       setState(() {
         _rows = data.map((raw) {
           final standard =
-              double.tryParse(
-                raw['standard_daily_hours']?.toString() ?? '8',
-              ) ??
-              8;
-
+              double.tryParse(raw['standard_daily_hours']?.toString() ?? '8') ?? 8;
           final hasRecord = raw['staff_attendance_id'] != null;
 
           return _StaffRow(
@@ -100,15 +93,9 @@ class _StaffSupervisorAttendanceScreenState extends State<StaffSupervisorAttenda
             position: raw['position']?.toString() ?? '-',
             standardHours: standard,
             status: raw['attendance_status']?.toString() ?? 'Present',
-            checkIn:
-                _parseTime(raw['check_in_time']) ??
-                const TimeOfDay(hour: 8, minute: 0),
-            checkOut:
-                _parseTime(raw['check_out_time']) ??
-                TimeOfDay(
-                  hour: (8 + standard).floor() % 24,
-                  minute: 0,
-                ),
+            checkIn: _parseTime(raw['check_in_time']) ?? const TimeOfDay(hour: 8, minute: 0),
+            checkOut: _parseTime(raw['check_out_time']) ??
+                TimeOfDay(hour: (8 + standard).floor() % 24, minute: 0),
             existing: hasRecord,
           );
         }).toList();
@@ -147,11 +134,27 @@ class _StaffSupervisorAttendanceScreenState extends State<StaffSupervisorAttenda
     });
   }
 
-  String _fmtTimeForDate(TimeOfDay t) {
-    final h = t.hour.toString().padLeft(2, '0');
-    final m = t.minute.toString().padLeft(2, '0');
+  // ------------------------------------------------------------------
+  // شيفت ليلي (Overnight): إذا وقت الخروج <= وقت الدخول، اعتبر الخروج
+  // باليوم التالي التقويمي. هاد بيطابق مبدأ "Overnight attendance":
+  // تاريخ سجل الحضور بيضل تاريخ الدخول، بس وقت الخروج فعليًا باليوم اللي بعده.
+  // ------------------------------------------------------------------
+  String _fmtDateTimeForRow(TimeOfDay checkIn, TimeOfDay t, {required bool isCheckOut}) {
+    final baseDate = DateTime.parse(_dateStr);
+    DateTime dt = DateTime(baseDate.year, baseDate.month, baseDate.day, t.hour, t.minute);
 
-    return '$_dateStr $h:$m:00';
+    if (isCheckOut) {
+      final checkInMinutes = checkIn.hour * 60 + checkIn.minute;
+      final checkOutMinutes = t.hour * 60 + t.minute;
+      if (checkOutMinutes <= checkInMinutes) {
+        dt = dt.add(const Duration(days: 1));
+      }
+    }
+
+    final h = dt.hour.toString().padLeft(2, '0');
+    final m = dt.minute.toString().padLeft(2, '0');
+    final d = '${dt.year.toString().padLeft(4, '0')}-${dt.month.toString().padLeft(2, '0')}-${dt.day.toString().padLeft(2, '0')}';
+    return '$d $h:$m:00';
   }
 
   Future<void> _save() async {
@@ -164,133 +167,127 @@ class _StaffSupervisorAttendanceScreenState extends State<StaffSupervisorAttenda
             'You are recording attendance for $_dateStr, which is not today. Are you sure you want to continue?',
           ),
           actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(ctx, false),
-              child: const Text('Cancel'),
-            ),
+            TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
             ElevatedButton(
-              style: ElevatedButton.styleFrom(
-                backgroundColor: Colors.orange.shade800,
-              ),
+              style: ElevatedButton.styleFrom(backgroundColor: Colors.orange.shade800),
               onPressed: () => Navigator.pop(ctx, true),
-              child: const Text(
-                'Continue',
-                style: TextStyle(color: Colors.white),
-              ),
+              child: const Text('Continue', style: TextStyle(color: Colors.white)),
             ),
           ],
         ),
       );
-
       if (confirm != true) return;
+    }
+
+    // ----------------------------------------------------------------
+    // الجمعة: لازم تأكيد صريح لكل من سيُسجَّل Present، وإلا الباك اند
+    // هيرفض تلقائيًا (requires_friday_confirmation).
+    // ----------------------------------------------------------------
+    final hasPresentEntries = _rows.any((r) => r.status == 'Present');
+    bool fridayConfirmed = false;
+    if (_isFridaySelected && hasPresentEntries) {
+      final confirm = await showDialog<bool>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: const Text('Friday Attendance'),
+          content: const Text(
+            'Friday is normally a non-working day. Are you sure you want to register attendance for the staff marked Present on this Friday?',
+          ),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
+            ElevatedButton(
+              style: ElevatedButton.styleFrom(backgroundColor: Colors.deepPurple),
+              onPressed: () => Navigator.pop(ctx, true),
+              child: const Text('Confirm', style: TextStyle(color: Colors.white)),
+            ),
+          ],
+        ),
+      );
+      if (confirm != true) return;
+      fridayConfirmed = true;
     }
 
     setState(() => _isSaving = true);
 
     try {
-      final entries = _rows
-          .map(
-            (row) => {
-              'staff_id': row.staffId,
-              'attendance_status': row.status,
-              if (row.status == 'Present')
-                'check_in_time': _fmtTimeForDate(row.checkIn),
-              if (row.status == 'Present')
-                'check_out_time': _fmtTimeForDate(row.checkOut),
-            },
-          )
-          .toList();
+      final entries = _rows.map((row) {
+        final map = <String, dynamic>{
+          'staff_id': row.staffId,
+          'attendance_status': row.status,
+        };
+        if (row.status == 'Present') {
+          map['check_in_time'] = _fmtDateTimeForRow(row.checkIn, row.checkIn, isCheckOut: false);
+          map['check_out_time'] = _fmtDateTimeForRow(row.checkIn, row.checkOut, isCheckOut: true);
+          if (_isFridaySelected) {
+            map['friday_confirmed'] = fridayConfirmed;
+          }
+        }
+        return map;
+      }).toList();
 
       final response = await ApiConfig.dio.post(
         '/staff-attendance/supervisor/bulk-set',
-        data: {
-          'record_date': _dateStr,
-          'entries': entries,
-        },
+        data: {'record_date': _dateStr, 'entries': entries},
       );
 
-      _showSnack(
-        response.data['message'] ?? 'Saved successfully',
-        Colors.green.shade700,
-      );
+      final data = response.data is Map ? response.data as Map : {};
+      final results = data['data'] is Map ? data['data'] as Map : {};
+      final skipped = (results['skipped'] as List?) ?? [];
+      final updatedCount = (results['updated'] as List?)?.length ?? 0;
+
+      if (skipped.isNotEmpty) {
+        final needsFriday = skipped.any(
+          (s) => s is Map && s['requires_friday_confirmation'] == true,
+        );
+        _showSnack(
+          needsFriday
+              ? '$updatedCount saved. Some entries need Friday confirmation — please retry.'
+              : '$updatedCount saved, ${skipped.length} skipped.',
+          Colors.orange,
+        );
+      } else {
+        _showSnack(data['message']?.toString() ?? 'Saved successfully', Colors.green.shade700);
+      }
 
       _loadDay();
     } on DioException catch (e) {
       final msg = e.response?.data is Map
           ? (e.response?.data['message'] ?? 'Failed to save')
           : 'Failed to save';
-
       _showSnack(msg, Colors.red);
     } finally {
-      if (mounted) {
-        setState(() => _isSaving = false);
-      }
+      if (mounted) setState(() => _isSaving = false);
     }
   }
 
   void _showSnack(String message, Color color) {
     ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(message),
-        backgroundColor: color,
-        behavior: SnackBarBehavior.floating,
-      ),
+      SnackBar(content: Text(message), backgroundColor: color, behavior: SnackBarBehavior.floating),
     );
   }
 
-  Widget _timeStepper(
-    TimeOfDay value,
-    ValueChanged<TimeOfDay> onChanged,
-  ) {
+  Widget _timeStepper(TimeOfDay value, ValueChanged<TimeOfDay> onChanged) {
     TimeOfDay addMinutes(int delta) {
-      final total =
-          (value.hour * 60 + value.minute + delta) % (24 * 60);
-
+      final total = (value.hour * 60 + value.minute + delta) % (24 * 60);
       final normalized = total < 0 ? total + 24 * 60 : total;
-
-      return TimeOfDay(
-        hour: normalized ~/ 60,
-        minute: normalized % 60,
-      );
+      return TimeOfDay(hour: normalized ~/ 60, minute: normalized % 60);
     }
 
-    Widget unitStepper({
-      required String label,
-      required VoidCallback onMinus,
-      required VoidCallback onPlus,
-    }) {
+    Widget unitStepper({required String label, required VoidCallback onMinus, required VoidCallback onPlus}) {
       return Column(
         mainAxisSize: MainAxisSize.min,
         children: [
           IconButton.filledTonal(
-            icon: const Icon(
-              Icons.keyboard_arrow_up,
-              size: 16,
-            ),
+            icon: const Icon(Icons.keyboard_arrow_up, size: 16),
             onPressed: onPlus,
-            constraints: const BoxConstraints(
-              minWidth: 28,
-              minHeight: 28,
-            ),
+            constraints: const BoxConstraints(minWidth: 28, minHeight: 28),
             padding: EdgeInsets.zero,
           ),
-          Text(
-            label,
-            style: const TextStyle(
-              fontWeight: FontWeight.bold,
-              fontSize: 13,
-            ),
-          ),
+          Text(label, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
           IconButton.filledTonal(
-            icon: const Icon(
-              Icons.keyboard_arrow_down,
-              size: 16,
-            ),
+            icon: const Icon(Icons.keyboard_arrow_down, size: 16),
             onPressed: onMinus,
-            constraints: const BoxConstraints(
-              minWidth: 28,
-              minHeight: 28,
-            ),
+            constraints: const BoxConstraints(minWidth: 28, minHeight: 28),
             padding: EdgeInsets.zero,
           ),
         ],
@@ -307,10 +304,7 @@ class _StaffSupervisorAttendanceScreenState extends State<StaffSupervisorAttenda
         ),
         const Padding(
           padding: EdgeInsets.symmetric(horizontal: 4),
-          child: Text(
-            ':',
-            style: TextStyle(fontWeight: FontWeight.bold),
-          ),
+          child: Text(':', style: TextStyle(fontWeight: FontWeight.bold)),
         ),
         unitStepper(
           label: value.minute.toString().padLeft(2, '0'),
@@ -321,261 +315,253 @@ class _StaffSupervisorAttendanceScreenState extends State<StaffSupervisorAttenda
     );
   }
 
-
-@override
-Widget build(BuildContext context) {
-  return Scaffold(
-    backgroundColor: Colors.grey[100],
-    appBar: CustomAppBar(
-      title: 'Staff Attendance',
-      actions: [
-        IconButton(
-          icon: const Icon(Icons.refresh),
-          onPressed: _loadDay,
-        ),
-      ],
-    ),
-    body: _isLoading
-        ? const Center(
-            child: CircularProgressIndicator(),
-          )
-        : Column(
-            children: [
-              Container(
-                margin: const EdgeInsets.all(12),
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 16,
-                  vertical: 12,
-                ),
-                decoration: BoxDecoration(
-                  color: Colors.white,
-                  borderRadius: BorderRadius.circular(14),
-                ),
-                child: Row(
-                  children: [
-                    const Icon(
-                      Icons.calendar_today,
-                      color: primaryColor,
-                      size: 18,
-                    ),
-                    const SizedBox(width: 10),
-                    Expanded(
-                      child: GestureDetector(
-                        onTap: _pickDate,
-                        child: Text(
-                          DateFormat(
-                            'EEEE, dd MMM yyyy',
-                          ).format(_selectedDate),
-                          style: const TextStyle(
-                            fontWeight: FontWeight.bold,
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: Colors.grey[100],
+      appBar: CustomAppBar(
+        title: 'Staff Attendance',
+        actions: [
+          IconButton(icon: const Icon(Icons.refresh), onPressed: _loadDay),
+        ],
+      ),
+      body: _isLoading
+          ? const Center(child: CircularProgressIndicator())
+          : Column(
+              children: [
+                Container(
+                  margin: const EdgeInsets.all(12),
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                  decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(14)),
+                  child: Row(
+                    children: [
+                      const Icon(Icons.calendar_today, color: primaryColor, size: 18),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: GestureDetector(
+                          onTap: _pickDate,
+                          child: Text(
+                            DateFormat('EEEE, dd MMM yyyy').format(_selectedDate),
+                            style: const TextStyle(fontWeight: FontWeight.bold),
                           ),
                         ),
                       ),
-                    ),
-                    if (_isBackdated)
-                      Container(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 8,
-                          vertical: 4,
-                        ),
-                        decoration: BoxDecoration(
-                          color: Colors.orange.shade50,
-                          borderRadius: BorderRadius.circular(8),
-                        ),
-                        child: Text(
-                          'Backdated',
-                          style: TextStyle(
-                            color: Colors.orange.shade800,
-                            fontSize: 11,
-                            fontWeight: FontWeight.bold,
+                      if (_isFridaySelected)
+                        Container(
+                          margin: const EdgeInsets.only(right: 6),
+                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                          decoration: BoxDecoration(
+                            color: Colors.deepPurple.shade50,
+                            borderRadius: BorderRadius.circular(8),
                           ),
-                        ),
-                      ),
-                    TextButton.icon(
-                      onPressed: _pickDate,
-                      icon: const Icon(
-                        Icons.edit_calendar,
-                        size: 16,
-                      ),
-                      label: const Text('Change'),
-                    ),
-                  ],
-                ),
-              ),
-
-              const SizedBox(height: 8),
-
-              Expanded(
-                child: _rows.isEmpty
-                    ? const Center(
-                        child: Text('No active staff found'),
-                      )
-                    : ListView.builder(
-                        padding: const EdgeInsets.symmetric(horizontal: 12),
-                        itemCount: _rows.length + 1,
-                        itemBuilder: (context, index) {
-                          if (index == 0) {
-                            return Container(
-                              margin: const EdgeInsets.only(bottom: 8),
-                              padding: const EdgeInsets.all(12),
-                              decoration: BoxDecoration(
-                                color: Colors.white,
-                                borderRadius: BorderRadius.circular(14),
-                              ),
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  const Text(
-                                    'Bulk apply Check-in / Check-out to everyone Present:',
-                                    style: TextStyle(
-                                      fontWeight: FontWeight.w600,
-                                    ),
-                                  ),
-                                  const SizedBox(height: 8),
-                                  Row(
-                                    children: [
-                                      const Text('In: '),
-                                      _timeStepper(
-                                        _globalCheckIn,
-                                        (v) => setState(
-                                          () => _globalCheckIn = v,
-                                        ),
-                                      ),
-                                      const SizedBox(width: 20),
-                                      const Text('Out: '),
-                                      _timeStepper(
-                                        _globalCheckOut,
-                                        (v) => setState(
-                                          () => _globalCheckOut = v,
-                                        ),
-                                      ),
-                                      const Spacer(),
-                                      ElevatedButton(
-                                        onPressed: _applyGlobalToAllPresent,
-                                        style: ElevatedButton.styleFrom(
-                                          backgroundColor: primaryColor,
-                                        ),
-                                        child: const Text(
-                                          'Apply to All',
-                                          style: TextStyle(
-                                            color: Colors.white,
-                                          ),
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                ],
-                              ),
-                            );
-                          }
-
-                          final row = _rows[index - 1];
-
-                          return Card(
-                            margin: const EdgeInsets.only(
-                              bottom: 8,
+                          child: Text(
+                            'Friday',
+                            style: TextStyle(
+                              color: Colors.deepPurple.shade700,
+                              fontSize: 11,
+                              fontWeight: FontWeight.bold,
                             ),
-                            child: Padding(
-                              padding: const EdgeInsets.all(12),
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Row(
-                                    children: [
-                                      Expanded(
-                                        child: Column(
-                                          crossAxisAlignment:
-                                              CrossAxisAlignment.start,
-                                          children: [
-                                            Text(
-                                              row.fullName,
-                                              style: const TextStyle(
-                                                fontWeight: FontWeight.bold,
-                                              ),
-                                            ),
-                                            Text(
-                                              '${row.uniqueId} • ${row.position}',
-                                              style: TextStyle(
-                                                fontSize: 11,
-                                                color: Colors.grey.shade600,
-                                              ),
-                                            ),
-                                          ],
-                                        ),
-                                      ),
-                                      DropdownButton<String>(
-                                        value: row.status,
-                                        items: _statuses
-                                            .map(
-                                              (s) => DropdownMenuItem(
-                                                value: s,
-                                                child: Text(s),
-                                              ),
-                                            )
-                                            .toList(),
-                                        onChanged: (v) => setState(
-                                          () => row.status =
-                                              v ?? row.status,
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                  if (row.status == 'Present') ...[
+                          ),
+                        ),
+                      if (_isBackdated)
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                          decoration: BoxDecoration(color: Colors.orange.shade50, borderRadius: BorderRadius.circular(8)),
+                          child: Text(
+                            'Backdated',
+                            style: TextStyle(color: Colors.orange.shade800, fontSize: 11, fontWeight: FontWeight.bold),
+                          ),
+                        ),
+                      TextButton.icon(
+                        onPressed: _pickDate,
+                        icon: const Icon(Icons.edit_calendar, size: 16),
+                        label: const Text('Change'),
+                      ),
+                    ],
+                  ),
+                ),
+
+                if (_isFridaySelected)
+                  Container(
+                    margin: const EdgeInsets.symmetric(horizontal: 12),
+                    padding: const EdgeInsets.all(10),
+                    decoration: BoxDecoration(
+                      color: Colors.deepPurple.shade50,
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    child: Row(
+                      children: [
+                        Icon(Icons.info_outline, size: 16, color: Colors.deepPurple.shade700),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            'Friday is normally a non-working day. Marking anyone Present will require confirmation on save.',
+                            style: TextStyle(fontSize: 11.5, color: Colors.deepPurple.shade700),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+
+                const SizedBox(height: 8),
+
+                Expanded(
+                  child: _rows.isEmpty
+                      ? const Center(child: Text('No active staff found'))
+                      : ListView.builder(
+                          padding: const EdgeInsets.symmetric(horizontal: 12),
+                          itemCount: _rows.length + 1,
+                          itemBuilder: (context, index) {
+                            if (index == 0) {
+                              return Container(
+                                margin: const EdgeInsets.only(bottom: 8),
+                                padding: const EdgeInsets.all(12),
+                                decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(14)),
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    const Text(
+                                      'Bulk apply Check-in / Check-out to everyone Present:',
+                                      style: TextStyle(fontWeight: FontWeight.w600),
+                                    ),
                                     const SizedBox(height: 8),
                                     Row(
-                                      mainAxisAlignment:
-                                          MainAxisAlignment.spaceBetween,
                                       children: [
-                                        Column(
-                                          crossAxisAlignment:
-                                              CrossAxisAlignment.start,
-                                          children: [
-                                            Text(
-                                              'Check-in',
-                                              style: TextStyle(
-                                                fontSize: 11,
-                                                color: Colors.grey.shade600,
-                                              ),
-                                            ),
-                                            _timeStepper(
-                                              row.checkIn,
-                                              (v) => setState(
-                                                () => row.checkIn = v,
-                                              ),
-                                            ),
-                                          ],
-                                        ),
-                                        Column(
-                                          crossAxisAlignment:
-                                              CrossAxisAlignment.start,
-                                          children: [
-                                            Text(
-                                              'Check-out',
-                                              style: TextStyle(
-                                                fontSize: 11,
-                                                color: Colors.grey.shade600,
-                                              ),
-                                            ),
-                                            _timeStepper(
-                                              row.checkOut,
-                                              (v) => setState(
-                                                () => row.checkOut = v,
-                                              ),
-                                            ),
-                                          ],
+                                        const Text('In: '),
+                                        _timeStepper(_globalCheckIn, (v) => setState(() => _globalCheckIn = v)),
+                                        const SizedBox(width: 20),
+                                        const Text('Out: '),
+                                        _timeStepper(_globalCheckOut, (v) => setState(() => _globalCheckOut = v)),
+                                        const Spacer(),
+                                        ElevatedButton(
+                                          onPressed: _applyGlobalToAllPresent,
+                                          style: ElevatedButton.styleFrom(backgroundColor: primaryColor),
+                                          child: const Text('Apply to All', style: TextStyle(color: Colors.white)),
                                         ),
                                       ],
                                     ),
+                                    const SizedBox(height: 6),
+                                    Text(
+                                      'If check-out time is earlier than or equal to check-in, it will be treated as the next calendar day (overnight shift).',
+                                      style: TextStyle(fontSize: 10.5, color: Colors.grey.shade600),
+                                    ),
                                   ],
-                                ],
+                                ),
+                              );
+                            }
+
+                            final row = _rows[index - 1];
+
+                            return Card(
+                              margin: const EdgeInsets.only(bottom: 8),
+                              child: Padding(
+                                padding: const EdgeInsets.all(12),
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Row(
+                                      children: [
+                                        Expanded(
+                                          child: Column(
+                                            crossAxisAlignment: CrossAxisAlignment.start,
+                                            children: [
+                                              Text(row.fullName, style: const TextStyle(fontWeight: FontWeight.bold)),
+                                              Text(
+                                                '${row.uniqueId} • ${row.position}',
+                                                style: TextStyle(fontSize: 11, color: Colors.grey.shade600),
+                                              ),
+                                            ],
+                                          ),
+                                        ),
+                                        DropdownButton<String>(
+                                          value: row.status,
+                                          items: _statuses
+                                              .map((s) => DropdownMenuItem(value: s, child: Text(s)))
+                                              .toList(),
+                                          onChanged: (v) => setState(() => row.status = v ?? row.status),
+                                        ),
+                                      ],
+                                    ),
+                                    if (row.status == 'Present') ...[
+                                      const SizedBox(height: 8),
+                                      Row(
+                                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                        children: [
+                                          Column(
+                                            crossAxisAlignment: CrossAxisAlignment.start,
+                                            children: [
+                                              Text('Check-in', style: TextStyle(fontSize: 11, color: Colors.grey.shade600)),
+                                              _timeStepper(row.checkIn, (v) => setState(() => row.checkIn = v)),
+                                            ],
+                                          ),
+                                          Column(
+                                            crossAxisAlignment: CrossAxisAlignment.start,
+                                            children: [
+                                              Text('Check-out', style: TextStyle(fontSize: 11, color: Colors.grey.shade600)),
+                                              _timeStepper(row.checkOut, (v) => setState(() => row.checkOut = v)),
+                                            ],
+                                          ),
+                                        ],
+                                      ),
+                                      if ((row.checkOut.hour * 60 + row.checkOut.minute) <=
+                                          (row.checkIn.hour * 60 + row.checkIn.minute))
+                                        Padding(
+                                          padding: const EdgeInsets.only(top: 6),
+                                          child: Row(
+                                            children: [
+                                              Icon(Icons.nightlight_round, size: 13, color: Colors.indigo.shade400),
+                                              const SizedBox(width: 4),
+                                              Text(
+                                                'Overnight shift — check-out counted on the next day',
+                                                style: TextStyle(fontSize: 10.5, color: Colors.indigo.shade400),
+                                              ),
+                                            ],
+                                          ),
+                                        ),
+                                    ],
+                                  ],
+                                ),
                               ),
-                            ),
-                          );
-                        },
+                            );
+                          },
+                        ),
+                ),
+
+                // -------------------------------------------------------
+                // كان ناقص بالكامل: زر الحفظ! بدونه ما في طريقة ترسل
+                // التغييرات للسيرفر.
+                // -------------------------------------------------------
+                Container(
+                  padding: const EdgeInsets.all(16),
+                  color: Colors.white,
+                  child: SafeArea(
+                    top: false,
+                    child: SizedBox(
+                      width: double.infinity,
+                      height: 50,
+                      child: ElevatedButton.icon(
+                        onPressed: (_isSaving || _rows.isEmpty) ? null : _save,
+                        icon: _isSaving
+                            ? const SizedBox(
+                                width: 18,
+                                height: 18,
+                                child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                              )
+                            : const Icon(Icons.save_alt_rounded, color: Colors.white),
+                        label: Text(
+                          _isSaving ? 'Saving...' : 'Save Attendance',
+                          style: const TextStyle(color: Colors.white, fontSize: 15, fontWeight: FontWeight.bold),
+                        ),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: primaryColor,
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                        ),
                       ),
-              ),
-            ],
-          ),
-  );
-}
+                    ),
+                  ),
+                ),
+              ],
+            ),
+    );
+  }
 }

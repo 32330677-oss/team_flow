@@ -1,14 +1,11 @@
 // lib/screens/staff_overtime_screen.dart
 //
-// Month-scoped overtime compensation for a single staff member.
-// Shows Gross / Used / Remaining OT for the selected month, lists Present
-// days still carrying an uncompensated shortfall, lets Admin grant
-// compensation against one of them (bounded by both the day's remaining
-// shortfall and the month's remaining OT balance), and shows/reverses
-// grant history. Never touches stored regular_hours/overtime_hours.
+// عرض read-only لسجل الساعات الإضافية الشهري (Monthly Overtime Ledger)
+// المحسوب تلقائيًا عند توليد دفعة Payroll (StaffPayrollController).
+// النظام القديم لمنح تعويض يدوي يوم-بيوم أصبح ملغى واستُبدل بهذا المبدأ
+// الشهري التلقائي بالكامل.
 
 import 'package:flutter/material.dart';
-import 'package:dio/dio.dart';
 import 'package:intl/intl.dart';
 import '../constants.dart';
 import '../widgets/custom_app_bar.dart';
@@ -27,11 +24,8 @@ class _StaffOvertimeScreenState extends State<StaffOvertimeScreen> {
 
   DateTime _selectedMonth = DateTime.now();
   bool _isLoading = true;
-  bool _isSubmitting = false;
-
-  Map<String, dynamic>? _balance;
-  List<dynamic> _shortfallDays = [];
-  List<dynamic> _history = [];
+  Map<String, dynamic>? _ledger;
+  String? _infoMessage;
 
   int get _staffId => widget.staff['staff_id'] as int;
   String get _monthStr => DateFormat('yyyy-MM').format(_selectedMonth);
@@ -39,26 +33,27 @@ class _StaffOvertimeScreenState extends State<StaffOvertimeScreen> {
   @override
   void initState() {
     super.initState();
-    _loadAll();
+    _load();
   }
 
-  Future<void> _loadAll() async {
-    setState(() => _isLoading = true);
+  Future<void> _load() async {
+    setState(() {
+      _isLoading = true;
+      _infoMessage = null;
+    });
     try {
-      final results = await Future.wait([
-        ApiConfig.dio.get('/staff-overtime/balance', queryParameters: {'staff_id': _staffId, 'month': _monthStr}),
-        ApiConfig.dio.get('/staff-overtime/shortfall-days', queryParameters: {'staff_id': _staffId, 'month': _monthStr}),
-        ApiConfig.dio.get('/staff-overtime/history', queryParameters: {'staff_id': _staffId, 'month': _monthStr}),
-      ]);
+      final response = await ApiConfig.dio.get(
+        '/staff-overtime/monthly-ledger',
+        queryParameters: {'staff_id': _staffId, 'month': _monthStr},
+      );
       setState(() {
-        _balance = results[0].data['data'];
-        _shortfallDays = results[1].data['data'] ?? [];
-        _history = results[2].data['data'] ?? [];
+        _ledger = response.data['data'];
+        _infoMessage = _ledger == null ? response.data['message']?.toString() : null;
         _isLoading = false;
       });
     } catch (e) {
       setState(() => _isLoading = false);
-      _showSnack('Failed to load overtime data', Colors.red);
+      _showSnack('Failed to load the monthly overtime ledger', Colors.red);
     }
   }
 
@@ -69,83 +64,62 @@ class _StaffOvertimeScreenState extends State<StaffOvertimeScreen> {
     );
   }
 
-Future<void> _pickMonth() async {
-    // نحصل على الشهر والسنة الحاليين أو المختارين مسبقاً
+  Future<void> _pickMonth() async {
     int selectedYear = _selectedMonth.year;
     int selectedMonth = _selectedMonth.month;
 
     final result = await showDialog<DateTime>(
       context: context,
-      builder: (BuildContext context) {
-        return AlertDialog(
-          title: const Text('Select Month'),
-          content: StatefulBuilder(
-            builder: (BuildContext context, StateSetter setStateDialog) {
-              return SizedBox(
-                width: 300,
-                height: 150,
-                child: Column(
-                  children: [
-                    // اختيار السنة
-                    DropdownButton<int>(
-                      value: selectedYear,
-                      isExpanded: true,
-                      items: List.generate(8, (index) => 2023 + index).map((year) {
-                        return DropdownMenuItem<int>(
-                          value: year,
-                          child: Text('$year', style: const TextStyle(fontSize: 16)),
-                        );
-                      }).toList(),
-                      onChanged: (val) {
-                        if (val != null) setStateDialog(() => selectedYear = val);
-                      },
-                    ),
-                    const SizedBox(height: 15),
-                    // اختيار الشهر
-                    DropdownButton<int>(
-                      value: selectedMonth,
-                      isExpanded: true,
-                      items: List.generate(12, (index) => index + 1).map((month) {
-                        // أسماء الأشهر أو أرقامها
-                        return DropdownMenuItem<int>(
-                          value: month,
-                          child: Text(_getMonthName(month), style: const TextStyle(fontSize: 16)),
-                        );
-                      }).toList(),
-                      onChanged: (val) {
-                        if (val != null) setStateDialog(() => selectedMonth = val);
-                      },
-                    ),
-                  ],
+      builder: (context) => AlertDialog(
+        title: const Text('Select Month'),
+        content: StatefulBuilder(
+          builder: (context, setStateDialog) => SizedBox(
+            width: 300,
+            height: 150,
+            child: Column(
+              children: [
+                DropdownButton<int>(
+                  value: selectedYear,
+                  isExpanded: true,
+                  items: List.generate(8, (i) => 2023 + i)
+                      .map((y) => DropdownMenuItem(value: y, child: Text('$y')))
+                      .toList(),
+                  onChanged: (v) {
+                    if (v != null) setStateDialog(() => selectedYear = v);
+                  },
                 ),
-              );
-            },
+                const SizedBox(height: 15),
+                DropdownButton<int>(
+                  value: selectedMonth,
+                  isExpanded: true,
+                  items: List.generate(12, (i) => i + 1)
+                      .map((m) => DropdownMenuItem(value: m, child: Text(_monthName(m))))
+                      .toList(),
+                  onChanged: (v) {
+                    if (v != null) setStateDialog(() => selectedMonth = v);
+                  },
+                ),
+              ],
+            ),
           ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(context),
-              child: const Text('Cancel'),
-            ),
-            FilledButton(
-              onPressed: () {
-                // نعيد التاريخ مضافاً إليه اليوم الأول من الشهر المختار
-                Navigator.pop(context, DateTime(selectedYear, selectedMonth, 1));
-              },
-              child: const Text('OK'),
-            ),
-          ],
-        );
-      },
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, DateTime(selectedYear, selectedMonth, 1)),
+            child: const Text('OK'),
+          ),
+        ],
+      ),
     );
 
     if (result != null) {
       setState(() => _selectedMonth = result);
-      _loadAll();
+      _load();
     }
   }
 
-  // دالة مساعدة لطباعة اسم الشهر بوضوح
-  String _getMonthName(int month) {
+  String _monthName(int month) {
     const months = [
       'January', 'February', 'March', 'April', 'May', 'June',
       'July', 'August', 'September', 'October', 'November', 'December'
@@ -153,158 +127,37 @@ Future<void> _pickMonth() async {
     return months[month - 1];
   }
 
-  Future<void> _openGrantDialog(Map day) async {
-    final remainingShortfall = (day['remaining_shortfall_hours'] as num).toDouble();
-    final remainingOt = (_balance?['remainingOtHours'] as num? ?? 0).toDouble();
-    final maxHours = remainingShortfall < remainingOt ? remainingShortfall : remainingOt;
+  double _num(dynamic v) => double.tryParse(v?.toString() ?? '0') ?? 0;
 
-    if (maxHours <= 0) {
-      _showSnack('No overtime available to compensate this day.', Colors.orange);
-      return;
-    }
-
-    double hoursToUse = maxHours;
-    final reasonController = TextEditingController();
-
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (dialogContext) => StatefulBuilder(
-        builder: (context, setDialogState) => AlertDialog(
-          title: Text('Compensate ${(day['record_date'] ?? '').toString().split('T')[0]}'),
-          content: SingleChildScrollView(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text('Day shortfall remaining: ${remainingShortfall.toStringAsFixed(2)}h', style: const TextStyle(fontSize: 13)),
-                Text('Month OT remaining: ${remainingOt.toStringAsFixed(2)}h', style: const TextStyle(fontSize: 13)),
-                const SizedBox(height: 16),
-                Text('Hours to apply (max ${maxHours.toStringAsFixed(2)}h):', style: const TextStyle(fontWeight: FontWeight.w600)),
-                Slider(
-                  value: hoursToUse,
-                  min: 0.25,
-                  max: maxHours,
-                  divisions: (maxHours / 0.25).floor().clamp(1, 400),
-                  label: hoursToUse.toStringAsFixed(2),
-                  onChanged: (v) => setDialogState(() => hoursToUse = v),
-                ),
-                Text('${hoursToUse.toStringAsFixed(2)}h', style: const TextStyle(fontWeight: FontWeight.bold)),
-                const SizedBox(height: 12),
-                TextField(
-                  controller: reasonController,
-                  maxLines: 2,
-                  decoration: const InputDecoration(labelText: 'Reason *', border: OutlineInputBorder()),
-                ),
-              ],
-            ),
-          ),
-          actions: [
-            TextButton(onPressed: () => Navigator.pop(dialogContext, false), child: const Text('Cancel')),
-            FilledButton(
-              style: FilledButton.styleFrom(backgroundColor: primaryColor),
-              onPressed: () {
-                if (reasonController.text.trim().isEmpty) {
-                  _showSnack('A reason is required.', Colors.orange);
-                  return;
-                }
-                Navigator.pop(dialogContext, true);
-              },
-              child: const Text('Grant'),
-            ),
+  Widget _statBox(String label, double value, Color color) {
+    return Expanded(
+      child: Container(
+        margin: const EdgeInsets.symmetric(horizontal: 4),
+        padding: const EdgeInsets.symmetric(vertical: 14),
+        decoration: BoxDecoration(color: color.withOpacity(0.08), borderRadius: BorderRadius.circular(12)),
+        child: Column(
+          children: [
+            Text('${value.toStringAsFixed(2)}h',
+                style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15, color: color)),
+            const SizedBox(height: 2),
+            Text(label, textAlign: TextAlign.center, style: TextStyle(fontSize: 10.5, color: color)),
           ],
         ),
       ),
-    );
-
-    if (confirmed != true) return;
-
-    setState(() => _isSubmitting = true);
-    try {
-      await ApiConfig.dio.post('/staff-overtime/grant', data: {
-        'staff_attendance_id': day['staff_attendance_id'],
-        'hours_to_use': hoursToUse,
-        'reason': reasonController.text.trim(),
-      });
-      if (!mounted) return;
-      _showSnack('Overtime compensation granted', Colors.green.shade700);
-      _loadAll();
-    } on DioException catch (e) {
-      final msg = e.response?.data is Map ? (e.response?.data['message'] ?? 'Failed to grant compensation') : 'Failed to grant compensation';
-      _showSnack(msg, Colors.red);
-    } finally {
-      if (mounted) setState(() => _isSubmitting = false);
-    }
-  }
-
-  Future<void> _reverse(int compensationId) async {
-    final confirm = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Reverse Compensation'),
-        content: const Text('This will return the used hours to this month\'s OT balance. Continue?'),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
-          FilledButton(
-            style: FilledButton.styleFrom(backgroundColor: Colors.red.shade700),
-            onPressed: () => Navigator.pop(ctx, true),
-            child: const Text('Reverse'),
-          ),
-        ],
-      ),
-    );
-    if (confirm != true) return;
-
-    try {
-      await ApiConfig.dio.post('/staff-overtime/$compensationId/reverse');
-      if (!mounted) return;
-      _showSnack('Compensation reversed', Colors.blue);
-      _loadAll();
-    } on DioException catch (e) {
-      final msg = e.response?.data is Map ? (e.response?.data['message'] ?? 'Failed to reverse') : 'Failed to reverse';
-      _showSnack(msg, Colors.red);
-    }
-  }
-
-  Widget _balanceCard() {
-    final gross = (_balance?['grossOtHours'] as num? ?? 0).toDouble();
-    final used = (_balance?['usedOtHours'] as num? ?? 0).toDouble();
-    final remaining = (_balance?['remainingOtHours'] as num? ?? 0).toDouble();
-
-    Widget stat(String label, double value, Color color) {
-      return Expanded(
-        child: Container(
-          padding: const EdgeInsets.symmetric(vertical: 14),
-          decoration: BoxDecoration(color: color.withOpacity(0.08), borderRadius: BorderRadius.circular(12)),
-          child: Column(
-            children: [
-              Text('${value.toStringAsFixed(2)}h', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: color)),
-              Text(label, style: TextStyle(fontSize: 11, color: color)),
-            ],
-          ),
-        ),
-      );
-    }
-
-    return Row(
-      children: [
-        stat('Gross OT', gross, Colors.blue.shade700),
-        const SizedBox(width: 8),
-        stat('Used OT', used, Colors.orange.shade800),
-        const SizedBox(width: 8),
-        stat('Remaining', remaining, Colors.green.shade700),
-      ],
     );
   }
 
   @override
   Widget build(BuildContext context) {
+    final ledger = _ledger;
+
     return Scaffold(
       backgroundColor: Colors.grey[100],
-      appBar: CustomAppBar(title: '${widget.staff['full_name'] ?? 'Staff'} — Overtime'),
+      appBar: CustomAppBar(title: '${widget.staff['full_name'] ?? 'Staff'} — Monthly Overtime'),
       body: _isLoading
           ? const Center(child: CircularProgressIndicator())
           : RefreshIndicator(
-              onRefresh: _loadAll,
+              onRefresh: _load,
               child: ListView(
                 padding: const EdgeInsets.all(16),
                 children: [
@@ -324,64 +177,106 @@ Future<void> _pickMonth() async {
                       ),
                     ),
                   ),
-                  const SizedBox(height: 16),
-                  _balanceCard(),
-                  const SizedBox(height: 24),
-                  const Text('Days With Uncompensated Shortfall', style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: primaryColor)),
                   const SizedBox(height: 8),
-                  if (_shortfallDays.isEmpty)
-                    Padding(
-                      padding: const EdgeInsets.symmetric(vertical: 16),
-                      child: Text('No uncompensated shortfall days this month.', style: TextStyle(color: Colors.grey.shade600)),
-                    )
-                  else
-                    ..._shortfallDays.map((day) {
-                      final date = (day['record_date'] ?? '').toString().split('T')[0];
-                      final shortfall = (day['shortfall_hours'] as num).toDouble();
-                      final used = (day['used_hours'] as num).toDouble();
-                      final remaining = (day['remaining_shortfall_hours'] as num).toDouble();
-                      return Card(
-                        margin: const EdgeInsets.only(bottom: 8),
-                        child: ListTile(
-                          leading: const CircleAvatar(backgroundColor: Color(0xfffdecea), child: Icon(Icons.hourglass_bottom, color: Colors.red)),
-                          title: Text(date, style: const TextStyle(fontWeight: FontWeight.bold)),
-                          subtitle: Text('Shortfall: ${shortfall.toStringAsFixed(2)}h • Compensated: ${used.toStringAsFixed(2)}h • Remaining: ${remaining.toStringAsFixed(2)}h'),
-                          trailing: ElevatedButton(
-                            onPressed: _isSubmitting ? null : () => _openGrantDialog(day),
-                            style: ElevatedButton.styleFrom(backgroundColor: primaryColor),
-                            child: const Text('Compensate', style: TextStyle(color: Colors.white, fontSize: 12)),
+                  Container(
+                    padding: const EdgeInsets.all(10),
+                    decoration: BoxDecoration(color: Colors.blue.shade50, borderRadius: BorderRadius.circular(10)),
+                    child: const Row(
+                      children: [
+                        Icon(Icons.info_outline, size: 16, color: Colors.blueGrey),
+                        SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            'This ledger is calculated automatically when a payroll batch is generated for this month. It is read-only.',
+                            style: TextStyle(fontSize: 11.5, color: Colors.blueGrey),
                           ),
                         ),
-                      );
-                    }),
-                  const SizedBox(height: 24),
-                  const Text('Grant History (this month)', style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: primaryColor)),
-                  const SizedBox(height: 8),
-                  if (_history.isEmpty)
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 20),
+                  if (ledger == null)
                     Padding(
-                      padding: const EdgeInsets.symmetric(vertical: 16),
-                      child: Text('No compensations granted this month yet.', style: TextStyle(color: Colors.grey.shade600)),
-                    )
-                  else
-                    ..._history.map((h) {
-                      final reversed = h['reversed_at'] != null;
-                      final date = (h['target_record_date'] ?? '').toString().split('T')[0];
-                      return Card(
-                        margin: const EdgeInsets.only(bottom: 8),
-                        child: ListTile(
-                          leading: Icon(reversed ? Icons.undo : Icons.check_circle, color: reversed ? Colors.grey : Colors.green),
-                          title: Text('$date — ${h['hours_used']}h', style: TextStyle(decoration: reversed ? TextDecoration.lineThrough : null)),
-                          subtitle: Text('${h['reason'] ?? ''}\nBy ${h['created_by_name'] ?? ''}${reversed ? ' • Reversed by ${h['reversed_by_name'] ?? ''}' : ''}'),
-                          isThreeLine: true,
-                          trailing: reversed
-                              ? null
-                              : TextButton(
-                                  onPressed: () => _reverse(h['compensation_id']),
-                                  child: const Text('Reverse', style: TextStyle(color: Colors.red)),
-                                ),
+                      padding: const EdgeInsets.symmetric(vertical: 40),
+                      child: Center(
+                        child: Column(
+                          children: [
+                            Icon(Icons.hourglass_empty, size: 48, color: Colors.grey.shade400),
+                            const SizedBox(height: 12),
+                            Text(
+                              _infoMessage ?? 'No data for this month yet.',
+                              textAlign: TextAlign.center,
+                              style: TextStyle(color: Colors.grey.shade600),
+                            ),
+                          ],
                         ),
-                      );
-                    }),
+                      ),
+                    )
+                  else ...[
+                    Row(
+                      children: [
+                        _statBox('Required Hours', _num(ledger['required_hours']), primaryColor),
+                        _statBox('Actual Regular', _num(ledger['actual_regular_hours']), Colors.green.shade700),
+                      ],
+                    ),
+                    const SizedBox(height: 8),
+                    Row(
+                      children: [
+                        _statBox('OT Earned', _num(ledger['ot_earned_hours']), Colors.blue.shade700),
+                        _statBox('OT Used', _num(ledger['ot_used_hours']), Colors.orange.shade800),
+                        _statBox('OT Remaining', _num(ledger['ot_remaining_hours']), Colors.teal.shade700),
+                      ],
+                    ),
+                    const SizedBox(height: 8),
+                    Row(
+                      children: [
+                        _statBox('Shortage', _num(ledger['shortage_hours']), Colors.red.shade700),
+                        _statBox('Uncovered Shortage', _num(ledger['uncovered_shortage_hours']), Colors.red.shade900),
+                      ],
+                    ),
+                    const SizedBox(height: 20),
+                    Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.all(16),
+                      decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(14)),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Text('Payroll Impact', style: TextStyle(fontWeight: FontWeight.bold, color: primaryColor)),
+                          const Divider(height: 20),
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              const Text('Hourly Rate'),
+                              Text('${ledger['hourly_rate_snapshot']}'),
+                            ],
+                          ),
+                          const SizedBox(height: 8),
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              const Text('Salary Deduction'),
+                              Text(
+                                '-${ledger['salary_deduction_amount']}',
+                                style: TextStyle(
+                                  color: _num(ledger['salary_deduction_amount']) > 0 ? Colors.red : Colors.grey,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 8),
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              const Text('Batch Status'),
+                              Text('${ledger['batch_status'] ?? '-'}'),
+                            ],
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
                 ],
               ),
             ),

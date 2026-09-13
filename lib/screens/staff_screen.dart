@@ -921,7 +921,7 @@ class _StaffScreenState extends State<StaffScreen> {
                                                             8,
                                                       ),
                                                       Text(
-                                                        'Overtime Compensation',
+                                                        'Monthly Extra time Ledger',
                                                       ),
                                                     ],
                                                   ),

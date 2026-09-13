@@ -253,6 +253,33 @@ class _StaffPayrollScreenState extends State<StaffPayrollScreen> {
                                     Text('Mgmt-paid absence: ${s['management_paid_days'] ?? 0}', style: const TextStyle(fontSize: 12, color: Colors.teal)),
                                     Text('Unpaid absences: ${s['unpaid_absence_days']}', style: const TextStyle(fontSize: 12, color: Colors.red)),
                                   ]),
+                                  const SizedBox(height: 6),
+Container(
+  padding: const EdgeInsets.all(8),
+  decoration: BoxDecoration(color: Colors.indigo.shade50, borderRadius: BorderRadius.circular(8)),
+  child: Wrap(spacing: 14, runSpacing: 4, children: [
+    Text('Required hrs: ${s['required_hours'] ?? '-'}',
+        style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600)),
+    Text('OT earned: ${s['ot_earned_hours'] ?? 0}h',
+        style: const TextStyle(fontSize: 12, color: Colors.blue)),
+    Text('OT used: ${s['ot_used_hours'] ?? 0}h',
+        style: const TextStyle(fontSize: 12, color: Colors.orange)),
+    Text('OT remaining: ${s['ot_remaining_hours'] ?? 0}h',
+        style: const TextStyle(fontSize: 12, color: Colors.green)),
+    Text(
+      'Shortage: ${s['shortage_hours'] ?? 0}h',
+      style: TextStyle(
+        fontSize: 12,
+        color: (double.tryParse('${s['shortage_hours'] ?? 0}') ?? 0) > 0 ? Colors.red : Colors.grey,
+      ),
+    ),
+    if ((double.tryParse('${s['salary_deduction_amount'] ?? 0}') ?? 0) > 0)
+      Text(
+        'Deduction: -${s['salary_deduction_amount']}',
+        style: const TextStyle(fontSize: 12, color: Colors.red, fontWeight: FontWeight.bold),
+      ),
+  ]),
+),
                                 ],
                               ),
                             ),
