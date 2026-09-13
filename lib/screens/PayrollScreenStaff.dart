@@ -4,6 +4,7 @@ import 'package:intl/intl.dart';
 import '../constants.dart';
 import '../widgets/custom_app_bar.dart';
 import 'staff_absence_review_screen.dart';
+import 'payroll_export_service.dart';
 class AppColors {
   static const Color primary = Color(0xFF1A2A6C);
   static const Color danger = Colors.red;
@@ -171,13 +172,59 @@ class _StaffPayrollScreenState extends State<StaffPayrollScreen> {
     }
   }
 
+Future<void> _exportBatchExcel(int batchId) async {
+  try {
+    final response = await ApiConfig.dio.get<List<int>>(
+      '/staff-payroll/batch/$batchId/export.xlsx',
+      options: Options(responseType: ResponseType.bytes),
+    );
+    final bytes = response.data;
+    if (bytes == null || bytes.isEmpty) throw Exception('Empty Excel response');
+    await PayrollExportService.exportBytes(
+      bytes,
+      'staff_payroll_batch_$batchId.xlsx',
+    );
+    if (mounted) _showSnack('Excel report is ready.', Colors.green);
+  } on DioException catch (e) {
+    final data = e.response?.data;
+    final message = data is Map && data['message'] != null
+        ? data['message'].toString()
+        : 'Failed to export Excel report.';
+    _showSnack(message, AppColors.danger);
+  } catch (_) {
+    _showSnack('Failed to export Excel report.', AppColors.danger);
+  }
+}
+Future<void> _exportBatchPdf(int batchId) async {
+  try {
+    final response = await ApiConfig.dio.get<List<int>>(
+      '/staff-payroll/batch/$batchId/export.pdf',
+      options: Options(responseType: ResponseType.bytes),
+    );
+    final bytes = response.data;
+    if (bytes == null || bytes.isEmpty) throw Exception('Empty PDF response');
+    await PayrollExportService.exportBytes(
+      bytes,
+      'staff_payroll_batch_$batchId.pdf',
+    );
+    if (mounted) _showSnack('PDF report is ready.', Colors.green);
+  } on DioException catch (e) {
+    final data = e.response?.data;
+    final message = data is Map && data['message'] != null
+        ? data['message'].toString()
+        : 'Failed to export PDF report.';
+    _showSnack(message, AppColors.danger);
+  } catch (_) {
+    _showSnack('Failed to export PDF report.', AppColors.danger);
+  }
+}
   void _showSnack(String message, Color color) {
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message), backgroundColor: color, behavior: SnackBarBehavior.floating));
   }
 
   String _fmtDate(dynamic v) => v == null ? '' : v.toString().split('T')[0];
 
-  void _showBatchDetailsSheet(Map batch, List staff) {
+void _showBatchDetailsSheet(Map batch, List staff) {
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
@@ -211,6 +258,17 @@ class _StaffPayrollScreenState extends State<StaffPayrollScreen> {
                         ],
                       ),
                     ),
+                    IconButton(
+                      icon: const Icon(Icons.picture_as_pdf, color: Colors.red),
+                      tooltip: 'Export PDF Report',
+                      onPressed: () => _exportBatchPdf(batch['staff_payroll_batch_id']),
+                    ),
+                    IconButton(
+                      icon: const Icon(Icons.table_view, color: AppColors.danger),
+                      tooltip: 'Export Excel Report',
+                      onPressed: () => _exportBatchExcel(batch['staff_payroll_batch_id']),
+                    ),
+                    const SizedBox(width: 4),
                     Container(
                       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
                       decoration: BoxDecoration(color: status == 'Paid' ? Colors.green.shade50 : Colors.orange.shade50, borderRadius: BorderRadius.circular(20)),
@@ -245,7 +303,7 @@ class _StaffPayrollScreenState extends State<StaffPayrollScreen> {
                                   ),
                                   Text('ID: ${s['staff_unique_id'] ?? ''} • Position: ${s['position'] ?? '-'}', style: TextStyle(fontSize: 12, color: Colors.grey.shade600)),
                                   const SizedBox(height: 6),
-                                                                   Wrap(spacing: 14, runSpacing: 4, children: [
+                                  Wrap(spacing: 14, runSpacing: 4, children: [
                                     Text('Base salary: ${s['monthly_salary_snapshot']}', style: const TextStyle(fontSize: 12)),
                                     Text('Working days: ${s['working_days_in_period']}', style: const TextStyle(fontSize: 12)),
                                     Text('Present: ${s['present_days']}', style: const TextStyle(fontSize: 12, color: Colors.green)),
@@ -254,32 +312,32 @@ class _StaffPayrollScreenState extends State<StaffPayrollScreen> {
                                     Text('Unpaid absences: ${s['unpaid_absence_days']}', style: const TextStyle(fontSize: 12, color: Colors.red)),
                                   ]),
                                   const SizedBox(height: 6),
-Container(
-  padding: const EdgeInsets.all(8),
-  decoration: BoxDecoration(color: Colors.indigo.shade50, borderRadius: BorderRadius.circular(8)),
-  child: Wrap(spacing: 14, runSpacing: 4, children: [
-    Text('Required hrs: ${s['required_hours'] ?? '-'}',
-        style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600)),
-    Text('OT earned: ${s['ot_earned_hours'] ?? 0}h',
-        style: const TextStyle(fontSize: 12, color: Colors.blue)),
-    Text('OT used: ${s['ot_used_hours'] ?? 0}h',
-        style: const TextStyle(fontSize: 12, color: Colors.orange)),
-    Text('OT remaining: ${s['ot_remaining_hours'] ?? 0}h',
-        style: const TextStyle(fontSize: 12, color: Colors.green)),
-    Text(
-      'Shortage: ${s['shortage_hours'] ?? 0}h',
-      style: TextStyle(
-        fontSize: 12,
-        color: (double.tryParse('${s['shortage_hours'] ?? 0}') ?? 0) > 0 ? Colors.red : Colors.grey,
-      ),
-    ),
-    if ((double.tryParse('${s['salary_deduction_amount'] ?? 0}') ?? 0) > 0)
-      Text(
-        'Deduction: -${s['salary_deduction_amount']}',
-        style: const TextStyle(fontSize: 12, color: Colors.red, fontWeight: FontWeight.bold),
-      ),
-  ]),
-),
+                                  Container(
+                                    padding: const EdgeInsets.all(8),
+                                    decoration: BoxDecoration(color: Colors.indigo.shade50, borderRadius: BorderRadius.circular(8)),
+                                    child: Wrap(spacing: 14, runSpacing: 4, children: [
+                                      Text('Required hrs: ${s['required_hours'] ?? '-'}',
+                                          style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600)),
+                                      Text('OT earned: ${s['ot_earned_hours'] ?? 0}h',
+                                          style: const TextStyle(fontSize: 12, color: Colors.blue)),
+                                      Text('OT used: ${s['ot_used_hours'] ?? 0}h',
+                                          style: const TextStyle(fontSize: 12, color: Colors.orange)),
+                                      Text('OT remaining: ${s['ot_remaining_hours'] ?? 0}h',
+                                          style: const TextStyle(fontSize: 12, color: Colors.green)),
+                                      Text(
+                                        'Shortage: ${s['shortage_hours'] ?? 0}h',
+                                        style: TextStyle(
+                                          fontSize: 12,
+                                          color: (double.tryParse('${s['shortage_hours'] ?? 0}') ?? 0) > 0 ? Colors.red : Colors.grey,
+                                        ),
+                                      ),
+                                      if ((double.tryParse('${s['salary_deduction_amount'] ?? 0}') ?? 0) > 0)
+                                        Text(
+                                          'Deduction: -${s['salary_deduction_amount']}',
+                                          style: const TextStyle(fontSize: 12, color: Colors.red, fontWeight: FontWeight.bold),
+                                        ),
+                                    ]),
+                                  ),
                                 ],
                               ),
                             ),
@@ -401,20 +459,49 @@ Container(
                           itemBuilder: (context, index) {
                             final b = _batches[index];
                             final isPaid = (b['status'] ?? '') == 'Paid';
-                            return Card(
-                              margin: const EdgeInsets.only(bottom: 10),
-                              child: ListTile(
-                                leading: CircleAvatar(backgroundColor: (isPaid ? Colors.green : Colors.orange).withOpacity(0.15), child: Icon(Icons.badge, color: isPaid ? Colors.green : AppColors.primary)),
-                                title: Text('Batch #${b['staff_payroll_batch_id']}'),
-                                subtitle: Text('${_fmtDate(b['start_date'])} → ${_fmtDate(b['end_date'])} • ${b['total_staff']} staff • ${b['total_amount']} USD'),
-                                trailing: Container(
-                                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                                  decoration: BoxDecoration(color: (isPaid ? Colors.green : Colors.orange).withOpacity(0.12), borderRadius: BorderRadius.circular(20)),
-                                  child: Text(b['status'] ?? '', style: TextStyle(color: isPaid ? Colors.green : Colors.orange.shade800, fontWeight: FontWeight.bold, fontSize: 11)),
-                                ),
-                                onTap: () => _openBatchDetails(b['staff_payroll_batch_id']),
-                              ),
-                            );
+                          return Card(
+    margin: const EdgeInsets.only(bottom: 10),
+    child: ListTile(
+      leading: CircleAvatar(
+        backgroundColor: (isPaid ? Colors.green : Colors.orange).withOpacity(0.15),
+        child: Icon(Icons.badge, color: isPaid ? Colors.green : AppColors.primary),
+      ),
+      title: Text('Batch #${b['staff_payroll_batch_id']}'),
+      subtitle: Text('${_fmtDate(b['start_date'])} → ${_fmtDate(b['end_date'])} • ${b['total_staff']} staff • ${b['total_amount']} USD'),
+      trailing: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          IconButton(
+            icon: const Icon(Icons.picture_as_pdf, color: Colors.red, size: 20),
+            tooltip: 'Export PDF Report',
+            onPressed: () => _exportBatchPdf(b['staff_payroll_batch_id']),
+          ),
+          IconButton(
+            icon: const Icon(Icons.table_view, color: AppColors.danger, size: 20),
+            tooltip: 'Export Excel',
+            onPressed: () => _exportBatchExcel(b['staff_payroll_batch_id']),
+          ),
+          const SizedBox(width: 4),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+            decoration: BoxDecoration(
+              color: (isPaid ? Colors.green : Colors.orange).withOpacity(0.12),
+              borderRadius: BorderRadius.circular(20),
+            ),
+            child: Text(
+              b['status'] ?? '',
+              style: TextStyle(
+                color: isPaid ? Colors.green : Colors.orange.shade800,
+                fontWeight: FontWeight.bold,
+                fontSize: 11,
+              ),
+            ),
+          ),
+        ],
+      ),
+      onTap: () => _openBatchDetails(b['staff_payroll_batch_id']),
+    ),
+  );
                           },
                         ),
             ],
