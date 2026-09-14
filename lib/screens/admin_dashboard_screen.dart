@@ -145,9 +145,9 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
 
     Widget destination;
     switch (index) {
-      case 1:
-        destination = const AnalyticsDashboardScreen();
-        break;
+       case 1:
+    destination = const AnalyticsDashboardScreen();
+    break;
       case 2:
         destination = const ProjectManagementScreen();
         break;
