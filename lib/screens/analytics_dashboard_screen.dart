@@ -16,21 +16,26 @@ import 'payroll_screen.dart';
 import 'admin_attendance_screen.dart';
 
 class DashColors {
-  static const Color bg = Color(0xFF0B1120);
-  static const Color sidebar = Color(0xFF0A1428);
-  static const Color card = Color(0xFF111C33);
-  static const Color cardBorder = Color(0xFF1E2A45);
+  // Dark-mode surface colors: a deeper shade of the app's own navy brand
+  // color instead of an unrelated tech-blue palette, so night mode still
+  // feels like the same app as the rest of the project.
+  static const Color bg = Color(0xFF0E1830);
+  static const Color sidebar = Color(0xff1a2a6c);
+  static const Color card = Color(0xFF16224A);
+  static const Color cardBorder = Color(0xFF2C3B66);
 
-  static const Color textMain = Color(0xFFE6EAF2);
-  static const Color textMuted = Color(0xFF8A95AC);
+  static const Color textMain = Color(0xFFECEFF6);
+  static const Color textMuted = Color(0xFFA9B2C8);
 
-  // Night theme
-  static const Color blue = Color(0xFF3B82F6);
+  // Brand accent colors — shared with the rest of the app (login screen
+  // gradient, payroll/admin dashboards, status badges) instead of a
+  // separate unrelated palette.
+  static const Color blue = Color(0xff2a4d8f);
 
-  static const Color green = Color(0xFF10B981);
-  static const Color orange = Color(0xFFF59E0B);
-  static const Color red = Color(0xFFEF4444);
-  static const Color purple = Color(0xFF8B5CF6);
+  static const Color green = Color(0xff2e7d32);
+  static const Color orange = Color(0xffed6c02);
+  static const Color red = Color(0xffb21f1f);
+  static const Color purple = Color(0xff6a1b9a);
 }
 
 class AnalyticsDashboardScreen extends StatefulWidget {
@@ -101,22 +106,22 @@ class _AnalyticsDashboardScreenState
   Color get _borderColor =>
       _isDarkMode
           ? DashColors.cardBorder
-          : const Color(0xFFE2E8F0);
+          : const Color(0xffe5e7eb);
 
   Color get _mainText =>
       _isDarkMode
           ? DashColors.textMain
-          : const Color(0xFF172033);
+          : const Color(0xff1f2937);
 
   Color get _mutedText =>
       _isDarkMode
           ? DashColors.textMuted
-          : const Color(0xFF64748B);
+          : const Color(0xff6b7280);
 
   Color get _gridColor =>
       _isDarkMode
           ? DashColors.cardBorder
-          : const Color(0xFFE2E8F0);
+          : const Color(0xffe5e7eb);
 
   Color get _primaryColor =>
       _isDarkMode ? DashColors.blue : _dayPrimary;
@@ -753,10 +758,10 @@ class _AnalyticsDashboardScreenState
 
             const SizedBox(width: 10),
 
-            const CircleAvatar(
+            CircleAvatar(
               radius: 17,
-              backgroundColor: DashColors.blue,
-              child: Icon(
+              backgroundColor: _primaryColor,
+              child: const Icon(
                 Icons.person,
                 color: Colors.white,
                 size: 17,
