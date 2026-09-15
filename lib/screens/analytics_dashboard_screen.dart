@@ -52,6 +52,19 @@ class _AnalyticsDashboardScreenState
   DateTime _startDate = DateTime.now().subtract(const Duration(days: 13));
   DateTime _endDate = DateTime.now();
 
+  // Sidebar items — index matches _onSelectItem's switch below.
+  final List<_SidebarItem> _items = const [
+    _SidebarItem(icon: Icons.dashboard_rounded, label: 'Dashboard'),
+    _SidebarItem(icon: Icons.engineering_rounded, label: 'Workers'),
+    _SidebarItem(icon: Icons.fact_check_rounded, label: 'Attendance Review'),
+    _SidebarItem(icon: Icons.payments_rounded, label: 'Payroll'),
+    _SidebarItem(icon: Icons.business_rounded, label: 'Projects'),
+    _SidebarItem(icon: Icons.alt_route_rounded, label: 'Worker Distribution'),
+    _SidebarItem(icon: Icons.people_alt_rounded, label: 'HR Management'),
+    _SidebarItem(icon: Icons.swap_horiz_rounded, label: 'Transfer Requests'),
+    _SidebarItem(icon: Icons.badge_rounded, label: 'Staff Attendance & Payroll'),
+    _SidebarItem(icon: Icons.manage_accounts_rounded, label: 'Supervisors Management'),
+  ];
 
   Color get _pageBg => _isDarkMode ? DashColors.bg : const Color(0xFFF4F6FB);
   Color get _cardBg => _isDarkMode ? DashColors.card : Colors.white;
@@ -228,22 +241,221 @@ class _AnalyticsDashboardScreenState
     });
   }
 
-@override
-Widget build(BuildContext context) {
-  return Scaffold(
-    backgroundColor: _pageBg,
-    body: _buildMainContent(showMenuButton: false),
+  // ============================================================
+  // LAYOUT (Sidebar + Content) — the "normal" app sidebar wraps this page.
+  // ============================================================
+  @override
+  Widget build(BuildContext context) {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final isWide = constraints.maxWidth >= 900;
+
+        if (isWide) {
+          return Scaffold(
+            backgroundColor: _pageBg,
+            body: Row(
+              children: [
+                _buildSidebar(isPermanent: true),
+                Expanded(child: _buildMainContent(showMenuButton: false)),
+              ],
+            ),
+          );
+        }
+
+        return Scaffold(
+          backgroundColor: _pageBg,
+          drawer: Drawer(
+            child: _buildSidebar(isPermanent: false),
+          ),
+          body: _buildMainContent(showMenuButton: true),
+        );
+      },
+    );
+  }
+
+Widget _buildSidebar({required bool isPermanent}) {
+  return Container(
+    width: 260,
+    decoration: BoxDecoration(
+      color: _sidebarColor,
+      image: const DecorationImage(
+        image: AssetImage('assets/images/sidebar_background.jpg'),
+        fit: BoxFit.cover,
+      ),
+    ),
+    child: Stack(
+      children: [
+        Positioned.fill(
+          child: Container(
+            color: Colors.black.withOpacity(0.55),
+          ),
+        ),
+        SafeArea(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              const SizedBox(height: 24),
+
+              const Padding(
+                padding: EdgeInsets.symmetric(horizontal: 20),
+                child: Row(
+                  children: [
+                    Icon(
+                      Icons.group_work_rounded,
+                      color: Colors.white,
+                      size: 30,
+                    ),
+                    SizedBox(width: 10),
+                    Flexible(
+                      child: Text(
+                        'TEAM FLOW',
+                        overflow: TextOverflow.ellipsis,
+                        maxLines: 1,
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontSize: 20,
+                          fontWeight: FontWeight.bold,
+                          letterSpacing: 1.2,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+
+              const SizedBox(height: 6),
+
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 20),
+                child: Text(
+                  'Admin Panel',
+                  style: TextStyle(
+                    color: Colors.white.withOpacity(0.6),
+                    fontSize: 13,
+                  ),
+                ),
+              ),
+
+              const SizedBox(height: 20),
+
+              Expanded(
+                child: ListView(
+                  padding: EdgeInsets.zero,
+                  children: _items.asMap().entries.map((entry) {
+                    final index = entry.key;
+                    final item = entry.value;
+                    final isSelected = _selectedIndex == index;
+
+                    return Padding(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 12,
+                        vertical: 4,
+                      ),
+                      child: Material(
+                        color: isSelected
+                            ? Colors.white.withOpacity(0.12)
+                            : Colors.transparent,
+                        borderRadius: BorderRadius.circular(12),
+                        child: InkWell(
+                          borderRadius: BorderRadius.circular(12),
+                          onTap: () {
+                            if (!isPermanent) Navigator.pop(context);
+                            _onSelectItem(index);
+                          },
+                          child: Padding(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 16,
+                              vertical: 14,
+                            ),
+                            child: Row(
+                              children: [
+                                Icon(
+                                  item.icon,
+                                  color: isSelected
+                                      ? _sidebarAccent
+                                      : Colors.white70,
+                                  size: 22,
+                                ),
+                                const SizedBox(width: 14),
+                                Expanded(
+                                  child: Text(
+                                    item.label,
+                                    overflow: TextOverflow.ellipsis,
+                                    maxLines: 1,
+                                    style: TextStyle(
+                                      color: isSelected
+                                          ? Colors.white
+                                          : Colors.white70,
+                                      fontWeight: isSelected
+                                          ? FontWeight.bold
+                                          : FontWeight.normal,
+                                      fontSize: 14.5,
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                      ),
+                    );
+                  }).toList(),
+                ),
+              ),
+
+              Padding(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 12,
+                  vertical: 16,
+                ),
+                child: Material(
+                  color: Colors.transparent,
+                  child: InkWell(
+                    borderRadius: BorderRadius.circular(12),
+                    onTap: () {
+                      if (!isPermanent) Navigator.pop(context);
+                      _confirmLogout(context);
+                    },
+                    child: const Padding(
+                      padding: EdgeInsets.symmetric(
+                        horizontal: 16,
+                        vertical: 14,
+                      ),
+                      child: Row(
+                        children: [
+                          Icon(
+                            Icons.logout_rounded,
+                            color: Colors.white70,
+                            size: 22,
+                          ),
+                          SizedBox(width: 14),
+                          Text(
+                            'Log Out',
+                            style: TextStyle(
+                              color: Colors.white70,
+                              fontSize: 14.5,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
+    ),
   );
 }
-
-
 
   Widget _buildMainContent({bool showMenuButton = false}) {
     return Container(
       color: _pageBg,
       child: Column(
         children: [
-         _buildTopBar(),
+          _buildTopBar(showMenuButton: showMenuButton),
           Expanded(
             child: _isLoading
                 ? const Center(child: CircularProgressIndicator(color: DashColors.blue))
@@ -275,11 +487,33 @@ Widget build(BuildContext context) {
       child: Builder(
         builder: (context) => Row(
           children: [
-          
+            if (showMenuButton) ...[
+              IconButton(
+                icon: Icon(Icons.menu_rounded, color: _mainText),
+                onPressed: () => Scaffold.of(context).openDrawer(),
+                padding: EdgeInsets.zero,
+                constraints: const BoxConstraints(),
+                visualDensity: VisualDensity.compact,
+              ),
+              const SizedBox(width: 12),
+            ],
             Expanded(
               child: Text(
                 'Dashboard Overview',
                 style: TextStyle(color: _mainText, fontSize: 16, fontWeight: FontWeight.bold),
+              ),
+            ),
+            Container(
+              margin: const EdgeInsets.only(right: 8),
+              decoration: BoxDecoration(
+                color: _cardBg,
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(color: _borderColor),
+              ),
+              child: IconButton(
+                tooltip: 'Refresh',
+                icon: const Icon(Icons.refresh_rounded, color: DashColors.blue, size: 20),
+                onPressed: _loadDashboardData,
               ),
             ),
             Container(
@@ -309,7 +543,7 @@ Widget build(BuildContext context) {
   }
 
   // ============================================================
-  // BODY — عمود واحد قابل للـ scroll، ما في أي شي محشور
+  // BODY — عمود واحد قابل للـ scroll
   // ============================================================
 
   Widget _buildBody() {
@@ -328,7 +562,6 @@ Widget build(BuildContext context) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        // ---------------- Greeting + Date range ----------------
         Row(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -372,7 +605,6 @@ Widget build(BuildContext context) {
 
         const SizedBox(height: 18),
 
-        // ---------------- KPI cards ----------------
         LayoutBuilder(builder: (context, c) {
           final cols = c.maxWidth > 900 ? 3 : (c.maxWidth > 520 ? 2 : 1);
           final cards = [
@@ -405,7 +637,6 @@ Widget build(BuildContext context) {
 
         const SizedBox(height: 18),
 
-        // ---------------- Live site status ----------------
         _sectionCard(
           title: 'Live Site Status',
           child: _liveSitesList(liveSites),
@@ -413,7 +644,6 @@ Widget build(BuildContext context) {
 
         const SizedBox(height: 18),
 
-        // ---------------- Attendance trend ----------------
         _sectionCard(
           title: 'Attendance Trend',
           legend: [
@@ -421,12 +651,11 @@ Widget build(BuildContext context) {
             _legendDot(DashColors.orange, 'On Leave'),
             _legendDot(DashColors.red, 'Absent'),
           ],
-          child: SizedBox(height: 220, child: _attendanceBarChart(attendanceOverview)),
+          child: SizedBox(height: 240, child: _attendanceBarChart(attendanceOverview)),
         ),
 
         const SizedBox(height: 18),
 
-        // ---------------- Working hours trend ----------------
         _sectionCard(
           title: 'Working Hours (Regular vs Overtime)',
           legend: [
@@ -438,12 +667,10 @@ Widget build(BuildContext context) {
 
         const SizedBox(height: 18),
 
-        // ---------------- Payroll snapshot ----------------
         _payrollSection(lastPaid, latestBatch),
 
         const SizedBox(height: 18),
 
-        // ---------------- Position + Top sites ----------------
         _sectionCard(
           title: 'Workers by Position',
           child: _positionDonut(positions),
@@ -456,7 +683,6 @@ Widget build(BuildContext context) {
 
         const SizedBox(height: 18),
 
-        // ---------------- Quick actions ----------------
         _sectionCard(
           title: 'Quick Actions',
           child: Column(
@@ -479,10 +705,6 @@ Widget build(BuildContext context) {
       ],
     );
   }
-
-  // ============================================================
-  // SECTION CARD / LEGEND / KPI
-  // ============================================================
 
   Widget _sectionCard({required String title, List<Widget>? legend, required Widget child}) {
     return Container(
@@ -559,10 +781,6 @@ Widget build(BuildContext context) {
     return InkWell(borderRadius: BorderRadius.circular(16), onTap: onTap, child: content);
   }
 
-  // ============================================================
-  // LIVE SITES LIST
-  // ============================================================
-
   Widget _liveSitesList(List<Map<String, dynamic>> sites) {
     if (sites.isEmpty) {
       return Padding(
@@ -636,81 +854,93 @@ Widget build(BuildContext context) {
   }
 
   // ============================================================
-  // ATTENDANCE TREND CHART
+  // ATTENDANCE TREND CHART — Present / On Leave / Absent as
+  // separate grouped bars per day (not stacked), wider bars.
   // ============================================================
 
   Widget _attendanceBarChart(List<Map<String, dynamic>> series) {
     if (series.isEmpty) {
       return Center(child: Text('No data', style: TextStyle(color: _mutedText)));
     }
-    final maxVal = series.fold<int>(0, (m, e) {
-      final total = (e['present'] as int) + (e['on_leave'] as int) + (e['absent'] as int);
-      return total > m ? total : m;
-    });
 
-    return BarChart(
-      BarChartData(
-        maxY: (maxVal + 5).toDouble(),
-        gridData: FlGridData(
-          show: true,
-          drawVerticalLine: false,
-          getDrawingHorizontalLine: (v) => FlLine(color: _gridColor, strokeWidth: 1),
-        ),
-        borderData: FlBorderData(show: false),
-        titlesData: FlTitlesData(
-          leftTitles: AxisTitles(
-            sideTitles: SideTitles(
-              showTitles: true,
-              reservedSize: 30,
-              getTitlesWidget: (v, m) => Text('${v.toInt()}', style: TextStyle(color: _mutedText, fontSize: 10)),
-            ),
-          ),
-          rightTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
-          topTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
-          bottomTitles: AxisTitles(
-            sideTitles: SideTitles(
-              showTitles: true,
-              reservedSize: 26,
-              interval: (series.length / 6).ceilToDouble().clamp(1, 999),
-              getTitlesWidget: (v, m) {
-                final idx = v.toInt();
-                if (idx < 0 || idx >= series.length) return const SizedBox.shrink();
-                final d = DateTime.parse(series[idx]['date']);
-                return Padding(
-                  padding: const EdgeInsets.only(top: 6),
-                  child: Text(DateFormat('MMM d').format(d), style: TextStyle(color: _mutedText, fontSize: 9)),
-                );
-              },
-            ),
-          ),
-        ),
-        barGroups: List.generate(series.length, (i) {
-          final present = (series[i]['present'] as int).toDouble();
-          final leave = (series[i]['on_leave'] as int).toDouble();
-          final absent = (series[i]['absent'] as int).toDouble();
-          return BarChartGroupData(
-            x: i,
-            barRods: [
-              BarChartRodData(
-                toY: present + leave + absent,
-                width: series.length > 20 ? 4 : 8,
-                borderRadius: BorderRadius.circular(2),
-                rodStackItems: [
-                  BarChartRodStackItem(0, present, DashColors.green),
-                  BarChartRodStackItem(present, present + leave, DashColors.orange),
-                  BarChartRodStackItem(present + leave, present + leave + absent, DashColors.red),
-                ],
+    double maxVal = 1;
+    for (final e in series) {
+      final present = (e['present'] as int).toDouble();
+      final leave = (e['on_leave'] as int).toDouble();
+      final absent = (e['absent'] as int).toDouble();
+      for (final v in [present, leave, absent]) {
+        if (v > maxVal) maxVal = v;
+      }
+    }
+
+    const double barWidth = 14;
+    const double groupWidth = 90; // مساحة محجوزة لكل يوم (3 أعمدة + فراغات + label)
+    final chartWidth = series.length * groupWidth;
+
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final width = chartWidth < constraints.maxWidth ? constraints.maxWidth : chartWidth;
+        return SingleChildScrollView(
+          scrollDirection: Axis.horizontal,
+          child: SizedBox(
+            width: width,
+            child: BarChart(
+              BarChartData(
+                maxY: maxVal + (maxVal * 0.25) + 1,
+                groupsSpace: 28,
+                gridData: FlGridData(
+                  show: true,
+                  drawVerticalLine: false,
+                  getDrawingHorizontalLine: (v) => FlLine(color: _gridColor, strokeWidth: 1),
+                ),
+                borderData: FlBorderData(show: false),
+                titlesData: FlTitlesData(
+                  leftTitles: AxisTitles(
+                    sideTitles: SideTitles(
+                      showTitles: true,
+                      reservedSize: 30,
+                      getTitlesWidget: (v, m) => Text('${v.toInt()}', style: TextStyle(color: _mutedText, fontSize: 10)),
+                    ),
+                  ),
+                  rightTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+                  topTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+                  bottomTitles: AxisTitles(
+                    sideTitles: SideTitles(
+                      showTitles: true,
+                      reservedSize: 26,
+                      getTitlesWidget: (v, m) {
+                        final idx = v.toInt();
+                        if (idx < 0 || idx >= series.length) return const SizedBox.shrink();
+                        final d = DateTime.parse(series[idx]['date']);
+                        return Padding(
+                          padding: const EdgeInsets.only(top: 6),
+                          child: Text(DateFormat('MMM d').format(d), style: TextStyle(color: _mutedText, fontSize: 9)),
+                        );
+                      },
+                    ),
+                  ),
+                ),
+                barGroups: List.generate(series.length, (i) {
+                  final present = (series[i]['present'] as int).toDouble();
+                  final leave = (series[i]['on_leave'] as int).toDouble();
+                  final absent = (series[i]['absent'] as int).toDouble();
+                  return BarChartGroupData(
+                    x: i,
+                    barsSpace: 6,
+                    barRods: [
+                      BarChartRodData(toY: present, width: barWidth, borderRadius: BorderRadius.circular(4), color: DashColors.green),
+                      BarChartRodData(toY: leave, width: barWidth, borderRadius: BorderRadius.circular(4), color: DashColors.orange),
+                      BarChartRodData(toY: absent, width: barWidth, borderRadius: BorderRadius.circular(4), color: DashColors.red),
+                    ],
+                  );
+                }),
               ),
-            ],
-          );
-        }),
-      ),
+            ),
+          ),
+        );
+      },
     );
   }
-
-  // ============================================================
-  // HOURS TREND CHART (Regular vs Overtime, day by day)
-  // ============================================================
 
   Widget _hoursTrendChart(List<Map<String, dynamic>> series) {
     if (series.isEmpty) {
@@ -775,10 +1005,6 @@ Widget build(BuildContext context) {
       ),
     );
   }
-
-  // ============================================================
-  // PAYROLL SNAPSHOT
-  // ============================================================
 
   Widget _payrollSection(Map<String, dynamic>? lastPaid, Map<String, dynamic>? latestBatch) {
     String money(dynamic v) {
@@ -859,10 +1085,6 @@ Widget build(BuildContext context) {
     );
   }
 
-  // ============================================================
-  // POSITION DONUT
-  // ============================================================
-
   Widget _positionDonut(List<Map<String, dynamic>> positions) {
     if (positions.isEmpty) {
       return Padding(padding: const EdgeInsets.all(20), child: Text('No data', style: TextStyle(color: _mutedText)));
@@ -931,10 +1153,6 @@ Widget build(BuildContext context) {
     );
   }
 
-  // ============================================================
-  // TOP SITES
-  // ============================================================
-
   Widget _topSitesList(List<Map<String, dynamic>> sites) {
     if (sites.isEmpty) {
       return Padding(padding: const EdgeInsets.all(20), child: Text('No data', style: TextStyle(color: _mutedText)));
@@ -973,10 +1191,6 @@ Widget build(BuildContext context) {
     );
   }
 
-  // ============================================================
-  // QUICK ACTION
-  // ============================================================
-
   Widget _quickAction(IconData icon, String label, Color color, VoidCallback onTap) {
     return Padding(
       padding: const EdgeInsets.only(bottom: 10),
@@ -1000,4 +1214,10 @@ Widget build(BuildContext context) {
       ),
     );
   }
+}
+
+class _SidebarItem {
+  final IconData icon;
+  final String label;
+  const _SidebarItem({required this.icon, required this.label});
 }

@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'staff_supervisor_dashboard.dart';
 import '../services/auth_service.dart'; // Make sure this path matches your project structure
-import 'admin_dashboard_screen.dart';
+import 'analytics_dashboard_screen.dart';
 import 'supervisor_dashboard.dart';
 import 'forgot_password_screen.dart';
 class LoginScreen extends StatefulWidget {
@@ -93,8 +93,8 @@ class _LoginScreenState extends State<LoginScreen>
 
       Future.delayed(const Duration(milliseconds: 900), () {
         if (!mounted) return;
-      if (role == 'Admin') {
-  Navigator.pushReplacement(context, MaterialPageRoute(builder: (context) => const AdminDashboardScreen()));
+ if (role == 'Admin') {
+  Navigator.pushReplacement(context, MaterialPageRoute(builder: (context) => const AnalyticsDashboardScreen()));
 } else if (role == 'StaffSupervisor') {
   Navigator.pushReplacement(
     context,

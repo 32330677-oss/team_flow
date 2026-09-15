@@ -7,7 +7,7 @@ import 'constants.dart'; // تأكد أن المسار يوافق هيكل مش�
 
 // استيراد الشاشات الخاصة بك
 import 'screens/login_screen.dart';
-import 'screens/admin_dashboard_screen.dart';
+import 'screens/analytics_dashboard_screen.dart';
 import 'screens/supervisor_dashboard.dart';
 
 void main() {
@@ -29,9 +29,9 @@ class MyApp extends StatelessWidget {
 
       // إذا كان التوكن موجوداً
       if (token != null && token.isNotEmpty) {
-        if (role == 'Admin') {
-          return const AdminDashboardScreen();
-        } else if (role == 'Supervisor') {
+      if (role == 'Admin') {
+  return const AnalyticsDashboardScreen();
+} else if (role == 'Supervisor') {
           // قراءة الـ user_id ومعالجته بلطف باستخدام int.tryParse لمنع الـ Crash
           String? userIdRaw = await storage.read(key: 'user_id');
           int? supervisorId = userIdRaw != null ? int.tryParse(userIdRaw) : null;
