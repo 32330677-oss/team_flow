@@ -69,8 +69,10 @@ class _StaffLifecycleScreenState extends State<StaffLifecycleScreen> {
   }
 
   Future<void> _openStatusChangeDialog() async {
-    String selectedStatus = _currentStatus == 'Active' ? 'Inactive' : 'Active';
-    final dateController = TextEditingController(text: DateTime.now().toIso8601String().split('T')[0]);
+String selectedStatus = _currentStatus == 'Terminated'
+    ? 'Active'
+    : (_currentStatus == 'Active' ? 'Inactive' : 'Active');
+        final dateController = TextEditingController(text: DateTime.now().toIso8601String().split('T')[0]);
     final reasonController = TextEditingController();
 
     final confirmed = await showDialog<bool>(
@@ -88,10 +90,11 @@ class _StaffLifecycleScreenState extends State<StaffLifecycleScreen> {
                 DropdownButtonFormField<String>(
                   value: selectedStatus,
                   decoration: const InputDecoration(labelText: 'New Status', border: OutlineInputBorder()),
-                  items: ['Active', 'Inactive', 'Terminated']
-                      .where((s) => s != _currentStatus)
-                      .map((s) => DropdownMenuItem(value: s, child: Text(s)))
-                      .toList(),
+                items: (_currentStatus == 'Terminated'
+        ? const ['Active']
+        : ['Active', 'Inactive', 'Terminated'].where((s) => s != _currentStatus).toList())
+    .map((s) => DropdownMenuItem(value: s, child: Text(s)))
+    .toList(),
                   onChanged: (v) => setDialogState(() => selectedStatus = v ?? selectedStatus),
                 ),
                 const SizedBox(height: 12),
@@ -339,13 +342,14 @@ class _StaffLifecycleScreenState extends State<StaffLifecycleScreen> {
                             ),
                           ),
                           const Spacer(),
-                          if (_currentStatus != 'Terminated')
-                            ElevatedButton.icon(
-                              onPressed: _openStatusChangeDialog,
-                              icon: const Icon(Icons.sync_alt, size: 18),
-                              label: const Text('Change Status'),
-                              style: ElevatedButton.styleFrom(backgroundColor: primaryColor, foregroundColor: Colors.white),
-                            ),
+                          ElevatedButton.icon(
+  onPressed: _openStatusChangeDialog,
+  icon: const Icon(Icons.sync_alt, size: 18),
+  label: Text(_currentStatus == 'Terminated' ? 'Reactivate' : 'Change Status'),
+  style: ElevatedButton.styleFrom(
+    backgroundColor: _currentStatus == 'Terminated' ? Colors.green.shade700 : primaryColor,
+  ),
+),
                         ],
                       ),
                     ),
