@@ -443,7 +443,7 @@ class _AnalyticsDashboardScreenState
                       SizedBox(width: 10),
                       Flexible(
                         child: Text(
-                          'TEAM FLOW',
+                          'ASIK ENGINEERING CONSTRCTION',
                           overflow: TextOverflow.ellipsis,
                           maxLines: 1,
                           style: TextStyle(

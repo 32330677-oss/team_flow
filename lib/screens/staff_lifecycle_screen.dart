@@ -30,6 +30,7 @@ class _StaffLifecycleScreenState extends State<StaffLifecycleScreen> {
   List<dynamic> _statusHistory = [];
   List<dynamic> _assignmentHistory = [];
   List<dynamic> _sites = [];
+  bool _isReturningEmployee = false;
   late String _currentStatus;
 
   int get _staffId => widget.staff['staff_id'] as int;
@@ -49,12 +50,13 @@ class _StaffLifecycleScreenState extends State<StaffLifecycleScreen> {
         ApiConfig.dio.get('/staff/$_staffId/assignments'),
         ApiConfig.dio.get('/sites/all-sites'),
       ]);
-      setState(() {
-        _statusHistory = results[0].data['data'] ?? [];
-        _assignmentHistory = results[1].data['data'] ?? [];
-        _sites = results[2].data['data'] ?? [];
-        _isLoading = false;
-      });
+    setState(() {
+  _statusHistory = results[0].data['data'] ?? [];
+  _isReturningEmployee = results[0].data['is_returning_employee'] == true; // جديد
+  _assignmentHistory = results[1].data['data'] ?? [];
+  _sites = results[2].data['data'] ?? [];
+  _isLoading = false;
+});
     } catch (e) {
       setState(() => _isLoading = false);
       _showSnack('Failed to load lifecycle data', Colors.red);
@@ -330,18 +332,41 @@ String selectedStatus = _currentStatus == 'Terminated'
                       padding: const EdgeInsets.all(16),
                       child: Row(
                         children: [
-                          Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                            decoration: BoxDecoration(
-                              color: _statusColor(_currentStatus).withOpacity(0.1),
-                              borderRadius: BorderRadius.circular(20),
-                            ),
-                            child: Text(
-                              _currentStatus,
-                              style: TextStyle(color: _statusColor(_currentStatus), fontWeight: FontWeight.bold),
-                            ),
-                          ),
-                          const Spacer(),
+                     Container(
+  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+  decoration: BoxDecoration(
+    color: _statusColor(_currentStatus).withOpacity(0.1),
+    borderRadius: BorderRadius.circular(20),
+  ),
+  child: Text(
+    _currentStatus,
+    style: TextStyle(
+      color: _statusColor(_currentStatus),
+      fontWeight: FontWeight.bold,
+    ),
+  ),
+),
+
+if (_isReturningEmployee) ...[
+  const SizedBox(width: 8),
+  Container(
+    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+    decoration: BoxDecoration(
+      color: Colors.blue.shade50,
+      borderRadius: BorderRadius.circular(20),
+    ),
+    child: const Text(
+      'Returning employee',
+      style: TextStyle(
+        color: Colors.blue,
+        fontWeight: FontWeight.bold,
+        fontSize: 11,
+      ),
+    ),
+  ),
+],
+
+const Spacer(),
                           ElevatedButton.icon(
   onPressed: _openStatusChangeDialog,
   icon: const Icon(Icons.sync_alt, size: 18),

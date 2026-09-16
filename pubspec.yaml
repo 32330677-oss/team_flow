@@ -1,5 +1,7 @@
 name: team_flow
+
 description: "A new Flutter project."
+
 publish_to: 'none'
 
 version: 1.0.0+1
@@ -10,17 +12,14 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
-
   flutter_localizations:
     sdk: flutter
-
   cupertino_icons: ^1.0.8
   dio: ^5.10.0
   flutter_secure_storage: ^9.0.0
   shared_preferences: ^2.5.5
   intl: ^0.20.2
   image_picker: ^1.1.2
-
   pdf: ^3.13.0
   printing: ^5.15.0
   url_launcher: ^6.2.5
@@ -32,6 +31,12 @@ dev_dependencies:
   flutter_lints: ^6.0.0
   flutter_test:
     sdk: flutter
+  flutter_launcher_icons: ^0.14.4
+
+flutter_launcher_icons:
+  android: true
+  ios: true
+  image_path: "assets/images/logo.png"
 
 flutter:
   uses-material-design: true
