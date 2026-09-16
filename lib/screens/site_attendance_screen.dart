@@ -351,11 +351,22 @@ class _SiteAttendanceScreenState extends State<SiteAttendanceScreen> {
     }
   }
 
-  bool _canBulkCheckIn(Map worker) {
-    final workflow = worker['workflow_status']?.toString();
+bool _canBulkCheckIn(Map worker) {
+  final workflow = worker['workflow_status']?.toString();
+  final isDraft = workflow == null || workflow == 'Draft';
+  if (!isDraft) return false;
 
-    return workflow == null || workflow == 'Draft';
-  }
+  // لا تعتبره "مؤهل" للـ bulk check-in إذا أصلاً مسجل عليه حالة صريحة
+  // (Absent/Sick/Vacation/Holiday) ولسا ما دخل. هيك ما بينحط تشيك عليه
+  // تلقائياً من "Select Eligible"، وما بيتغير حاله إلا لو السوبرفايزر
+  // بيدوس عليه بايدو من القائمة الفردية.
+  final attendanceStatus = worker['attendance_status']?.toString();
+  final hasExplicitNonPresentStatus = worker['check_in_time'] == null &&
+      attendanceStatus != null &&
+      attendanceStatus != 'Present';
+
+  return !hasExplicitNonPresentStatus;
+}
 
   bool _canBulkCheckOut(Map worker) {
     final workflow = worker['workflow_status']?.toString();

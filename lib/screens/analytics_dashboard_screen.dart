@@ -1627,9 +1627,10 @@ class _AnalyticsDashboardScreenState
           breakNow,
         );
 
-        final away = _liveAwayCard(
-          onLeaveNow,
-        );
+      final away = _liveAwayCard(
+  onLeaveNow,
+  currentlyWorking: working, // working = _number(kpis['currently_working_now'])
+);
 
         final attention =
             _attentionCard(
@@ -1813,58 +1814,52 @@ class _AnalyticsDashboardScreenState
     );
   }
 
-  Widget _liveAwayCard(
-    List<Map<String, dynamic>> people,
-  ) {
-    return _smallDashboardCard(
-      color: DashColors.orange,
-      icon: Icons
-          .airline_seat_recline_normal_rounded,
-      title: 'OUTSIDE SITE NOW',
-      child: people.isEmpty
-          ? Row(
-              children: [
-                Icon(
-                  Icons
-                      .check_circle_outline_rounded,
-                  color:
-                      DashColors.green,
-                  size: 21,
+Widget _liveAwayCard(
+  List<Map<String, dynamic>> people, {
+  required int currentlyWorking,
+}) {
+  return _smallDashboardCard(
+    color: DashColors.orange,
+    icon: Icons.airline_seat_recline_normal_rounded,
+    title: 'OUTSIDE SITE NOW',
+    child: currentlyWorking == 0
+        ? Row(
+            children: [
+              Icon(Icons.info_outline_rounded, color: _mutedText, size: 21),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  'No workers have checked in yet today.',
+                  style: TextStyle(color: _mutedText, fontSize: 11),
                 ),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: Text(
-                    'Everyone is currently on site.',
-                    style: TextStyle(
-                      color: _mutedText,
-                      fontSize: 11,
+              ),
+            ],
+          )
+        : people.isEmpty
+            ? Row(
+                children: [
+                  Icon(Icons.check_circle_outline_rounded, color: DashColors.green, size: 21),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      'Everyone is currently on site.',
+                      style: TextStyle(color: _mutedText, fontSize: 11),
                     ),
                   ),
+                ],
+              )
+            : SizedBox(
+                height: 88,
+                child: ListView.separated(
+                  scrollDirection: Axis.horizontal,
+                  itemCount: people.length,
+                  separatorBuilder: (_, __) => const SizedBox(width: 8),
+                  itemBuilder: (_, index) => _awayPersonChip(people[index]),
                 ),
-              ],
-            )
-          : SizedBox(
-              height: 88,
-              child: ListView.separated(
-                scrollDirection:
-                    Axis.horizontal,
-                itemCount:
-                    people.length,
-                separatorBuilder:
-                    (_, __) =>
-                        const SizedBox(
-                  width: 8,
-                ),
-                itemBuilder:
-                    (_, index) {
-                  return _awayPersonChip(
-                    people[index],
-                  );
-                },
               ),
-            ),
-    );
-  }
+  );
+}
+  
 
   Widget _awayPersonChip(
     Map<String, dynamic> person,
