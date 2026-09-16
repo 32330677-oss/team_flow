@@ -1410,7 +1410,7 @@ class _AnalyticsDashboardScreenState
       ),
     ];
 
-    return LayoutBuilder(
+  return LayoutBuilder(
       builder: (context, constraints) {
         int columns;
 
@@ -1422,21 +1422,24 @@ class _AnalyticsDashboardScreenState
           columns = 1;
         }
 
+        // ارتفاع ثابت مبني على محتوى الكرت نفسه (أيقونة + عنوان + رقم +
+        // شريط تقدم)، وليس على عرض الشاشة كالسابق (childAspectRatio)،
+        // مع مراعاة تكبير الخط (accessibility) حتى لا يعود الـ overflow
+        // لو المستخدم كبّر حجم الخط من إعدادات الجهاز.
+        final textScaler = MediaQuery.textScalerOf(context);
+        final cardHeight = textScaler.scale(150.0).clamp(150.0, 195.0);
+
         return GridView.builder(
           shrinkWrap: true,
-          physics:
-              const NeverScrollableScrollPhysics(),
+          physics: const NeverScrollableScrollPhysics(),
           itemCount: cards.length,
-          gridDelegate:
-              SliverGridDelegateWithFixedCrossAxisCount(
+          gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
             crossAxisCount: columns,
             mainAxisSpacing: 12,
             crossAxisSpacing: 12,
-            childAspectRatio:
-                columns == 1 ? 3.2 : 2.35,
+            mainAxisExtent: cardHeight, // بدل childAspectRatio
           ),
-          itemBuilder: (_, index) =>
-              cards[index],
+          itemBuilder: (_, index) => cards[index],
         );
       },
     );
