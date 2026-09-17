@@ -5,7 +5,7 @@ import 'dart:io';
 import '../constants.dart';
 import '../widgets/custom_app_bar.dart';
 import 'WorkerProfileScreen.dart';
-
+import '../widgets/app_drawer.dart';
 class WorkersScreen extends StatefulWidget {
   const WorkersScreen({Key? key}) : super(key: key);
 
@@ -868,6 +868,7 @@ if (isEditing) ...[
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: Colors.grey[100],
+      drawer: const AppDrawer(),
      appBar: CustomAppBar(
   title: 'Workers Management',
   actions: [
