@@ -430,6 +430,11 @@ Future<void> _selectDate(TextEditingController controller, {bool isStartDate = f
       ),
     ),
     IconButton(
+  icon: const Icon(Icons.picture_as_pdf, color: Colors.red),
+  tooltip: 'Export PDF Report',
+  onPressed: () => _exportBatchPdf(batch),
+),
+    IconButton(
       icon: const Icon(Icons.table_view, color: dangerColor),
       tooltip: 'Export Excel Report',
       onPressed: () => _exportBatchExcel(batch),
@@ -556,7 +561,31 @@ Future<void> _selectDate(TextEditingController controller, {bool isStartDate = f
       _showSnack('Failed to export Excel payroll file.', dangerColor);
     }
   }
-
+Future<void> _exportBatchPdf(Map batch) async {
+  final batchId = int.tryParse('${batch['payroll_batch_id']}');
+  if (batchId == null) {
+    _showSnack('Invalid payroll batch.', dangerColor);
+    return;
+  }
+  try {
+    final response = await ApiConfig.dio.get<List<int>>(
+      '/admin/payroll/batch/$batchId/export.pdf',
+      options: Options(responseType: ResponseType.bytes),
+    );
+    final bytes = response.data;
+    if (bytes == null || bytes.isEmpty) throw Exception('Empty PDF response');
+    await PayrollExportService.exportBytes(bytes, 'payroll_batch_$batchId.pdf');
+    if (mounted) _showSnack('PDF payroll report is ready.', Colors.green);
+  } on DioException catch (e) {
+    final data = e.response?.data;
+    final message = data is Map && data['message'] != null
+        ? data['message'].toString()
+        : 'Failed to export PDF payroll report.';
+    _showSnack(message, dangerColor);
+  } catch (_) {
+    _showSnack('Failed to export PDF payroll report.', dangerColor);
+  }
+}
   Future<void> _confirmMarkPaid(int batchId) async {
     final confirm = await showDialog<bool>(
       context: context,
@@ -672,6 +701,11 @@ Future<void> _selectDate(TextEditingController controller, {bool isStartDate = f
                                   children: [
                                     Text('Batch #${batch['payroll_batch_id']}', style: const TextStyle(fontWeight: FontWeight.bold)),
                                     const Spacer(),
+                                    IconButton(
+  icon: const Icon(Icons.picture_as_pdf, color: Colors.red, size: 20),
+  tooltip: 'Export PDF',
+  onPressed: () => _exportBatchPdf(batch),
+),
                                     IconButton(
                                       icon: const Icon(Icons.table_view, color: dangerColor, size: 20),
                                       tooltip: 'Export Excel',
