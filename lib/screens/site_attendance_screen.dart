@@ -401,96 +401,87 @@ bool _canBulkCheckIn(Map worker) {
         .toList();
   }
 
-  Future<void> _bulkAttendanceAction({
-    required bool checkIn,
-  }) async {
-    final workerIds = _eligibleSelectedWorkerIds(checkIn);
+Future<void> _bulkAttendanceAction({
+  required bool checkIn,
+}) async {
+  final workerIds = _eligibleSelectedWorkerIds(checkIn);
 
-    if (workerIds.isEmpty) {
-      _showToast(
-        checkIn
-            ? 'Select workers who are not checked in.'
-            : 'Select workers who are checked in and not checked out.',
-        Colors.orange,
-      );
-      return;
-    }
-
-    final selectedDateTime = await _pickLocalDateTime(
-      helpText: checkIn
-          ? 'Select Bulk Check-In Time'
-          : 'Select Bulk Check-Out Time',
+  if (workerIds.isEmpty) {
+    _showToast(
+      checkIn
+          ? 'Select workers who are not checked in.'
+          : 'Select workers who are checked in and not checked out.',
+      Colors.orange,
     );
-
-    if (selectedDateTime == null) return;
-
-    if (checkIn) {
-      _setRecordDateFromManualDateTime(
-        selectedDateTime,
-      );
-    }
-
-    setState(() => _isLoading = true);
-
-    try {
-      final response = await ApiConfig.dio.post(
-        checkIn
-            ? '/attendance/bulk/checkin'
-            : '/attendance/bulk/checkout',
-        data: {
-          'site_id': widget.siteId,
-          'record_date': _recordDate,
-          'worker_ids': workerIds,
-          checkIn
-              ? 'check_in_time'
-              : 'check_out_time': selectedDateTime,
-        },
-      );
-
-      final data = response.data is Map
-          ? response.data as Map
-          : <String, dynamic>{};
-
-      final successful =
-          (data['successful'] as List?)?.length ?? 0;
-
-      final failed =
-          (data['failed'] as List?)?.length ?? 0;
-
-      if (mounted) {
-        setState(() {
-          _selectedWorkerIds.removeAll(
-            workerIds,
-          );
-        });
-
-        _showToast(
-          failed == 0
-              ? '$successful workers updated successfully.'
-              : '$successful updated, $failed failed.',
-          failed == 0
-              ? Colors.green
-              : Colors.orange,
-        );
-      }
-
-      await _fetchWorkers();
-    } on DioException catch (e) {
-      if (!mounted) return;
-
-      setState(() => _isLoading = false);
-
-      final data = e.response?.data;
-
-      _showToast(
-        data is Map && data['message'] != null
-            ? data['message'].toString()
-            : 'Bulk attendance action failed.',
-        Colors.red,
-      );
-    }
+    return;
   }
 
+  final selectedDateTime = await _pickLocalDateTime(
+    helpText: checkIn
+        ? 'Select Bulk Check-In Time'
+        : 'Select Bulk Check-Out Time',
+  );
+
+  if (selectedDateTime == null) return;
+
+  if (checkIn) {
+    _setRecordDateFromManualDateTime(
+      selectedDateTime,
+    );
+  }
+
+  setState(() => _isLoading = true);
+
+  try {
+    final response = await ApiConfig.dio.post(
+      checkIn
+          ? '/attendance/bulk/checkin'
+          : '/attendance/bulk/checkout',
+      data: {
+        'site_id': widget.siteId,
+        'record_date': _recordDate,
+        'worker_ids': workerIds,
+        checkIn
+            ? 'check_in_time'
+            : 'check_out_time': selectedDateTime,
+      },
+    );
+
+    final data = response.data is Map
+        ? response.data as Map
+        : <String, dynamic>{};
+
+    final successful =
+        (data['successful'] as List?)?.length ?? 0;
+
+    if (mounted) {
+      setState(() {
+        _selectedWorkerIds.removeAll(workerIds);
+        _isLoading = false;
+      });
+
+      _showToast(
+        '$successful workers updated successfully.',
+        Colors.green,
+      );
+    }
+
+    await _fetchWorkers();
+  } on DioException catch (e) {
+    if (!mounted) return;
+
+    setState(() => _isLoading = false);
+
+    final data = e.response?.data;
+
+    _showToast(
+      data is Map && data['message'] != null
+          ? data['message'].toString()
+          : 'Bulk attendance action failed. No changes were saved.',
+      Colors.red,
+    );
+  }
+}
   void _showToast(
     String message,
     Color color,
