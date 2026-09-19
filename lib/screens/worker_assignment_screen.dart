@@ -344,12 +344,51 @@ class _AddAssignmentSheetState extends State<_AddAssignmentSheet> {
   bool _isSubmitting = false;
   String? _errorMessage;
 
-  Future<void> _submit() async {
+final _assignedDateController = TextEditingController(
+  text: DateTime.now().toIso8601String().split('T')[0],
+);
+@override
+void dispose() {
+  _assignedDateController.dispose();
+  super.dispose();
+}
+Future<void> _submit() async {
     setState(() => _errorMessage = null);
 
     if (_selectedWorkerId == null || _selectedSiteId == null) {
       setState(() => _errorMessage = 'Please select both worker and site first');
       return;
+    }
+
+    final assignedDate = _assignedDateController.text.trim();
+    if (assignedDate.isEmpty) {
+      setState(() => _errorMessage = 'Please select an assignment date');
+      return;
+    }
+
+    final todayStr = DateTime.now().toIso8601String().split('T')[0];
+    if (assignedDate != todayStr) {
+      final confirmed = await showDialog<bool>(
+        context: context,
+        builder: (confirmCtx) => AlertDialog(
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          title: const Text('Confirm Backdated Assignment'),
+          content: Text(
+            'This worker will be assigned to the site starting from $assignedDate '
+            'instead of today.\n\n'
+            'Make sure this date is on or after the worker\'s Hire Date, otherwise '
+            'the assignment will be rejected.\n\nContinue?',
+          ),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(confirmCtx, false), child: const Text('Cancel')),
+            ElevatedButton(
+              onPressed: () => Navigator.pop(confirmCtx, true),
+              child: const Text('Confirm'),
+            ),
+          ],
+        ),
+      );
+      if (confirmed != true) return;
     }
 
     setState(() => _isSubmitting = true);
@@ -358,6 +397,7 @@ class _AddAssignmentSheetState extends State<_AddAssignmentSheet> {
       final response = await ApiConfig.dio.post('/assignments', data: {
         'worker_id': _selectedWorkerId,
         'site_id': _selectedSiteId,
+        'assigned_date': assignedDate,
       });
 
       if (response.statusCode == 201 || response.statusCode == 200) {
@@ -464,7 +504,35 @@ class _AddAssignmentSheetState extends State<_AddAssignmentSheet> {
               ),
             ),
           ),
-
+          const SizedBox(height: 16),
+          TextField(
+            controller: _assignedDateController,
+            readOnly: true,
+            decoration: const InputDecoration(
+              labelText: 'Assignment Date *',
+              hintText: 'YYYY-MM-DD',
+              border: OutlineInputBorder(),
+              prefixIcon: Icon(Icons.event_available),
+              helperText:
+                  'Defaults to today. Backdate this if the worker actually started at this site earlier.',
+              helperMaxLines: 3,
+            ),
+            onTap: () async {
+              final picked = await showDatePicker(
+                context: context,
+                initialDate: DateTime.tryParse(_assignedDateController.text) ?? DateTime.now(),
+                firstDate: DateTime(2015),
+                lastDate: DateTime.now(),
+                helpText: 'Select the assignment start date',
+              );
+              if (picked != null) {
+                setState(() {
+                  _assignedDateController.text =
+                      "${picked.year}-${picked.month.toString().padLeft(2, '0')}-${picked.day.toString().padLeft(2, '0')}";
+                });
+              }
+            },
+          ),
           if (_errorMessage != null) ...[
             const SizedBox(height: 16),
             Container(

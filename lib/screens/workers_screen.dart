@@ -29,6 +29,7 @@ final _bulkRegularHourlyRateController = TextEditingController();
 final _bulkOvertimeHourlyRateController = TextEditingController();
 final _bulkReasonController = TextEditingController();
 final _bulkEffectiveDateController = TextEditingController();
+final _hireDateController = TextEditingController();
 bool _bulkApplyToAll = true;
 final Set<int> _bulkSelectedWorkerIds = <int>{};
 bool _isBulkSubmitting = false;
@@ -95,6 +96,7 @@ _bulkOvertimeHourlyRateController.dispose();
 _bulkReasonController.dispose();
 _effectiveDateController.dispose();
 _bulkEffectiveDateController.dispose();
+_hireDateController.dispose();
     super.dispose();
   }
 
@@ -201,7 +203,7 @@ Future<void> _saveWorker({String? workerUniqueId, Map<String, dynamic>? original
   }
 
   try {
-    final Map<String, dynamic> mapData = {
+   final Map<String, dynamic> mapData = {
       'full_name': name,
       'phone_number': _phoneController.text.trim(),
       'nationality': _nationalityController.text.trim(),
@@ -211,6 +213,12 @@ Future<void> _saveWorker({String? workerUniqueId, Map<String, dynamic>? original
       'birth_place': _birthPlaceController.text.trim(),
       'location': _locationController.text.trim(),
     };
+
+    // فقط عند إضافة عامل جديد: نرسل تاريخ التوظيف الفعلي (ممكن يكون بالماضي).
+    // الباك اند أصلاً بيستخدمه لـ workers.hire_date وworkercompensationhistory.effective_from سوا.
+    if (!isEditing && _hireDateController.text.trim().isNotEmpty) {
+      mapData['hire_date'] = _hireDateController.text.trim();
+    }
 
     // نرسل بيانات التعويض فقط إذا كانت جديدة (عند الإضافة) أو حدث تغيير فيها (عند التعديل)
     if (!isEditing || compensationChanged) {
@@ -672,6 +680,37 @@ _effectiveDateController.text = DateTime.now().toIso8601String().split('T')[0]; 
                 TextField(controller: _positionController, decoration: InputDecoration(labelText: 'Job Position', prefixIcon: Icon(Icons.work_rounded, color: primaryColor))),
                 const SizedBox(height: 16),
             const SizedBox(height: 16),
+            if (!isEditing) ...[
+  TextField(
+    controller: _hireDateController,
+    readOnly: true,
+    decoration: InputDecoration(
+      labelText: 'Hire Date *',
+      hintText: 'YYYY-MM-DD',
+      prefixIcon: Icon(Icons.event_available_rounded, color: primaryColor),
+      suffixIcon: Icon(Icons.arrow_drop_down_rounded, color: primaryColor),
+      helperText:
+          'Defaults to today. Set an earlier date if this worker actually started before today (needed for backdated attendance & payroll).',
+      helperMaxLines: 3,
+    ),
+    onTap: () async {
+      final picked = await showDatePicker(
+        context: context,
+        initialDate: DateTime.tryParse(_hireDateController.text) ?? DateTime.now(),
+        firstDate: DateTime(2015),
+        lastDate: DateTime.now(),
+        helpText: "Select the worker's actual hire date",
+      );
+      if (picked != null) {
+        setModalState(() {
+          _hireDateController.text =
+              "${picked.year}-${picked.month.toString().padLeft(2, '0')}-${picked.day.toString().padLeft(2, '0')}";
+        });
+      }
+    },
+  ),
+  const SizedBox(height: 12),
+],
 Text('Payment Type *', style: TextStyle(fontWeight: FontWeight.w600, color: primaryColor)),
 const SizedBox(height: 8),
 Row(
@@ -799,6 +838,40 @@ ElevatedButton(
   onPressed: isSaving
       ? null
       : () async {
+          if (!isEditing) {
+            final todayStr = DateTime.now().toIso8601String().split('T')[0];
+            final chosenDate = _hireDateController.text.trim();
+            if (chosenDate.isNotEmpty && chosenDate != todayStr) {
+              final confirmed = await showDialog<bool>(
+                context: context,
+                builder: (confirmCtx) => AlertDialog(
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                  title: const Text('Confirm Backdated Hire Date'),
+                  content: Text(
+                    "This worker's Hire Date will be set to $chosenDate instead of today.\n\n"
+                    "Their initial compensation record will also start from $chosenDate.\n\n"
+                    "If you're going to assign them to a site, make sure to use the same "
+                    "(or a later) Assignment Date, so backdated attendance and payroll "
+                    "generation work correctly.\n\n"
+                    "Continue with $chosenDate as the hire date?",
+                  ),
+                  actions: [
+                    TextButton(
+                      onPressed: () => Navigator.pop(confirmCtx, false),
+                      child: const Text('Cancel'),
+                    ),
+                    ElevatedButton(
+                      style: ElevatedButton.styleFrom(backgroundColor: primaryColor),
+                      onPressed: () => Navigator.pop(confirmCtx, true),
+                      child: const Text('Confirm', style: TextStyle(color: Colors.white)),
+                    ),
+                  ],
+                ),
+              );
+              if (confirmed != true) return;
+            }
+          }
+
           setModalState(() => isSaving = true);
           try {
             await _saveWorker(
@@ -806,7 +879,6 @@ ElevatedButton(
               originalWorker: worker,
             );
           } finally {
-            // إذا الشيت لسا مفتوح (يعني صار خطأ ولم يُغلق تلقائياً) رجّع الزر شغال
             setModalState(() => isSaving = false);
           }
         },
@@ -876,6 +948,7 @@ const SizedBox(height: 20),
   _paymentType = 'Daily';
   _selectedPersonalPhoto = null;
   _selectedIdPhoto = null;
+  _hireDateController.text = DateTime.now().toIso8601String().split('T')[0];
 }
 
   void _showSnackBar(String message, Color bgColor) {
