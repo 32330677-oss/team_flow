@@ -123,29 +123,32 @@ class _ProjectManagementScreenState extends State<ProjectManagementScreen> {
     }
   }
 
-  void _showProjectDialog({Map<String, dynamic>? project}) {
-    if (project != null) {
-      _nameController.text = project['project_name'] ?? '';
-      _clientController.text = project['client_name'] ?? '';
-      _locationController.text = project['location'] ?? '';
-    } else {
-      _nameController.clear();
-      _clientController.clear();
-      _locationController.clear();
-    }
+void _showProjectDialog({Map<String, dynamic>? project}) {
+  if (project != null) {
+    _nameController.text = project['project_name'] ?? '';
+    _clientController.text = project['client_name'] ?? '';
+    _locationController.text = project['location'] ?? '';
+  } else {
+    _nameController.clear();
+    _clientController.clear();
+    _locationController.clear();
+  }
 
-    showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+  bool isSaving = false; // <-- أضف هذا
+
+  showModalBottomSheet(
+    context: context,
+    isScrollControlled: true,
+    shape: const RoundedRectangleBorder(
+      borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+    ),
+    builder: (context) => Padding(
+      padding: EdgeInsets.only(
+        bottom: MediaQuery.of(context).viewInsets.bottom,
+        top: 20, left: 20, right: 20,
       ),
-      builder: (context) => Padding(
-        padding: EdgeInsets.only(
-          bottom: MediaQuery.of(context).viewInsets.bottom, 
-          top: 20, left: 20, right: 20,
-        ),
-        child: Form(
+      child: StatefulBuilder(  // <-- لفّ الفورم بـ StatefulBuilder
+        builder: (context, setModalState) => Form(
           key: _formKey,
           child: Column(
             mainAxisSize: MainAxisSize.min,
@@ -170,17 +173,30 @@ class _ProjectManagementScreenState extends State<ProjectManagementScreen> {
               ),
               const SizedBox(height: 20),
               ElevatedButton(
-                onPressed: () => _saveProject(projectId: project?['project_id']),
+                onPressed: isSaving
+                    ? null
+                    : () async {
+                        if (!_formKey.currentState!.validate()) return;
+                        setModalState(() => isSaving = true);
+                        try {
+                          await _saveProject(projectId: project?['project_id']);
+                        } finally {
+                          setModalState(() => isSaving = false);
+                        }
+                      },
                 style: ElevatedButton.styleFrom(backgroundColor: const Color(0xff1a2a6c), padding: const EdgeInsets.symmetric(vertical: 12)),
-                child: Text(project == null ? 'Save Project' : 'Update Changes', style: const TextStyle(color: Colors.white, fontSize: 16)),
+                child: isSaving
+                    ? const SizedBox(height: 20, width: 20, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                    : Text(project == null ? 'Save Project' : 'Update Changes', style: const TextStyle(color: Colors.white, fontSize: 16)),
               ),
               const SizedBox(height: 20),
             ],
           ),
         ),
       ),
-    );
-  }
+    ),
+  );
+}
 
   Color _getStatusColor(String? status) {
     switch (status) {

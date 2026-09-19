@@ -125,21 +125,24 @@ class _ProjectContractsScreenState extends State<ProjectContractsScreen> {
     _overtimeRateController.clear();
   }
 
-  void _showContractDialog({Map<String, dynamic>? contract}) {
-    if (contract != null) {
-      _nameController.text = contract['contract_name'] ?? '';
-      _descController.text = contract['description'] ?? '';
-      _rateController.text = contract['hourly_rate']?.toString() ?? '';
-      _overtimeRateController.text = contract['overtime_hourly_rate']?.toString() ?? '';
-    } else {
-      _clearForm();
-    }
+void _showContractDialog({Map<String, dynamic>? contract}) {
+  if (contract != null) {
+    _nameController.text = contract['contract_name'] ?? '';
+    _descController.text = contract['description'] ?? '';
+    _rateController.text = contract['hourly_rate']?.toString() ?? '';
+    _overtimeRateController.text = contract['overtime_hourly_rate']?.toString() ?? '';
+  } else {
+    _clearForm();
+  }
 
-    showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
-      builder: (context) => Padding(
+  bool isSaving = false; // <-- أضف هذا
+
+  showModalBottomSheet(
+    context: context,
+    isScrollControlled: true,
+    shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
+    builder: (context) => StatefulBuilder(  // <-- لفّ بـ StatefulBuilder
+      builder: (context, setModalState) => Padding(
         padding: EdgeInsets.only(
           bottom: MediaQuery.of(context).viewInsets.bottom,
           top: 20, left: 20, right: 20,
@@ -152,8 +155,8 @@ class _ProjectContractsScreenState extends State<ProjectContractsScreen> {
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
                 Text(
-                  contract == null ? 'Add Contract for ${widget.projectName}' : 'Edit Contract Details', 
-                  style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold), 
+                  contract == null ? 'Add Contract for ${widget.projectName}' : 'Edit Contract Details',
+                  style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
                   textAlign: TextAlign.center,
                 ),
                 const SizedBox(height: 15),
@@ -184,9 +187,21 @@ class _ProjectContractsScreenState extends State<ProjectContractsScreen> {
                 ),
                 const SizedBox(height: 20),
                 ElevatedButton(
-                  onPressed: () => _saveContract(contractId: contract?['contract_id']),
+                  onPressed: isSaving
+                      ? null
+                      : () async {
+                          if (!_formKey.currentState!.validate()) return;
+                          setModalState(() => isSaving = true);
+                          try {
+                            await _saveContract(contractId: contract?['contract_id']);
+                          } finally {
+                            setModalState(() => isSaving = false);
+                          }
+                        },
                   style: ElevatedButton.styleFrom(backgroundColor: const Color(0xffb21f1f), padding: const EdgeInsets.symmetric(vertical: 12)),
-                  child: Text(contract == null ? 'Save Contract' : 'Update Changes', style: const TextStyle(color: Colors.white, fontSize: 16)),
+                  child: isSaving
+                      ? const SizedBox(height: 20, width: 20, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                      : Text(contract == null ? 'Save Contract' : 'Update Changes', style: const TextStyle(color: Colors.white, fontSize: 16)),
                 ),
                 const SizedBox(height: 20),
               ],
@@ -194,8 +209,9 @@ class _ProjectContractsScreenState extends State<ProjectContractsScreen> {
           ),
         ),
       ),
-    );
-  }
+    ),
+  );
+}
 
   Color _getStatusColor(String? status) {
     switch (status) {

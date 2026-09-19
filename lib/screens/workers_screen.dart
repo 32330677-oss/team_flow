@@ -606,7 +606,7 @@ _effectiveDateController.text = DateTime.now().toIso8601String().split('T')[0]; 
 
     final isEditing = worker != null;
     final String? workerUniqueId = worker?['worker_unique_id'];
-
+    bool isSaving = false; 
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
@@ -794,19 +794,39 @@ if (isEditing) ...[
 
                 TextField(controller: _notesController, maxLines: 2, decoration: InputDecoration(labelText: 'Notes', prefixIcon: Icon(Icons.note_rounded, color: primaryColor))),
                 const SizedBox(height: 24),
-                ElevatedButton(
-                  onPressed: () => _saveWorker(
-    workerUniqueId: workerUniqueId, 
-    originalWorker: worker, // تمرير بيانات العامل الأصلية هنا للمقارنة
+               const SizedBox(height: 24),
+ElevatedButton(
+  onPressed: isSaving
+      ? null
+      : () async {
+          setModalState(() => isSaving = true);
+          try {
+            await _saveWorker(
+              workerUniqueId: workerUniqueId,
+              originalWorker: worker,
+            );
+          } finally {
+            // إذا الشيت لسا مفتوح (يعني صار خطأ ولم يُغلق تلقائياً) رجّع الزر شغال
+            setModalState(() => isSaving = false);
+          }
+        },
+  style: ElevatedButton.styleFrom(
+    minimumSize: const Size.fromHeight(50),
+    backgroundColor: primaryColor,
+    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
   ),
-                  style: ElevatedButton.styleFrom(
-                    minimumSize: const Size.fromHeight(50),
-                    backgroundColor: primaryColor,
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                  ),
-                  child: Text(isEditing ? 'Save Changes' : 'Add Worker', style: const TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold)),
-                ),
-                const SizedBox(height: 20),
+  child: isSaving
+      ? const SizedBox(
+          height: 22,
+          width: 22,
+          child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+        )
+      : Text(
+          isEditing ? 'Save Changes' : 'Add Worker',
+          style: const TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold),
+        ),
+),
+const SizedBox(height: 20),
               ],
             ),
           ),

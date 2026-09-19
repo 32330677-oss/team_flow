@@ -131,91 +131,102 @@ class _ContractSitesScreenState extends State<ContractSitesScreen> {
     }
   }
 
-  void _showSiteDialog({Map? site}) async {
-    await _fetchActiveSupervisors();
-    if (!mounted) return;
+void _showSiteDialog({Map? site}) async {
+  await _fetchActiveSupervisors();
+  if (!mounted) return;
 
-    _nameController.text = site != null ? site['site_name'] ?? '' : '';
-    _detailsController.text = site != null ? site['location'] ?? '' : '';
-    int? selectedSupervisorId = site != null ? site['supervisor_id'] : null;
+  _nameController.text = site != null ? site['site_name'] ?? '' : '';
+  _detailsController.text = site != null ? site['location'] ?? '' : '';
+  int? selectedSupervisorId = site != null ? site['supervisor_id'] : null;
+  bool isSaving = false; // <-- أضف هذا
 
-    showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
-      builder: (context) => StatefulBuilder( 
-        builder: (context, setModalState) => Padding(
-          padding: EdgeInsets.only(
-            bottom: MediaQuery.of(context).viewInsets.bottom,
-            top: 20, left: 20, right: 20,
-          ),
-          child: Form(
-            key: _formKey,
-            child: SingleChildScrollView(
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  Text(
-                    site == null ? 'Add Site to ${widget.contractName}' : 'Edit Site', 
-                    style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold), 
-                    textAlign: TextAlign.center,
-                  ),
-                  const SizedBox(height: 15),
-                  TextFormField(
-                    controller: _nameController,
-                    decoration: const InputDecoration(labelText: 'Site Name / Sector *', border: OutlineInputBorder()),
-                    validator: (value) => value == null || value.isEmpty ? 'Please enter site name' : null,
-                  ),
-                  const SizedBox(height: 12),
-                  TextFormField(
-                    controller: _detailsController,
-                    decoration: const InputDecoration(labelText: 'Location Address or Details', border: OutlineInputBorder()),
-                    maxLines: 2,
-                  ),
-                  const SizedBox(height: 12),
-                  
-                  _isLoadingSupervisors
-                      ? const Center(child: Padding(padding: EdgeInsets.all(8.0), child: CircularProgressIndicator()))
-                      : DropdownButtonFormField<int>(
-                          decoration: const InputDecoration(
-                            labelText: 'Assign Supervisor',
-                            border: OutlineInputBorder(),
-                            prefixIcon: Icon(Icons.person, color: Colors.orange),
-                          ),
-                          value: selectedSupervisorId,
-                          hint: const Text('Select a supervisor (Optional)'),
-                          items: _supervisors.map((supervisor) {
-                            return DropdownMenuItem<int>(
-                              value: supervisor['user_id'], 
-                              child: Text(supervisor['full_name'] ?? supervisor['username']),
-                            );
-                          }).toList(),
-                          onChanged: (value) {
-                            setModalState(() { 
-                              selectedSupervisorId = value;
-                            });
-                          },
+  showModalBottomSheet(
+    context: context,
+    isScrollControlled: true,
+    shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
+    builder: (context) => StatefulBuilder(
+      builder: (context, setModalState) => Padding(
+        padding: EdgeInsets.only(
+          bottom: MediaQuery.of(context).viewInsets.bottom,
+          top: 20, left: 20, right: 20,
+        ),
+        child: Form(
+          key: _formKey,
+          child: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Text(
+                  site == null ? 'Add Site to ${widget.contractName}' : 'Edit Site',
+                  style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                  textAlign: TextAlign.center,
+                ),
+                const SizedBox(height: 15),
+                TextFormField(
+                  controller: _nameController,
+                  decoration: const InputDecoration(labelText: 'Site Name / Sector *', border: OutlineInputBorder()),
+                  validator: (value) => value == null || value.isEmpty ? 'Please enter site name' : null,
+                ),
+                const SizedBox(height: 12),
+                TextFormField(
+                  controller: _detailsController,
+                  decoration: const InputDecoration(labelText: 'Location Address or Details', border: OutlineInputBorder()),
+                  maxLines: 2,
+                ),
+                const SizedBox(height: 12),
+                _isLoadingSupervisors
+                    ? const Center(child: Padding(padding: EdgeInsets.all(8.0), child: CircularProgressIndicator()))
+                    : DropdownButtonFormField<int>(
+                        decoration: const InputDecoration(
+                          labelText: 'Assign Supervisor',
+                          border: OutlineInputBorder(),
+                          prefixIcon: Icon(Icons.person, color: Colors.orange),
                         ),
-                  
-                  const SizedBox(height: 20),
-                  ElevatedButton(
-                    onPressed: () => _saveSite(siteId: site?['site_id'], existingSupervisorId: selectedSupervisorId), 
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: const Color(0xffb21f1f), 
-                      padding: const EdgeInsets.symmetric(vertical: 12),
-                    ),
-                    child: Text(site == null ? 'Save Site' : 'Update Site', style: const TextStyle(color: Colors.white, fontSize: 16)),
+                        value: selectedSupervisorId,
+                        hint: const Text('Select a supervisor (Optional)'),
+                        items: _supervisors.map((supervisor) {
+                          return DropdownMenuItem<int>(
+                            value: supervisor['user_id'],
+                            child: Text(supervisor['full_name'] ?? supervisor['username']),
+                          );
+                        }).toList(),
+                        onChanged: (value) {
+                          setModalState(() {
+                            selectedSupervisorId = value;
+                          });
+                        },
+                      ),
+                const SizedBox(height: 20),
+                ElevatedButton(
+                  onPressed: isSaving
+                      ? null
+                      : () async {
+                          if (!_formKey.currentState!.validate()) return;
+                          setModalState(() => isSaving = true);
+                          try {
+                            await _saveSite(siteId: site?['site_id'], existingSupervisorId: selectedSupervisorId);
+                          } finally {
+                            setModalState(() => isSaving = false);
+                          }
+                        },
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xffb21f1f),
+                    padding: const EdgeInsets.symmetric(vertical: 12),
                   ),
-                  const SizedBox(height: 20),
-                ],
-              ),
+                  child: isSaving
+                      ? const SizedBox(height: 20, width: 20, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                      : Text(site == null ? 'Save Site' : 'Update Site', style: const TextStyle(color: Colors.white, fontSize: 16)),
+                ),
+                const SizedBox(height: 20),
+              ],
             ),
           ),
         ),
       ),
-    );
-  }
+    ),
+  );
+}
 
   Color _getStatusColor(String? status) {
     switch (status) {

@@ -142,19 +142,19 @@ String selectedStatus = _currentStatus == 'Terminated'
           ),
           actions: [
             TextButton(onPressed: () => Navigator.pop(dialogContext, false), child: const Text('Cancel')),
-            FilledButton(
-              style: FilledButton.styleFrom(
-                backgroundColor: selectedStatus == 'Terminated' ? Colors.red.shade700 : primaryColor,
-              ),
-              onPressed: () {
-                if (reasonController.text.trim().isEmpty) {
-                  _showSnack('A reason is required.', Colors.orange);
-                  return;
-                }
-                Navigator.pop(dialogContext, true);
-              },
-              child: const Text('Confirm'),
-            ),
+           FilledButton(
+  style: FilledButton.styleFrom(
+    backgroundColor: selectedStatus == 'Terminated' ? Colors.red.shade700 : primaryColor,
+  ),
+  onPressed: () {
+    if (reasonController.text.trim().isEmpty) {
+      _showSnack('A reason is required.', Colors.orange);
+      return;
+    }
+    Navigator.pop(dialogContext, true); // يسكر فوراً — منيح
+  },
+  child: const Text('Confirm'),
+),
           ],
         ),
       ),
