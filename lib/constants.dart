@@ -12,7 +12,12 @@ class ApiConfig {
 
   // مفتاح عالمي للتحكم بالصفحات من داخل الـ Interceptor
   static final GlobalKey<NavigatorState> navigatorKey = GlobalKey<NavigatorState>();
-
+static Future<void> logout() async {
+  // روح على اللوجن فوراً بدون ما تنتظر الـ storage
+  navigatorKey.currentState
+      ?.pushNamedAndRemoveUntil('/login', (route) => false);
+  await storage.deleteAll();
+}
   static final Dio dio = Dio(
     BaseOptions(
       baseUrl: baseUrl,

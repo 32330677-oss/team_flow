@@ -1,7 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:team_flow/constants.dart';
-import 'package:flutter_secure_storage/flutter_secure_storage.dart';
-import '../screens/login_screen.dart';
 import '../screens/analytics_dashboard_screen.dart';
 import '../screens/workers_screen.dart';
 import '../screens/admin_attendance_screen.dart';
@@ -19,44 +17,32 @@ class AppDrawer extends StatelessWidget {
   static const Color _sidebarColor = Color(0xff1a2a6c);
   static const Color _sidebarAccent = Color(0xfffdbb2d);
 
-  Future<void> _handleLogout(BuildContext context) async {
-    await ApiConfig.storage.delete(key: 'jwt_token');
-    await ApiConfig.storage.delete(key: 'user_role');
-    await ApiConfig.storage.delete(key: 'user_id');
-    await ApiConfig.storage.delete(key: 'user_name');
 
-    if (context.mounted) {
-      Navigator.pushAndRemoveUntil(
-        context,
-        MaterialPageRoute(
-          builder: (context) => const LoginScreen(),
+
+void _confirmLogout() {
+  final rootContext = ApiConfig.navigatorKey.currentContext;
+  if (rootContext == null) return;
+
+  showDialog(
+    context: rootContext,
+    builder: (ctx) => AlertDialog(
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      title: const Text('Log Out'),
+      content: const Text('Are you sure you want to log out?'),
+      actions: [
+        TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
+        ElevatedButton(
+          style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
+          onPressed: () {
+            Navigator.pop(ctx);
+            ApiConfig.logout();
+          },
+          child: const Text('Log Out', style: TextStyle(color: Colors.white)),
         ),
-        (route) => false,
-      );
-    }
-  }
-
-  void _confirmLogout(BuildContext context) {
-    showDialog(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        title: const Text('Log Out'),
-        content: const Text('Are you sure you want to log out?'),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
-          ElevatedButton(
-            style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
-            onPressed: () {
-              Navigator.pop(ctx);
-              _handleLogout(context);
-            },
-            child: const Text('Log Out', style: TextStyle(color: Colors.white)),
-          ),
-        ],
-      ),
-    );
-  }
+      ],
+    ),
+  );
+}
 
   void _go(BuildContext context, Widget destination) {
     Navigator.pop(context);
@@ -208,9 +194,9 @@ class AppDrawer extends StatelessWidget {
                         color: Colors.red.withOpacity(0.25),
                         child: InkWell(
                           onTap: () {
-                            Navigator.pop(context);
-                            _confirmLogout(context);
-                          },
+  Navigator.pop(context);
+  _confirmLogout();
+},
                           child: const Padding(
                             padding: EdgeInsets.symmetric(
                               horizontal: 16,
