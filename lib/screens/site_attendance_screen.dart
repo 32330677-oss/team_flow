@@ -1133,105 +1133,130 @@ Future<void> _bulkAttendanceAction({
     });
   }
 
-  Future<void> _saveLunchTimes() async {
-    if (_defaultLunchStart == null ||
-        _defaultLunchEnd == null) {
+
+Future<void> _saveLunchTimes() async {
+  final eligibleIds = _lunchEligibleWorkers
+      .map(
+        (w) => int.parse(
+          w['worker_id'].toString(),
+        ),
+      )
+      .toSet();
+
+  // تنظيف أي IDs قديمة ما عادت موجودة بالقائمة الحالية
+  _lunchExcludedWorkerIds.removeWhere(
+    (id) => !eligibleIds.contains(id),
+  );
+
+  _lunchOverrides.removeWhere(
+    (id, _) => !eligibleIds.contains(id),
+  );
+
+  final includedIds = eligibleIds.difference(
+    _lunchExcludedWorkerIds,
+  );
+
+  if (includedIds.isEmpty) {
+    _showToast(
+      'All workers are excluded — nothing to save.',
+      Colors.orange,
+    );
+    return;
+  }
+
+  // إذا ما في Default Lunch، لازم كل عامل مشمول يكون عنده Override.
+  final hasDefaultLunch =
+      _defaultLunchStart != null &&
+      _defaultLunchEnd != null;
+
+  if (!hasDefaultLunch) {
+    final missingOverrideIds = includedIds.where(
+      (id) {
+        final override = _lunchOverrides[id];
+
+        return override == null ||
+            override['start'] == null ||
+            override['end'] == null;
+      },
+    ).toSet();
+
+    if (missingOverrideIds.isNotEmpty) {
       _showToast(
-        'Select the default lunch start and end time first.',
+        'Set a lunch time for all included workers or configure a default lunch period.',
         Colors.orange,
       );
       return;
-    }
-
-    final eligibleIds = _lunchEligibleWorkers
-        .map(
-          (w) => int.parse(
-            w['worker_id'].toString(),
-          ),
-        )
-        .toSet();
-
-    // تنظيف أي IDs قديمة ما عادت موجودة بالقائمة الحالية
-    _lunchExcludedWorkerIds.removeWhere(
-      (id) => !eligibleIds.contains(id),
-    );
-
-    _lunchOverrides.removeWhere(
-      (id, _) => !eligibleIds.contains(id),
-    );
-
-    final includedIds =
-        eligibleIds.difference(
-      _lunchExcludedWorkerIds,
-    );
-
-    if (includedIds.isEmpty) {
-      _showToast(
-        'All workers are excluded — nothing to save.',
-        Colors.orange,
-      );
-      return;
-    }
-
-    final overrides = <String, dynamic>{};
-
-    for (final entry in _lunchOverrides.entries) {
-      overrides[entry.key.toString()] = {
-        'start_time': _timeText(
-          entry.value['start'],
-        ),
-        'end_time': _timeText(
-          entry.value['end'],
-        ),
-      };
-    }
-
-    setState(() => _isLoading = true);
-
-    try {
-      final response = await ApiConfig.dio.post(
-        '/attendance/lunch/bulk',
-        data: {
-          'siteId': widget.siteId,
-          'date': _recordDate,
-          'default_start_time':
-              _timeText(_defaultLunchStart),
-          'default_end_time':
-              _timeText(_defaultLunchEnd),
-          'overrides': overrides,
-          'excluded_worker_ids':
-              _lunchExcludedWorkerIds.toList(),
-        },
-      );
-
-      await _fetchWorkers();
-
-      if (mounted &&
-          response.data['status'] == 'success') {
-        final saved =
-            response.data['updated_records'] ??
-                includedIds.length;
-
-        _showToast(
-          'Lunch times saved for $saved worker(s).',
-          Colors.green,
-        );
-      }
-    } on DioException catch (e) {
-      if (!mounted) return;
-
-      setState(() => _isLoading = false);
-
-      final data = e.response?.data;
-
-      _showToast(
-        data is Map && data['message'] != null
-            ? data['message'].toString()
-            : 'Failed to save lunch times.',
-        Colors.red,
-      );
     }
   }
+
+  final overrides = <String, dynamic>{};
+
+  for (final entry in _lunchOverrides.entries) {
+    overrides[entry.key.toString()] = {
+      'start_time': _timeText(
+        entry.value['start'],
+      ),
+      'end_time': _timeText(
+        entry.value['end'],
+      ),
+    };
+  }
+
+  setState(() => _isLoading = true);
+
+  try {
+    final response = await ApiConfig.dio.post(
+      '/attendance/lunch/bulk',
+      data: {
+        'siteId': widget.siteId,
+        'date': _recordDate,
+
+        // إذا ما في Default، نرسل null.
+        'default_start_time':
+            hasDefaultLunch
+                ? _timeText(_defaultLunchStart)
+                : null,
+        'default_end_time':
+            hasDefaultLunch
+                ? _timeText(_defaultLunchEnd)
+                : null,
+
+        'overrides': overrides,
+        'excluded_worker_ids':
+            _lunchExcludedWorkerIds.toList(),
+      },
+    );
+
+    await _fetchWorkers();
+
+    if (mounted &&
+        response.data['status'] == 'success') {
+      final saved =
+          response.data['updated_records'] ??
+              includedIds.length;
+
+      _showToast(
+        'Lunch times saved for $saved worker(s).',
+        Colors.green,
+      );
+    }
+  } on DioException catch (e) {
+    if (!mounted) return;
+
+    setState(() => _isLoading = false);
+
+    final data = e.response?.data;
+
+    _showToast(
+      data is Map && data['message'] != null
+          ? data['message'].toString()
+          : 'Failed to save lunch times.',
+      Colors.red,
+    );
+  }
+}
+
+
 
   Future<void> _submitDay() async {
     bool hasActiveCheckIns = _workers.any(
