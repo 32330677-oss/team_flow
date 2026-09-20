@@ -71,11 +71,7 @@ class _StaffSupervisorAttendanceScreenState
   bool _isLoading = true;
   bool _isSaving = false;
 
-  /// Employees the supervisor checked.
-  /// Only these are affected by:
-  /// - Apply to Checked
-  /// - Save Draft
-  /// - Submit Checked
+  /// Employees selected for bulk editing and draft saving.
   final Set<int> _selectedStaffIds = <int>{};
 
   List<_StaffRow> _rows = [];
@@ -128,9 +124,6 @@ class _StaffSupervisorAttendanceScreenState
     final selectable = _selectableIds;
     return _selectedStaffIds.where(selectable.contains).length;
   }
-
-  int get _draftCount =>
-      _rows.where((r) => r.workflowStatus == 'Draft').length;
 
   TimeOfDay? _parseTime(dynamic value) {
     if (value == null) return null;
@@ -391,49 +384,17 @@ class _StaffSupervisorAttendanceScreenState
   // This is local only: nothing is sent to the server until
   // Save Draft or Submit.
   // ------------------------------------------------------------------
-  void _applyGlobalToChecked() {
-    if (_selectedStaffIds.isEmpty) {
-      _showSnack(
-        'Check the employees first, then apply the times.',
-        Colors.orange,
-      );
-      return;
-    }
-
-    int applied = 0;
-
-    setState(() {
-      for (final row in _rows) {
-        if (!_selectedStaffIds.contains(row.staffId)) {
-          continue;
-        }
-
-        if (row.isLocked || row.status != 'Present') continue;
-
-        row.checkIn = _globalCheckIn;
-        row.checkOut = _globalCheckOut;
-        row.checkInDate = _globalCheckInDate;
-        row.checkOutDate = _globalCheckOutDate;
-        if (_globalLunchStart != null && _globalLunchEnd != null) {
-          row.lunchStart = _globalLunchStart;
-          row.lunchEnd = _globalLunchEnd;
-        }
-
-        applied++;
+  void _applyGlobalToRows(List<_StaffRow> rows) {
+    for (final row in rows) {
+      if (row.isLocked || row.status != 'Present') continue;
+      row.checkIn = _globalCheckIn;
+      row.checkOut = _globalCheckOut;
+      row.checkInDate = _globalCheckInDate;
+      row.checkOutDate = _globalCheckOutDate;
+      if (_globalLunchStart != null && _globalLunchEnd != null) {
+        row.lunchStart = _globalLunchStart;
+        row.lunchEnd = _globalLunchEnd;
       }
-    });
-
-    if (applied == 0) {
-      _showSnack(
-        'None of the checked employees is marked Present.',
-        Colors.orange,
-      );
-    } else {
-      _showSnack(
-        'Times applied to $applied employee(s). '
-        'Nothing is saved until you press Save Draft or Submit.',
-        Colors.blueGrey,
-      );
     }
   }
 
@@ -460,48 +421,29 @@ class _StaffSupervisorAttendanceScreenState
       return;
     }
 
-    await _saveRows(
-      rows,
-      mode: 'draft',
-    );
+    setState(() => _applyGlobalToRows(rows));
+    await _saveRows(rows, mode: 'draft');
   }
 
-  // ------------------------------------------------------------------
-  // Submit selected employees for Admin review.
-  // ------------------------------------------------------------------
-  Future<void> _saveSelected() async {
-    final rows = _rows
-        .where(
-          (r) =>
-              _selectedStaffIds.contains(r.staffId) &&
-              !r.isLocked,
-        )
-        .toList();
-
-    if (rows.isEmpty) {
-      _showSnack(
-        'Check at least one employee first.',
-        Colors.orange,
-      );
-      return;
-    }
-
-    await _saveRows(
-      rows,
-      mode: 'submit',
-    );
+  // Submit the current date. Selected editable rows carry unsaved edits;
+  // existing Draft rows are promoted atomically by the backend.
+  Future<void> _submitAttendance() async {
+    if (_isSaving) return;
+    final rows = _rows.where((r) =>
+      _selectedStaffIds.contains(r.staffId) &&
+      !r.isLocked &&
+      r.workflowStatus != 'Rejected'
+    ).toList();
+    setState(() => _applyGlobalToRows(rows));
+    await _saveRows(rows, mode: 'submit', submitDay: true);
   }
 
   // ------------------------------------------------------------------
   // Submit one employee directly for Admin review.
   // ------------------------------------------------------------------
   Future<void> _saveOne(_StaffRow row) async {
-    if (row.isLocked || _isSaving) return;
-
-    await _saveRows(
-      [row],
-      mode: 'submit',
-    );
+    if (row.isLocked || _isSaving || row.workflowStatus != 'Rejected') return;
+    await _saveRows([row], mode: 'submit', resubmitRejected: true);
   }
 
   // ------------------------------------------------------------------
@@ -516,11 +458,13 @@ class _StaffSupervisorAttendanceScreenState
   Future<void> _saveRows(
     List<_StaffRow> rowsToSave, {
     required String mode,
+    bool submitDay = false,
+    bool resubmitRejected = false,
   }) async {
     final rows =
         rowsToSave.where((r) => !r.isLocked).toList();
 
-    if (rows.isEmpty || _isSaving) return;
+    if (rows.isEmpty && !submitDay || _isSaving) return;
 
     final isDraft = mode == 'draft';
 
@@ -672,11 +616,15 @@ class _StaffSupervisorAttendanceScreenState
       }).toList();
 
       final response = await ApiConfig.dio.post(
-        '/staff-attendance/supervisor/bulk-set',
+        resubmitRejected
+            ? '/staff-attendance/supervisor/resubmit-rejected'
+            : '/staff-attendance/supervisor/bulk-set',
         data: {
           'record_date': _dateStr,
           'mode': mode,
           'entries': entries,
+          if (submitDay) 'submit_day': true,
+          if (resubmitRejected) 'resubmit_rejected': true,
         },
       );
 
@@ -746,128 +694,6 @@ class _StaffSupervisorAttendanceScreenState
 
       _showSnack(
         msg.toString(),
-        Colors.red,
-      );
-    } finally {
-      if (mounted) {
-        setState(() => _isSaving = false);
-      }
-    }
-  }
-
-  // ------------------------------------------------------------------
-  // Submit all Draft records already saved in the DB.
-  //
-  // IMPORTANT:
-  // This does NOT submit unsaved local changes.
-  // The supervisor must Save Draft first.
-  // ------------------------------------------------------------------
-  Future<void> _submitAllDrafts() async {
-    if (_isSaving) return;
-
-    if (_draftCount == 0) {
-      _showSnack(
-        'There are no Draft attendance records to submit.',
-        Colors.orange,
-      );
-      return;
-    }
-
-    final draftCount = _draftCount;
-
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Submit All Drafts?'),
-        content: Text(
-          'This will submit all $draftCount Draft '
-          'attendance record${draftCount == 1 ? '' : 's'} '
-          'for $_dateStr for Admin review.\n\n'
-          'Only Draft records already saved in the database '
-          'will be submitted. Unsaved changes on the screen '
-          'will not be included.',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () =>
-                Navigator.pop(ctx, false),
-            child: const Text('Cancel'),
-          ),
-          ElevatedButton(
-            style: ElevatedButton.styleFrom(
-              backgroundColor: primaryColor,
-            ),
-            onPressed: () =>
-                Navigator.pop(ctx, true),
-            child: const Text(
-              'Submit All Drafts',
-              style: TextStyle(
-                color: Colors.white,
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-
-    if (confirmed != true || !mounted) {
-      return;
-    }
-
-    setState(() => _isSaving = true);
-
-    try {
-      final response = await ApiConfig.dio.post(
-        '/staff-attendance/supervisor/submit-drafts',
-        data: {
-          'record_date': _dateStr,
-        },
-      );
-
-      final data =
-          response.data is Map
-              ? response.data as Map
-              : {};
-
-      final responseData =
-          data['data'] is Map
-              ? data['data'] as Map
-              : {};
-
-      final submitted =
-          (responseData['submitted'] as List?) ?? [];
-
-      final submittedIds = submitted
-          .map((e) => int.tryParse('$e'))
-          .whereType<int>()
-          .toSet();
-
-      await _loadDay();
-
-      if (!mounted) return;
-
-      _showSnack(
-        submittedIds.isEmpty
-            ? 'No Draft records were submitted.'
-            : '${submittedIds.length} Draft record(s) submitted for review.',
-        submittedIds.isEmpty
-            ? Colors.orange
-            : Colors.green.shade700,
-      );
-    } on DioException catch (e) {
-      final msg =
-          e.response?.data is Map
-              ? (e.response?.data['message'] ??
-                  'Failed to submit Drafts')
-              : 'Failed to submit Drafts';
-
-      _showSnack(
-        msg.toString(),
-        Colors.red,
-      );
-    } catch (e) {
-      _showSnack(
-        'Failed to submit Drafts: $e',
         Colors.red,
       );
     } finally {
@@ -1011,24 +837,6 @@ class _StaffSupervisorAttendanceScreenState
                 ),
               ),
               const Spacer(),
-              ElevatedButton(
-                onPressed: checked == 0
-                    ? null
-                    : _applyGlobalToChecked,
-                style:
-                    ElevatedButton.styleFrom(
-                  backgroundColor:
-                      primaryColor,
-                ),
-                child: Text(
-                  checked == 0
-                      ? 'Apply to Checked'
-                      : 'Apply to Checked ($checked)',
-                  style: const TextStyle(
-                    color: Colors.white,
-                  ),
-                ),
-              ),
             ],
           ),
           const SizedBox(height: 8),
@@ -1079,8 +887,7 @@ class _StaffSupervisorAttendanceScreenState
           ),
           const SizedBox(height: 6),
           Text(
-            'This only changes the times on screen. '
-            'Nothing reaches the admin until you Submit for Review.',
+            'Select employees, choose values, then Save Draft or Submit Attendance.',
             style: TextStyle(
               fontSize: 10.5,
               color: Colors.grey.shade600,
@@ -1285,8 +1092,9 @@ class _StaffSupervisorAttendanceScreenState
                           ),
                 ),
                 IconButton(
-                  tooltip:
-                      'Submit this employee only',
+                  tooltip: row.workflowStatus == 'Rejected'
+                      ? 'Resubmit this employee'
+                      : 'Submit this employee only',
                   icon: Icon(
                     Icons.send_rounded,
                     size: 20,
@@ -1295,11 +1103,9 @@ class _StaffSupervisorAttendanceScreenState
                         : Colors.green,
                   ),
                   onPressed:
-                      (locked ||
-                              _isSaving)
+                      (locked || _isSaving || row.workflowStatus != 'Rejected')
                           ? null
-                          : () =>
-                              _saveOne(row),
+                          : () => _saveOne(row),
                 ),
               ],
             ),
@@ -1511,6 +1317,8 @@ class _StaffSupervisorAttendanceScreenState
   ) {
     final checked =
         _checkedCount;
+    final canSubmitAttendance = checked > 0 ||
+        _rows.any((r) => r.workflowStatus == 'Draft');
 
     return Scaffold(
       backgroundColor:
@@ -1799,62 +1607,7 @@ class _StaffSupervisorAttendanceScreenState
                               .stretch,
                       children: [
                         // ------------------------------------------------
-                        // Submit all Drafts
-                        // ------------------------------------------------
-                        if (_draftCount > 0) ...[
-                          SizedBox(
-                            width:
-                                double.infinity,
-                            height: 46,
-                            child:
-                                OutlinedButton.icon(
-                              onPressed:
-                                  _isSaving
-                                      ? null
-                                      : _submitAllDrafts,
-                              icon: const Icon(
-                                Icons
-                                    .send_rounded,
-                              ),
-                              label: Text(
-                                _isSaving
-                                    ? 'Submitting...'
-                                    : 'Submit All Drafts ($_draftCount)',
-                                style:
-                                    const TextStyle(
-                                  fontWeight:
-                                      FontWeight
-                                          .bold,
-                                ),
-                              ),
-                              style:
-                                  OutlinedButton
-                                      .styleFrom(
-                                foregroundColor:
-                                    primaryColor,
-                                side:
-                                    const BorderSide(
-                                  color:
-                                      primaryColor,
-                                ),
-                                shape:
-                                    RoundedRectangleBorder(
-                                  borderRadius:
-                                      BorderRadius
-                                          .circular(
-                                    12,
-                                  ),
-                                ),
-                              ),
-                            ),
-                          ),
-                          const SizedBox(
-                            height: 10,
-                          ),
-                        ],
-
-                        // ------------------------------------------------
-                        // Save Draft + Submit Checked
+                        // Save Draft + Submit Attendance
                         // ------------------------------------------------
                         Row(
                           children: [
@@ -1940,11 +1693,9 @@ class _StaffSupervisorAttendanceScreenState
                                 child:
                                     ElevatedButton.icon(
                                   onPressed:
-                                      (_isSaving ||
-                                              checked ==
-                                                  0)
+                                      (_isSaving || !canSubmitAttendance)
                                           ? null
-                                          : _saveSelected,
+                                          : _submitAttendance,
                                   icon:
                                       _isSaving
                                           ? const SizedBox(
@@ -1970,10 +1721,7 @@ class _StaffSupervisorAttendanceScreenState
                                       Text(
                                     _isSaving
                                         ? 'Submitting...'
-                                        : (checked ==
-                                                0
-                                            ? 'Check employees to submit'
-                                            : 'Submit Checked ($checked)'),
+                                        : 'Submit Attendance',
                                     style:
                                         const TextStyle(
                                       color:
