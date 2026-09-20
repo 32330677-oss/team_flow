@@ -18,18 +18,26 @@ class _StaffRow {
   final String fullName;
   final String position;
   final double standardHours;
-  String status; // Present / Absent / Sick / Vacation / Holiday
+
+  // Current status from staff_members: Active / Inactive
+  final String staffCurrentStatus;
+
+  String? status;
+
   DateTime checkInDate;
   DateTime checkOutDate;
   DateTime? lunchStart;
   DateTime? lunchEnd;
+
   TimeOfDay checkIn;
   TimeOfDay checkOut;
+
   bool existing;
 
   /// Workflow status coming from the server:
   /// null (no record yet) / Draft / Submitted / Approved / Rejected
   String? workflowStatus;
+
   String? rejectionNote;
 
   _StaffRow({
@@ -38,6 +46,7 @@ class _StaffRow {
     required this.fullName,
     required this.position,
     required this.standardHours,
+    required this.staffCurrentStatus,
     required this.checkInDate,
     required this.checkOutDate,
     this.lunchStart,
@@ -50,11 +59,13 @@ class _StaffRow {
     this.rejectionNote,
   });
 
-  /// Submitted is already in the admin queue; Approved is final. Rejected
-  /// remains editable so the supervisor can correct and resubmit it.
-  bool get isLocked => workflowStatus == 'Submitted' || workflowStatus == 'Approved';
+  /// Submitted is already in the admin queue; Approved is final.
+  /// Inactive staff are also locked because historical records are view-only.
+  bool get isLocked =>
+      workflowStatus == 'Submitted' ||
+      workflowStatus == 'Approved' ||
+      staffCurrentStatus == 'Inactive';
 }
-
 class _StaffSupervisorAttendanceScreenState
     extends State<StaffSupervisorAttendanceScreen> {
   static const Color primaryColor = Color(0xff1a2a6c);
@@ -208,12 +219,13 @@ class _StaffSupervisorAttendanceScreenState
           fullName: raw['full_name']?.toString() ?? '',
           position: raw['position']?.toString() ?? '-',
           standardHours: standard,
+            staffCurrentStatus:
+      raw['staff_current_status']?.toString() ?? 'Active',
           checkInDate: parsedIn ?? _selectedDate,
           checkOutDate: parsedOut ?? _selectedDate,
           lunchStart: _parseDateTime(raw['lunch_start_time']),
           lunchEnd: _parseDateTime(raw['lunch_end_time']),
-          status:
-              raw['attendance_status']?.toString() ?? 'Present',
+          status: raw['attendance_status']?.toString(),
           checkIn:
               _parseTime(raw['check_in_time']) ??
                   const TimeOfDay(
@@ -427,16 +439,40 @@ class _StaffSupervisorAttendanceScreenState
 
   // Submit the current date. Selected editable rows carry unsaved edits;
   // existing Draft rows are promoted atomically by the backend.
-  Future<void> _submitAttendance() async {
-    if (_isSaving) return;
-    final rows = _rows.where((r) =>
-      _selectedStaffIds.contains(r.staffId) &&
+Future<void> _submitAttendance() async {
+  if (_isSaving) return;
+
+  final requiredRows = _rows.where((r) =>
       !r.isLocked &&
-      r.workflowStatus != 'Rejected'
-    ).toList();
-    setState(() => _applyGlobalToRows(rows));
-    await _saveRows(rows, mode: 'submit', submitDay: true);
+      r.workflowStatus != 'Rejected').toList();
+
+  final missing = requiredRows
+      .where((r) => r.status == null || !_statuses.contains(r.status))
+      .toList();
+
+  if (missing.isNotEmpty) {
+    final names = missing.map((r) => r.fullName).join(', ');
+
+    if (!mounted) return;
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          'Please select an attendance status for: $names',
+        ),
+      ),
+    );
+    return;
   }
+
+  setState(() => _applyGlobalToRows(requiredRows));
+
+  await _saveRows(
+    requiredRows,
+    mode: 'submit',
+    submitDay: true,
+  );
+}
 
   // ------------------------------------------------------------------
   // Submit one employee directly for Admin review.
@@ -473,12 +509,13 @@ class _StaffSupervisorAttendanceScreenState
     // Yesterday is intentionally NOT considered backdated.
     // --------------------------------------------------------------
     if (rows.length > 1 || _isBackdated) {
-      final counts = <String, int>{};
+    final counts = <String, int>{};
 
-      for (final r in rows) {
-        counts[r.status] =
-            (counts[r.status] ?? 0) + 1;
-      }
+for (final r in rows) {
+  final status = r.status ?? 'Not set';
+  counts[status] =
+      (counts[status] ?? 0) + 1;
+}
 
       final summary = counts.entries
           .map((e) => '${e.value} ${e.key}')
@@ -1072,25 +1109,24 @@ class _StaffSupervisorAttendanceScreenState
                     ],
                   ),
                 ),
-                DropdownButton<String>(
-                  value: row.status,
-                  items: _statuses
-                      .map(
-                        (s) =>
-                            DropdownMenuItem(
-                          value: s,
-                          child: Text(s),
-                        ),
-                      )
-                      .toList(),
-                  onChanged: locked
-                      ? null
-                      : (v) => setState(
-                            () => row.status =
-                                v ??
-                                    row.status,
-                          ),
-                ),
+         DropdownButton<String>(
+  value: row.status,
+  items: _statuses
+      .map(
+        (s) => DropdownMenuItem(
+      value: s,
+      child: Text(s),
+    ),
+  )
+      .toList(),
+  onChanged: locked
+      ? null
+      : (v) => setState(
+            () => row.status =
+                v ??
+                    row.status,
+          ),
+),
                 IconButton(
                   tooltip: row.workflowStatus == 'Rejected'
                       ? 'Resubmit this employee'
@@ -1317,8 +1353,9 @@ class _StaffSupervisorAttendanceScreenState
   ) {
     final checked =
         _checkedCount;
-    final canSubmitAttendance = checked > 0 ||
-        _rows.any((r) => r.workflowStatus == 'Draft');
+final canSubmitAttendance = _rows.any((r) =>
+    !r.isLocked &&
+    r.workflowStatus != 'Rejected');
 
     return Scaffold(
       backgroundColor:
