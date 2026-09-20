@@ -231,7 +231,7 @@ class _StaffAttendanceReviewScreenState extends State<StaffAttendanceReviewScree
                   value: selected,
                   visualDensity: VisualDensity.compact,
                   materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                  onChanged: (v) => setState(() => v == true ? _selectedIds.add(id) : _selectedIds.remove(id)),
+                 onChanged: rejected ? null : (v) => setState(() => v == true ? _selectedIds.add(id) : _selectedIds.remove(id)),
                 ),
                 const SizedBox(width: 4),
                 Expanded(
@@ -297,28 +297,38 @@ class _StaffAttendanceReviewScreenState extends State<StaffAttendanceReviewScree
             const SizedBox(height: 8),
             Row(
               mainAxisAlignment: MainAxisAlignment.end,
-              children: [
-                if (!rejected)
-                  TextButton.icon(
-                    onPressed: _working ? null : () => _reviewSelected([id], 'Approved'),
-                    icon: const Icon(Icons.check, size: 16),
-                    label: const Text('Approve', style: TextStyle(fontSize: 12.5)),
-                    style: TextButton.styleFrom(foregroundColor: Colors.green.shade700, padding: const EdgeInsets.symmetric(horizontal: 8)),
-                  ),
-                TextButton.icon(
-                  onPressed: _working
-                      ? null
-                      : () async {
-                          final note = await _promptForReason(context);
-                          if (note != null && note.trim().isNotEmpty) {
-                            await _reviewSelected([id], 'Rejected', note: note.trim());
-                          }
-                        },
-                  icon: const Icon(Icons.close, size: 16),
-                  label: const Text('Reject', style: TextStyle(fontSize: 12.5)),
-                  style: TextButton.styleFrom(foregroundColor: Colors.red.shade700, padding: const EdgeInsets.symmetric(horizontal: 8)),
-                ),
-              ],
+           children: [
+
+  if (!rejected)
+    TextButton.icon(
+      onPressed: _working ? null : () => _reviewSelected([id], 'Approved'),
+      icon: const Icon(Icons.check, size: 16),
+      label: const Text('Approve', style: TextStyle(fontSize: 12.5)),
+      style: TextButton.styleFrom(
+        foregroundColor: Colors.green.shade700,
+        padding: const EdgeInsets.symmetric(horizontal: 8),
+      ),
+    ),
+
+  if (!rejected)
+    TextButton.icon(
+      onPressed: _working
+          ? null
+          : () async {
+              final note = await _promptForReason(context);
+              if (note != null && note.trim().isNotEmpty) {
+                await _reviewSelected([id], 'Rejected', note: note.trim());
+              }
+            },
+      icon: const Icon(Icons.close, size: 16),
+      label: const Text('Reject', style: TextStyle(fontSize: 12.5)),
+      style: TextButton.styleFrom(
+        foregroundColor: Colors.red.shade700,
+        padding: const EdgeInsets.symmetric(horizontal: 8),
+      ),
+    ),
+
+],
             ),
           ],
         ),
@@ -327,7 +337,7 @@ class _StaffAttendanceReviewScreenState extends State<StaffAttendanceReviewScree
   }
 
   Widget _dateSection(String date, List<Map<String, dynamic>> items) {
-    final ids = _idsOf(items);
+  final ids = _idsOf(items.where((i) => '${i['status']}' == 'Submitted').toList());
     final allSelected = ids.isNotEmpty && ids.every(_selectedIds.contains);
     final selected = ids.where(_selectedIds.contains).toList();
 

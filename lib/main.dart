@@ -1,10 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
-
 // استيراد ملف إعدادات الـ API لربط الـ navigatorKey
 import 'constants.dart'; // تأكد أن المسار يوافق هيكل مشروعك
-
+import 'screens/staff_supervisor_dashboard.dart';
 // استيراد الشاشات الخاصة بك
 import 'screens/login_screen.dart';
 import 'screens/analytics_dashboard_screen.dart';
@@ -48,7 +47,22 @@ class MyApp extends StatelessWidget {
             supervisorId: supervisorId,
             supervisorName: userName,
           );
-        }
+        } else if (role == 'StaffSupervisor') {
+  String? userIdRaw = await storage.read(key: 'user_id');
+  int? supervisorId = userIdRaw != null ? int.tryParse(userIdRaw) : null;
+
+  if (supervisorId == null) {
+    await storage.deleteAll();
+    return const LoginScreen();
+  }
+
+  String userName = await storage.read(key: 'user_name') ?? 'Staff Supervisor';
+  return StaffSupervisorDashboard(
+    supervisorId: supervisorId,
+    supervisorName: userName,
+  );
+}
+        
       }
     } catch (e) {
       // لو حدث أي خطأ غير متوقع في قراءة التخزين، نمسح البيانات ونرجع لصفحة اللوجن بأمان

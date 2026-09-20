@@ -152,10 +152,21 @@ class _StaffSupervisorAttendanceScreenState
     return DateTime.tryParse(value.toString().replaceFirst(' ', 'T'));
   }
 
-  String _fmtDateTime(DateTime value) => DateFormat('yyyy-MM-dd HH:mm:ss').format(value);
+  String _fmtDateTime(DateTime value) =>
+      DateFormat('yyyy-MM-dd HH:mm:ss').format(value);
 
   String _fmtTime(TimeOfDay t) =>
       '${t.hour.toString().padLeft(2, '0')}:${t.minute.toString().padLeft(2, '0')}';
+
+  DateTime _combine(DateTime d, TimeOfDay t) =>
+      DateTime(d.year, d.month, d.day, t.hour, t.minute);
+
+  DateTime _resolveOut(_StaffRow row) {
+    final inDt = _combine(row.checkInDate, row.checkIn);
+    var outDt = _combine(row.checkOutDate, row.checkOut);
+    if (!outDt.isAfter(inDt)) outDt = outDt.add(const Duration(days: 1));
+    return outDt;
+  }
 
   // ------------------------------------------------------------------
   // Loading
@@ -292,6 +303,10 @@ class _StaffSupervisorAttendanceScreenState
     if (picked != null) {
       setState(() {
         _selectedDate = picked;
+        _globalCheckInDate = picked;
+        _globalCheckOutDate = picked;
+        _globalLunchStart = null;
+        _globalLunchEnd = null;
         _selectedStaffIds.clear();
       });
 
@@ -347,7 +362,9 @@ class _StaffSupervisorAttendanceScreenState
     if (date == null || !mounted) return null;
     final time = await showTimePicker(
       context: context,
-      initialTime: initial == null ? const TimeOfDay(hour: 12, minute: 0) : TimeOfDay.fromDateTime(initial),
+      initialTime: initial == null
+          ? const TimeOfDay(hour: 12, minute: 0)
+          : TimeOfDay.fromDateTime(initial),
       helpText: '$title time',
     );
     if (time == null) return null;
@@ -355,7 +372,10 @@ class _StaffSupervisorAttendanceScreenState
   }
 
   Future<void> _pickRowLunch(_StaffRow row, {required bool start}) async {
-    final value = await _pickLunchDateTime(start ? 'Lunch start' : 'Lunch end', start ? row.lunchStart : row.lunchEnd);
+    final value = await _pickLunchDateTime(
+      start ? 'Lunch start' : 'Lunch end',
+      start ? row.lunchStart : row.lunchEnd,
+    );
     if (value == null || !mounted) return;
     setState(() {
       if (start) {
@@ -388,10 +408,7 @@ class _StaffSupervisorAttendanceScreenState
           continue;
         }
 
-        if (row.isLocked || row.status != 'Present') {
-          _selectedStaffIds.remove(row.staffId);
-          continue;
-        }
+        if (row.isLocked || row.status != 'Present') continue;
 
         row.checkIn = _globalCheckIn;
         row.checkOut = _globalCheckOut;
@@ -418,26 +435,6 @@ class _StaffSupervisorAttendanceScreenState
         Colors.blueGrey,
       );
     }
-  }
-
-  // ------------------------------------------------------------------
-  // Overnight shift:
-  //
-  // If check-out <= check-in, check-out is on the next calendar day.
-  // The attendance record date stays the check-in date.
-  // ------------------------------------------------------------------
-  String _fmtDateTimeForRow(DateTime date, TimeOfDay t) {
-    final dt = DateTime(date.year, date.month, date.day, t.hour, t.minute);
-
-    final h = dt.hour.toString().padLeft(2, '0');
-    final m = dt.minute.toString().padLeft(2, '0');
-
-    final d =
-        '${dt.year.toString().padLeft(4, '0')}-'
-        '${dt.month.toString().padLeft(2, '0')}-'
-        '${dt.day.toString().padLeft(2, '0')}';
-
-    return '$d $h:$m:00';
   }
 
   // ------------------------------------------------------------------
@@ -655,8 +652,11 @@ class _StaffSupervisorAttendanceScreenState
         };
 
         if (row.status == 'Present') {
-          map['check_in_time'] = _fmtDateTimeForRow(row.checkInDate, row.checkIn);
-          map['check_out_time'] = _fmtDateTimeForRow(row.checkOutDate, row.checkOut);
+          map['check_in_time'] =
+              _fmtDateTime(_combine(row.checkInDate, row.checkIn));
+          map['check_out_time'] =
+              _fmtDateTime(_resolveOut(row));
+
           if (row.lunchStart != null && row.lunchEnd != null) {
             map['lunch_start_time'] = _fmtDateTime(row.lunchStart!);
             map['lunch_end_time'] = _fmtDateTime(row.lunchEnd!);
@@ -700,21 +700,19 @@ class _StaffSupervisorAttendanceScreenState
               .toSet();
 
       if (skipped.isNotEmpty) {
-        final first = skipped.first;
-
-        final reason =
-            first is Map
-                ? first['reason']
-                : null;
+        final names = {for (final r in _rows) r.staffId: r.fullName};
+        final details = skipped.take(3).map((s) {
+          if (s is! Map) return '$s';
+          final n = names[int.tryParse('${s['staff_id']}')] ?? s['staff_id'];
+          return '$n: ${s['reason']}';
+        }).join('\n');
 
         _showSnack(
           isDraft
               ? '${updatedIds.length} saved as Draft, '
-                  '${skipped.length} skipped'
-                  '${reason != null ? ' — $reason' : ''}'
+                  '${skipped.length} skipped\n$details'
               : '${updatedIds.length} submitted, '
-                  '${skipped.length} skipped'
-                  '${reason != null ? ' — $reason' : ''}',
+                  '${skipped.length} skipped\n$details',
           Colors.orange,
         );
       } else {
@@ -897,101 +895,20 @@ class _StaffSupervisorAttendanceScreenState
   // ------------------------------------------------------------------
   // UI helpers
   // ------------------------------------------------------------------
-  Widget _timeStepper(
+  Widget _timeField(
     TimeOfDay value,
     ValueChanged<TimeOfDay> onChanged,
   ) {
-    TimeOfDay addMinutes(int delta) {
-      final total =
-          (value.hour * 60 +
-                  value.minute +
-                  delta) %
-              (24 * 60);
-
-      final normalized =
-          total < 0
-              ? total + 24 * 60
-              : total;
-
-      return TimeOfDay(
-        hour: normalized ~/ 60,
-        minute: normalized % 60,
-      );
-    }
-
-    Widget unitStepper({
-      required String label,
-      required VoidCallback onMinus,
-      required VoidCallback onPlus,
-    }) {
-      return Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          IconButton.filledTonal(
-            icon: const Icon(
-              Icons.keyboard_arrow_up,
-              size: 16,
-            ),
-            onPressed: onPlus,
-            constraints: const BoxConstraints(
-              minWidth: 28,
-              minHeight: 28,
-            ),
-            padding: EdgeInsets.zero,
-          ),
-          Text(
-            label,
-            style: const TextStyle(
-              fontWeight: FontWeight.bold,
-              fontSize: 13,
-            ),
-          ),
-          IconButton.filledTonal(
-            icon: const Icon(
-              Icons.keyboard_arrow_down,
-              size: 16,
-            ),
-            onPressed: onMinus,
-            constraints: const BoxConstraints(
-              minWidth: 28,
-              minHeight: 28,
-            ),
-            padding: EdgeInsets.zero,
-          ),
-        ],
-      );
-    }
-
-    return Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        unitStepper(
-          label:
-              value.hour.toString().padLeft(2, '0'),
-          onMinus: () =>
-              onChanged(addMinutes(-60)),
-          onPlus: () =>
-              onChanged(addMinutes(60)),
-        ),
-        const Padding(
-          padding:
-              EdgeInsets.symmetric(horizontal: 4),
-          child: Text(
-            ':',
-            style: TextStyle(
-              fontWeight: FontWeight.bold,
-            ),
-          ),
-        ),
-        unitStepper(
-          label:
-              value.minute.toString().padLeft(2, '0'),
-          onMinus: () =>
-              onChanged(addMinutes(-5)),
-          onPlus: () =>
-              onChanged(addMinutes(5)),
-        ),
-      ],
+    return OutlinedButton.icon(
+      onPressed: () async {
+        final picked = await showTimePicker(
+          context: context,
+          initialTime: value,
+        );
+        if (picked != null) onChanged(picked);
+      },
+      icon: const Icon(Icons.access_time, size: 16),
+      label: Text(_fmtTime(value)),
     );
   }
 
@@ -1079,7 +996,7 @@ class _StaffSupervisorAttendanceScreenState
           Row(
             children: [
               const Text('In: '),
-              _timeStepper(
+              _timeField(
                 _globalCheckIn,
                 (v) => setState(
                   () => _globalCheckIn = v,
@@ -1087,7 +1004,7 @@ class _StaffSupervisorAttendanceScreenState
               ),
               const SizedBox(width: 20),
               const Text('Out: '),
-              _timeStepper(
+              _timeField(
                 _globalCheckOut,
                 (v) => setState(
                   () => _globalCheckOut = v,
@@ -1120,22 +1037,42 @@ class _StaffSupervisorAttendanceScreenState
               Expanded(
                 child: OutlinedButton.icon(
                   onPressed: () async {
-                    final v = await _pickLunchDateTime('Lunch start', _globalLunchStart);
-                    if (v != null && mounted) setState(() => _globalLunchStart = v);
+                    final v = await _pickLunchDateTime(
+                      'Lunch start',
+                      _globalLunchStart,
+                    );
+                    if (v != null && mounted) {
+                      setState(() => _globalLunchStart = v);
+                    }
                   },
                   icon: const Icon(Icons.restaurant, size: 16),
-                  label: Text(_globalLunchStart == null ? 'Lunch start' : DateFormat('yyyy-MM-dd HH:mm').format(_globalLunchStart!)),
+                  label: Text(
+                    _globalLunchStart == null
+                        ? 'Lunch start'
+                        : DateFormat('yyyy-MM-dd HH:mm')
+                            .format(_globalLunchStart!),
+                  ),
                 ),
               ),
               const SizedBox(width: 8),
               Expanded(
                 child: OutlinedButton.icon(
                   onPressed: () async {
-                    final v = await _pickLunchDateTime('Lunch end', _globalLunchEnd);
-                    if (v != null && mounted) setState(() => _globalLunchEnd = v);
+                    final v = await _pickLunchDateTime(
+                      'Lunch end',
+                      _globalLunchEnd,
+                    );
+                    if (v != null && mounted) {
+                      setState(() => _globalLunchEnd = v);
+                    }
                   },
                   icon: const Icon(Icons.restaurant_menu, size: 16),
-                  label: Text(_globalLunchEnd == null ? 'Lunch end' : DateFormat('yyyy-MM-dd HH:mm').format(_globalLunchEnd!)),
+                  label: Text(
+                    _globalLunchEnd == null
+                        ? 'Lunch end'
+                        : DateFormat('yyyy-MM-dd HH:mm')
+                            .format(_globalLunchEnd!),
+                  ),
                 ),
               ),
             ],
@@ -1258,12 +1195,10 @@ class _StaffSupervisorAttendanceScreenState
         _selectedStaffIds
             .contains(row.staffId);
 
-    final isOvernight = row.checkOutDate.isAfter(row.checkInDate) ||
-        (row.checkOutDate.year == row.checkInDate.year &&
-            row.checkOutDate.month == row.checkInDate.month &&
-            row.checkOutDate.day == row.checkInDate.day &&
-            (row.checkOut.hour * 60 + row.checkOut.minute) <=
-                (row.checkIn.hour * 60 + row.checkIn.minute));
+    final _out = _resolveOut(row);
+    final isOvernight = DateTime(_out.year, _out.month, _out.day).isAfter(
+      DateTime(row.checkInDate.year, row.checkInDate.month, row.checkInDate.day),
+    );
 
     return Card(
       margin:
@@ -1372,9 +1307,7 @@ class _StaffSupervisorAttendanceScreenState
             // --------------------------------------------------------
             // Rejection reason
             // --------------------------------------------------------
-            if (row.workflowStatus ==
-                    'Rejected' &&
-                row.rejectionNote != null) ...[
+            if (row.rejectionNote != null) ...[
               const SizedBox(height: 8),
               Container(
                 width:
@@ -1391,7 +1324,7 @@ class _StaffSupervisorAttendanceScreenState
                   ),
                 ),
                 child: Text(
-                  'Rejected: ${row.rejectionNote}',
+                  'Admin note: ${row.rejectionNote}',
                   style: TextStyle(
                     color:
                         Colors.red.shade800,
@@ -1449,9 +1382,12 @@ class _StaffSupervisorAttendanceScreenState
                         onPressed: () => _pickRowDate(row, checkIn: true),
                         icon: const Icon(Icons.calendar_today, size: 14),
                         label: Text(DateFormat('yyyy-MM-dd').format(row.checkInDate)),
-                        style: TextButton.styleFrom(padding: EdgeInsets.zero, minimumSize: Size.zero),
+                        style: TextButton.styleFrom(
+                          padding: EdgeInsets.zero,
+                          minimumSize: Size.zero,
+                        ),
                       ),
-                      _timeStepper(
+                      _timeField(
                         row.checkIn,
                         (v) => setState(
                           () => row
@@ -1478,9 +1414,12 @@ class _StaffSupervisorAttendanceScreenState
                         onPressed: () => _pickRowDate(row, checkIn: false),
                         icon: const Icon(Icons.calendar_today, size: 14),
                         label: Text(DateFormat('yyyy-MM-dd').format(row.checkOutDate)),
-                        style: TextButton.styleFrom(padding: EdgeInsets.zero, minimumSize: Size.zero),
+                        style: TextButton.styleFrom(
+                          padding: EdgeInsets.zero,
+                          minimumSize: Size.zero,
+                        ),
                       ),
-                      _timeStepper(
+                      _timeField(
                         row.checkOut,
                         (v) => setState(
                           () => row
@@ -1528,18 +1467,37 @@ class _StaffSupervisorAttendanceScreenState
                   Expanded(
                     child: OutlinedButton(
                       onPressed: () => _pickRowLunch(row, start: true),
-                      child: Text(row.lunchStart == null ? 'Lunch start' : 'Lunch start\n${DateFormat('yyyy-MM-dd HH:mm').format(row.lunchStart!)}'),
+                      child: Text(
+                        row.lunchStart == null
+                            ? 'Lunch start'
+                            : 'Lunch start\n${DateFormat('yyyy-MM-dd HH:mm').format(row.lunchStart!)}',
+                      ),
                     ),
                   ),
                   const SizedBox(width: 8),
                   Expanded(
                     child: OutlinedButton(
                       onPressed: () => _pickRowLunch(row, start: false),
-                      child: Text(row.lunchEnd == null ? 'Lunch end' : 'Lunch end\n${DateFormat('yyyy-MM-dd HH:mm').format(row.lunchEnd!)}'),
+                      child: Text(
+                        row.lunchEnd == null
+                            ? 'Lunch end'
+                            : 'Lunch end\n${DateFormat('yyyy-MM-dd HH:mm').format(row.lunchEnd!)}',
+                      ),
                     ),
                   ),
                 ],
               ),
+              if (row.lunchStart != null || row.lunchEnd != null)
+                Align(
+                  alignment: Alignment.centerLeft,
+                  child: TextButton(
+                    onPressed: () => setState(() {
+                      row.lunchStart = null;
+                      row.lunchEnd = null;
+                    }),
+                    child: const Text('Clear lunch'),
+                  ),
+                ),
             ],
           ],
         ),
