@@ -1014,6 +1014,7 @@ class _AddEditStaffSheetState
   late TextEditingController _nameController;
   late TextEditingController _phoneController;
   late TextEditingController _positionController;
+  late TextEditingController _hireDateController;
   late TextEditingController _salaryController;
   late TextEditingController _dailyHoursController;
 
@@ -1036,6 +1037,11 @@ class _AddEditStaffSheetState
       text: widget.staff?['position'] ?? '',
     );
 
+    _hireDateController = TextEditingController(
+      text: widget.staff?['hire_date']?.toString().split('T').first
+          ?? DateTime.now().toIso8601String().split('T').first,
+    );
+
     _salaryController = TextEditingController(
       text:
           widget.staff?['monthly_salary']?.toString() ??
@@ -1055,6 +1061,7 @@ class _AddEditStaffSheetState
     _nameController.dispose();
     _phoneController.dispose();
     _positionController.dispose();
+    _hireDateController.dispose();
     _salaryController.dispose();
     _dailyHoursController.dispose();
     super.dispose();
@@ -1083,6 +1090,7 @@ class _AddEditStaffSheetState
             _positionController.text.trim().isEmpty
                 ? null
                 : _positionController.text.trim(),
+        'hire_date': _hireDateController.text.trim(),
         'monthly_salary':
             double.parse(
           _salaryController.text.trim(),
@@ -1219,6 +1227,35 @@ class _AddEditStaffSheetState
                     Icons.work_outline,
                   ),
                 ),
+              ),
+              const SizedBox(height: 16),
+              TextFormField(
+                controller: _hireDateController,
+                readOnly: true,
+                decoration: const InputDecoration(
+                  labelText: 'Hire Date *',
+                  border: OutlineInputBorder(),
+                  prefixIcon: Icon(Icons.event_available),
+                ),
+                onTap: () async {
+                  final current = DateTime.tryParse(_hireDateController.text);
+                  final picked = await showDatePicker(
+                    context: context,
+                    initialDate: current ?? DateTime.now(),
+                    firstDate: DateTime(2015),
+                    lastDate: DateTime(2035),
+                  );
+                  if (picked != null) {
+                    _hireDateController.text =
+                        '${picked.year.toString().padLeft(4, '0')}-'
+                        '${picked.month.toString().padLeft(2, '0')}-'
+                        '${picked.day.toString().padLeft(2, '0')}';
+                  }
+                },
+                validator: (value) {
+                  final date = DateTime.tryParse(value ?? '');
+                  return date == null ? 'Please select a valid hire date' : null;
+                },
               ),
               const SizedBox(height: 16),
               TextFormField(

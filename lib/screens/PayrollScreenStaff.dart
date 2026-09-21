@@ -69,10 +69,58 @@ class _StaffPayrollScreenState extends State<StaffPayrollScreen> {
     }
     setState(() => _isGenerating = true);
     try {
-      final response = await ApiConfig.dio.post('/staff-payroll/generate', data: {
+      final requestData = <String, dynamic>{
         'start_date': _startDateController.text,
         'end_date': _endDateController.text,
-      });
+      };
+      Future<Response<dynamic>> generate({required bool acknowledgePending}) {
+        return ApiConfig.dio.post(
+          '/staff-payroll/generate',
+          data: {
+            ...requestData,
+            if (acknowledgePending) 'acknowledge_pending': true,
+          },
+        );
+      }
+
+      Response<dynamic> response;
+      try {
+        response = await generate(acknowledgePending: false);
+      } on DioException catch (e) {
+        final data = e.response?.data;
+        if (e.response?.statusCode != 409 ||
+            data is! Map ||
+            data['code'] != 'PENDING_ATTENDANCE') {
+          rethrow;
+        }
+
+        final pending = (data['pending_attendance'] as List? ?? [])
+            .map((item) => '${item['full_name'] ?? 'Staff'} — ${item['record_date'] ?? ''} (${item['status'] ?? ''})')
+            .join('\n');
+        if (!mounted) return;
+        final acknowledge = await showDialog<bool>(
+          context: context,
+          builder: (dialogContext) => AlertDialog(
+            title: const Text('Unresolved attendance found'),
+            content: Text(
+              'The following records are still unresolved:\n\n$pending\n\n'
+              'Acknowledge them and continue? Payroll will use only approved attendance and will not silently convert these records into approved attendance.',
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(dialogContext, false),
+                child: const Text('Cancel'),
+              ),
+              ElevatedButton(
+                onPressed: () => Navigator.pop(dialogContext, true),
+                child: const Text('Acknowledge & continue'),
+              ),
+            ],
+          ),
+        );
+        if (acknowledge != true) return;
+        response = await generate(acknowledgePending: true);
+      }
       _showSnack(response.data['message'] ?? 'Payroll batch generated', Colors.green.shade700);
       _startDateController.clear();
       _endDateController.clear();
@@ -304,7 +352,7 @@ void _showBatchDetailsSheet(Map batch, List staff) {
                                   Text('ID: ${s['staff_unique_id'] ?? ''} • Position: ${s['position'] ?? '-'}', style: TextStyle(fontSize: 12, color: Colors.grey.shade600)),
                                   const SizedBox(height: 6),
                                   Wrap(spacing: 14, runSpacing: 4, children: [
-                                    Text('Base salary: ${s['monthly_salary_snapshot']}', style: const TextStyle(fontSize: 12)),
+                                    Text('Base salary: ${s['prorated_base_salary'] ?? s['monthly_salary_snapshot']}', style: const TextStyle(fontSize: 12)),
                                     Text('Working days: ${s['working_days_in_period']}', style: const TextStyle(fontSize: 12)),
                                     Text('Present: ${s['present_days']}', style: const TextStyle(fontSize: 12, color: Colors.green)),
                                     Text('Paid leave: ${s['paid_leave_days']}', style: const TextStyle(fontSize: 12, color: Colors.blue)),
