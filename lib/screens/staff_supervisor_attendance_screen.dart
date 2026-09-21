@@ -88,7 +88,7 @@ class _StaffSupervisorAttendanceScreenState
   List<_StaffRow> _rows = [];
 
   TimeOfDay _globalCheckIn = const TimeOfDay(hour: 8, minute: 0);
-  TimeOfDay _globalCheckOut = const TimeOfDay(hour: 16, minute: 0);
+  TimeOfDay _globalCheckOut = const TimeOfDay(hour: 18, minute: 0);
   DateTime _globalCheckInDate = DateTime.now();
   DateTime _globalCheckOutDate = DateTime.now();
   DateTime? _globalLunchStart;
