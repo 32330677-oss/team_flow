@@ -213,19 +213,36 @@ class _StaffSupervisorAttendanceScreenState
 
         final parsedIn = _parseDateTime(raw['check_in_time']);
         final parsedOut = _parseDateTime(raw['check_out_time']);
+
+        // Default lunch window shown for any employee who doesn't have a
+        // saved record yet — purely a UI suggestion, fully editable per row.
+        final defaultLunchStart = DateTime(
+          _selectedDate.year, _selectedDate.month, _selectedDate.day, 12, 0,
+        );
+        final defaultLunchEnd = DateTime(
+          _selectedDate.year, _selectedDate.month, _selectedDate.day, 13, 0,
+        );
+
         final row = _StaffRow(
           staffId: raw['staff_id'],
           uniqueId: raw['staff_unique_id']?.toString() ?? '',
           fullName: raw['full_name']?.toString() ?? '',
           position: raw['position']?.toString() ?? '-',
           standardHours: standard,
-            staffCurrentStatus:
-      raw['staff_current_status']?.toString() ?? 'Active',
+          staffCurrentStatus:
+              raw['staff_current_status']?.toString() ?? 'Active',
           checkInDate: parsedIn ?? _selectedDate,
           checkOutDate: parsedOut ?? _selectedDate,
-          lunchStart: _parseDateTime(raw['lunch_start_time']),
-          lunchEnd: _parseDateTime(raw['lunch_end_time']),
-          status: raw['attendance_status']?.toString(),
+          lunchStart: _parseDateTime(raw['lunch_start_time']) ??
+              (hasRecord ? null : defaultLunchStart),
+          lunchEnd: _parseDateTime(raw['lunch_end_time']) ??
+              (hasRecord ? null : defaultLunchEnd),
+          // Default every not-yet-recorded row to Present, so the supervisor
+          // only touches the exceptions (Absent/Sick/...). Once a record
+          // exists on the server, its saved status always wins — this
+          // fallback only fires for brand-new rows.
+          status: raw['attendance_status']?.toString() ??
+              (hasRecord ? null : 'Present'),
           checkIn:
               _parseTime(raw['check_in_time']) ??
                   const TimeOfDay(
@@ -409,31 +426,57 @@ class _StaffSupervisorAttendanceScreenState
       }
     }
   }
-
   // ------------------------------------------------------------------
-  // Save selected employees as Draft.
-  //
-  // Only checked employees are affected.
-  // Draft is saved in DB and remains invisible to Admin.
+  // Explicit Bulk Preset apply — only touches CHECKED employees, and
+  // only the ones currently marked Present. An employee marked Absent
+  // (or any non-Present status) is never touched here, even if their
+  // checkbox happens to be checked.
   // ------------------------------------------------------------------
-  Future<void> _saveSelectedAsDraft() async {
+  void _applyBulkToSelected() {
     final rows = _rows
-        .where(
-          (r) =>
-              _selectedStaffIds.contains(r.staffId) &&
-              !r.isLocked,
-        )
+        .where((r) => _selectedStaffIds.contains(r.staffId) && !r.isLocked)
         .toList();
 
     if (rows.isEmpty) {
+      _showSnack('Check at least one employee first.', Colors.orange);
+      return;
+    }
+
+    final applicable = rows.where((r) => r.status == 'Present').toList();
+    final skippedCount = rows.length - applicable.length;
+
+    if (applicable.isEmpty) {
       _showSnack(
-        'Check at least one employee first.',
+        'None of the checked employees are marked Present — the bulk preset only applies to Present employees.',
         Colors.orange,
       );
       return;
     }
 
-    setState(() => _applyGlobalToRows(rows));
+    setState(() => _applyGlobalToRows(applicable));
+
+    _showSnack(
+      skippedCount > 0
+          ? 'Applied to ${applicable.length} employee(s). $skippedCount skipped (not Present).'
+          : 'Applied to ${applicable.length} employee(s). Remember to Save Draft or Submit.',
+      Colors.blue.shade700,
+    );
+  }
+  // Saves Draft for EVERY editable employee at once — no need to check
+  // anyone individually first. Rejected rows are excluded on purpose;
+  // those go through the dedicated resubmit flow (_saveOne).
+  Future<void> _saveAllAsDraft() async {
+    if (_isSaving) return;
+
+    final rows = _rows
+        .where((r) => !r.isLocked && r.workflowStatus != 'Rejected')
+        .toList();
+
+    if (rows.isEmpty) {
+      _showSnack('Nothing to save for this date.', Colors.orange);
+      return;
+    }
+
     await _saveRows(rows, mode: 'draft');
   }
 
@@ -465,7 +508,6 @@ Future<void> _submitAttendance() async {
     return;
   }
 
-  setState(() => _applyGlobalToRows(requiredRows));
 
   await _saveRows(
     requiredRows,
@@ -833,47 +875,50 @@ for (final r in rows) {
     }
   }
 
-  Widget _buildBulkTimeCard() {
+  Widget _buildBulkPresetCard() {
     final checked = _checkedCount;
 
     return Container(
-      margin:
-          const EdgeInsets.only(bottom: 8),
+      margin: const EdgeInsets.only(bottom: 8),
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
         color: Colors.white,
-        borderRadius:
-            BorderRadius.circular(14),
+        borderRadius: BorderRadius.circular(14),
       ),
       child: Column(
-        crossAxisAlignment:
-            CrossAxisAlignment.start,
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Text(
-            'Set the same Check-in / Check-out for the CHECKED employees marked Present:',
-            style: TextStyle(
-              fontWeight: FontWeight.w600,
-            ),
+          Row(
+            children: [
+              Icon(Icons.bolt_rounded, size: 18, color: primaryColor),
+              const SizedBox(width: 6),
+              const Text(
+                'Bulk Preset (optional)',
+                style: TextStyle(fontWeight: FontWeight.bold),
+              ),
+            ],
           ),
-          const SizedBox(height: 8),
+          const SizedBox(height: 4),
+          Text(
+            'Only needed when several employees share the same check-in/out or lunch. '
+            'Every employee already has its own editable default time below — '
+            'use this only to speed up shared shifts.',
+            style: TextStyle(fontSize: 11, color: Colors.grey.shade600),
+          ),
+          const SizedBox(height: 10),
           Row(
             children: [
               const Text('In: '),
               _timeField(
                 _globalCheckIn,
-                (v) => setState(
-                  () => _globalCheckIn = v,
-                ),
+                (v) => setState(() => _globalCheckIn = v),
               ),
               const SizedBox(width: 20),
               const Text('Out: '),
               _timeField(
                 _globalCheckOut,
-                (v) => setState(
-                  () => _globalCheckOut = v,
-                ),
+                (v) => setState(() => _globalCheckOut = v),
               ),
-              const Spacer(),
             ],
           ),
           const SizedBox(height: 8),
@@ -894,8 +939,7 @@ for (final r in rows) {
                   label: Text(
                     _globalLunchStart == null
                         ? 'Lunch start'
-                        : DateFormat('yyyy-MM-dd HH:mm')
-                            .format(_globalLunchStart!),
+                        : DateFormat('HH:mm').format(_globalLunchStart!),
                   ),
                 ),
               ),
@@ -915,38 +959,33 @@ for (final r in rows) {
                   label: Text(
                     _globalLunchEnd == null
                         ? 'Lunch end'
-                        : DateFormat('yyyy-MM-dd HH:mm')
-                            .format(_globalLunchEnd!),
+                        : DateFormat('HH:mm').format(_globalLunchEnd!),
                   ),
                 ),
               ),
             ],
           ),
-          const SizedBox(height: 6),
-          Text(
-            'Select employees, choose values, then Save Draft or Submit Attendance.',
-            style: TextStyle(
-              fontSize: 10.5,
-              color: Colors.grey.shade600,
+          const SizedBox(height: 10),
+          SizedBox(
+            width: double.infinity,
+            child: ElevatedButton.icon(
+              onPressed: checked == 0 ? null : _applyBulkToSelected,
+              icon: const Icon(Icons.done_all_rounded, size: 18),
+              label: Text(
+                checked == 0
+                    ? 'Check employees below to enable'
+                    : 'Apply to Selected ($checked)',
+              ),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: primaryColor,
+                foregroundColor: Colors.white,
+              ),
             ),
           ),
-          const SizedBox(height: 2),
+          const SizedBox(height: 4),
           Text(
-            'You can save the changes as Draft before submitting. '
-            'Draft records are not visible to Admin and are not included in payroll.',
-            style: TextStyle(
-              fontSize: 10.5,
-              color: Colors.grey.shade600,
-            ),
-          ),
-          const SizedBox(height: 2),
-          Text(
-            'If check-out is earlier than or equal to check-in, '
-            'it is treated as the next calendar day (overnight shift).',
-            style: TextStyle(
-              fontSize: 10.5,
-              color: Colors.grey.shade600,
-            ),
+            'This only fills the fields locally — it does not save anything by itself.',
+            style: TextStyle(fontSize: 10.5, color: Colors.grey.shade500),
           ),
         ],
       ),
@@ -1005,8 +1044,8 @@ for (final r in rows) {
           Expanded(
             child: Text(
               checked == 0
-                  ? 'Select all, then uncheck the ones you want to leave untouched'
-                  : '$checked of ${selectableIds.length} checked',
+                  ? 'Check employees to apply the Bulk Preset above to them'
+      : '$checked of ${selectableIds.length} checked for Bulk Preset',
               style: const TextStyle(
                 fontWeight:
                     FontWeight.w600,
@@ -1351,11 +1390,12 @@ for (final r in rows) {
   Widget build(
     BuildContext context,
   ) {
-    final checked =
-        _checkedCount;
-final canSubmitAttendance = _rows.any((r) =>
-    !r.isLocked &&
-    r.workflowStatus != 'Rejected');
+    final checked = _checkedCount;
+    final canSaveDraft =
+        _rows.any((r) => !r.isLocked && r.workflowStatus != 'Rejected');
+    final canSubmitAttendance = _rows.any((r) =>
+        !r.isLocked &&
+        r.workflowStatus != 'Rejected');
 
     return Scaffold(
       backgroundColor:
@@ -1611,7 +1651,7 @@ final canSubmitAttendance = _rows.any((r) =>
                             ) {
                               if (index ==
                                   0) {
-                                return _buildBulkTimeCard();
+                                return _buildBulkPresetCard();
                               }
 
                               if (index ==
@@ -1648,78 +1688,44 @@ final canSubmitAttendance = _rows.any((r) =>
                         // ------------------------------------------------
                         Row(
                           children: [
-                            Expanded(
-                              child:
-                                  SizedBox(
-                                height: 50,
-                                child:
-                                    OutlinedButton.icon(
-                                  onPressed:
-                                      (_isSaving ||
-                                              checked ==
-                                                  0)
-                                          ? null
-                                          : _saveSelectedAsDraft,
-                                  icon:
-                                      _isSaving
-                                          ? const SizedBox(
-                                              width:
-                                                  18,
-                                              height:
-                                                  18,
-                                              child:
-                                                  CircularProgressIndicator(
-                                                strokeWidth:
-                                                    2,
-                                              ),
-                                            )
-                                          : const Icon(
-                                              Icons
-                                                  .save_outlined,
-                                            ),
-                                  label:
-                                      Text(
-                                    checked ==
-                                            0
-                                        ? 'Check employees to save'
-                                        : 'Save Draft ($checked)',
-                                    style:
-                                        const TextStyle(
-                                      fontSize:
-                                          13.5,
-                                      fontWeight:
-                                          FontWeight
-                                              .bold,
-                                    ),
-                                    textAlign:
-                                        TextAlign
-                                            .center,
-                                  ),
-                                  style:
-                                      OutlinedButton
-                                          .styleFrom(
-                                    foregroundColor:
-                                        Colors
-                                            .blue
-                                            .shade700,
-                                    side:
-                                        BorderSide(
-                                      color: Colors
-                                          .blue
-                                          .shade700,
-                                    ),
-                                    shape:
-                                        RoundedRectangleBorder(
-                                      borderRadius:
-                                          BorderRadius
-                                              .circular(
-                                        12,
-                                      ),
-                                    ),
-                                  ),
-                                ),
-                              ),
-                            ),
+                          Expanded(
+  child: SizedBox(
+    height: 50,
+    child: OutlinedButton.icon(
+      onPressed:
+          (_isSaving || !canSaveDraft)
+              ? null
+              : _saveAllAsDraft,
+      icon:
+          _isSaving
+              ? const SizedBox(
+                  width: 18,
+                  height: 18,
+                  child: CircularProgressIndicator(
+                    strokeWidth: 2,
+                  ),
+                )
+              : const Icon(
+                  Icons.save_outlined,
+                ),
+      label: const Text(
+        'Save Draft (All)',
+        style: TextStyle(
+          fontSize: 13.5,
+          fontWeight: FontWeight.bold,
+        ),
+        textAlign: TextAlign.center,
+      ),
+      style: OutlinedButton.styleFrom(
+        foregroundColor: Colors.blue.shade700,
+        side: BorderSide(color: Colors.blue.shade700),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(12),
+        ),
+      ),
+    ),
+  ),
+),
                             const SizedBox(
                               width: 10,
                             ),
