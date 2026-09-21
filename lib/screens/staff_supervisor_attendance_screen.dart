@@ -99,7 +99,19 @@ class _StaffSupervisorAttendanceScreenState
     super.initState();
     _loadDay();
   }
+TimeOfDay _defaultCheckOutFor(double standardHours) {
+  const defaultCheckInMinutes = 8 * 60; // 08:00
 
+  final totalMinutes =
+      defaultCheckInMinutes + (standardHours * 60).round();
+
+  final normalized = totalMinutes % (24 * 60);
+
+  return TimeOfDay(
+    hour: normalized ~/ 60,
+    minute: normalized % 60,
+  );
+}
   String get _dateStr => DateFormat('yyyy-MM-dd').format(_selectedDate);
 
   /// Yesterday is allowed because a night shift may start yesterday
@@ -241,20 +253,16 @@ class _StaffSupervisorAttendanceScreenState
           // only touches the exceptions (Absent/Sick/...). Once a record
           // exists on the server, its saved status always wins — this
           // fallback only fires for brand-new rows.
-          status: raw['attendance_status']?.toString() ??
-              (hasRecord ? null : 'Present'),
+          status: raw['attendance_status']?.toString(),
           checkIn:
               _parseTime(raw['check_in_time']) ??
                   const TimeOfDay(
                     hour: 8,
                     minute: 0,
                   ),
-          checkOut:
-              _parseTime(raw['check_out_time']) ??
-                  TimeOfDay(
-                    hour: (8 + standard).floor() % 24,
-                    minute: 0,
-                  ),
+       checkOut:
+    _parseTime(raw['check_out_time']) ??
+        _defaultCheckOutFor(standard),
           existing: hasRecord,
           workflowStatus:
               hasRecord
@@ -465,21 +473,18 @@ class _StaffSupervisorAttendanceScreenState
   // Saves Draft for EVERY editable employee at once — no need to check
   // anyone individually first. Rejected rows are excluded on purpose;
   // those go through the dedicated resubmit flow (_saveOne).
-  Future<void> _saveAllAsDraft() async {
-    if (_isSaving) return;
 
-    final rows = _rows
-        .where((r) => !r.isLocked && r.workflowStatus != 'Rejected')
-        .toList();
-
-    if (rows.isEmpty) {
-      _showSnack('Nothing to save for this date.', Colors.orange);
-      return;
-    }
-
-    await _saveRows(rows, mode: 'draft');
+Future<void> _saveAllAsDraft() async {
+  if (_isSaving) return;
+  final rows = _rows
+      .where((r) => !r.isLocked && r.workflowStatus != 'Rejected' && r.status != null)
+      .toList();
+  if (rows.isEmpty) {
+    _showSnack('  Nothing to save for this date.', Colors.orange);
+    return;
   }
-
+  await _saveRows(rows, mode: 'draft');
+}
   // Submit the current date. Selected editable rows carry unsaved edits;
   // existing Draft rows are promoted atomically by the backend.
 Future<void> _submitAttendance() async {
