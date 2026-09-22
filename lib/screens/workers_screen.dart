@@ -237,7 +237,7 @@ Future<void> _saveWorker({String? workerUniqueId, Map<String, dynamic>? original
           _showSnackBar('Please select the effective date for this change.', Colors.orange);
           return;
         }
-        mapData['effective_date'] = _effectiveDateController.text.trim();
+        mapData['effective_from'] = _effectiveDateController.text.trim();
         // ❌ تم إزالة الـ clear من هنا لئلا يمسح التاريخ قبل الإرسال
       }
     }
