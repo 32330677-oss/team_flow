@@ -1255,10 +1255,61 @@ Future<void> _saveLunchTimes() async {
     );
   }
 }
+  Future<void> _showMissingAttendanceDialog(
+    List<Map<String, dynamic>> missingWorkers,
+  ) async {
+    if (!mounted) return;
 
-
+    await showDialog<void>(
+      context: context,
+      builder: (context) => AlertDialog(
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(16),
+        ),
+        title: const Text('Attendance is incomplete'),
+        content: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text(
+                'Record Present, Absent, Sick, Vacation, or Holiday for every assigned worker before submitting this day.',
+              ),
+              const SizedBox(height: 12),
+              ...missingWorkers.map(
+                (worker) => Padding(
+                  padding: const EdgeInsets.only(bottom: 6),
+                  child: Text(
+                    '• ${worker['full_name'] ?? 'Unknown worker'}',
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Close'),
+          ),
+        ],
+      ),
+    );
+  }
 
   Future<void> _submitDay() async {
+    final missingWorkers = _workers
+        .where((worker) => worker['attendance_id'] == null)
+        .map<Map<String, dynamic>>(
+          (worker) => Map<String, dynamic>.from(worker),
+        )
+        .toList();
+
+    if (missingWorkers.isNotEmpty) {
+      await _showMissingAttendanceDialog(missingWorkers);
+      return;
+    }
+
     bool hasActiveCheckIns = _workers.any(
       (w) => w['attendance_id'] != null,
     );
@@ -1488,8 +1539,29 @@ Future<void> _saveLunchTimes() async {
     } on DioException catch (e) {
       setState(() => _isLoading = false);
 
-      final msg = e.response?.data is Map
-          ? (e.response?.data['message'] ??
+      final responseData = e.response?.data;
+      if (responseData is Map &&
+          responseData['code'] == 'MISSING_ATTENDANCE_RECORDS') {
+        final missingWorkers = (responseData['missing_workers'] as List? ?? [])
+            .whereType<Map>()
+            .map<Map<String, dynamic>>(
+              (worker) => Map<String, dynamic>.from(worker),
+            )
+            .toList();
+
+        if (missingWorkers.isNotEmpty) {
+          await _showMissingAttendanceDialog(missingWorkers);
+        } else {
+          _showToast(
+            responseData['message']?.toString() ?? 'Attendance is incomplete.',
+            Colors.orange,
+          );
+        }
+        return;
+      }
+
+      final msg = responseData is Map
+          ? (responseData['message'] ??
               'Final submission failed. Ensure all workers have checked out.')
           : 'Final submission failed.';
 
