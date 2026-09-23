@@ -2169,8 +2169,9 @@ Future<void> _saveLunchTimes() async {
               itemBuilder: (_) => [
                 PopupMenuItem(
                   value: 'status',
-                  enabled:
-                      !hasCheckIn && isDraft,
+                  // The backend can safely clear a mistaken clock-in when
+                  // correcting a Draft record to Absent/Sick/etc.
+                  enabled: isDraft,
                   child: Text(
                     attendanceStatus == null
                         ? 'Set status'
