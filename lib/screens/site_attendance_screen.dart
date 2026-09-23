@@ -375,7 +375,25 @@ bool _canBulkCheckIn(Map worker) {
         worker['check_in_time'] != null &&
         worker['check_out_time'] == null;
   }
+bool _canBulkAbsent(Map worker) {
+  final workflow = worker['workflow_status']?.toString();
+  final isDraft = workflow == null || workflow == 'Draft';
 
+  return isDraft &&
+      worker['check_in_time'] == null &&
+      worker['check_out_time'] == null;
+}
+
+List<int> _eligibleSelectedWorkerIdsForAbsent() {
+  return _workers
+      .where((worker) {
+        final id = int.tryParse(worker['worker_id'].toString());
+        if (id == null || !_selectedWorkerIds.contains(id)) return false;
+        return _canBulkAbsent(worker);
+      })
+      .map<int>((worker) => int.parse(worker['worker_id'].toString()))
+      .toList();
+}
   List<int> _eligibleSelectedWorkerIds(bool checkIn) {
     return _workers
         .where((worker) {
@@ -478,6 +496,118 @@ Future<void> _bulkAttendanceAction({
       data is Map && data['message'] != null
           ? data['message'].toString()
           : 'Bulk attendance action failed. No changes were saved.',
+      Colors.red,
+    );
+  }
+}
+
+Future<void> _bulkMarkAbsent() async {
+  final workerIds = _eligibleSelectedWorkerIdsForAbsent();
+
+  if (workerIds.isEmpty) {
+    _showToast(
+      'Select workers who have not checked in and are not already submitted.',
+      Colors.orange,
+    );
+    return;
+  }
+
+  final selectedNames = _workers
+      .where((w) => workerIds.contains(int.tryParse(w['worker_id'].toString())))
+      .map((w) => w['full_name']?.toString() ?? 'Worker')
+      .toList();
+
+  // ---- تأكيد صريح + عرض الأسماء المحددة (بس اللي عليهم check) ----
+  final confirm = await showDialog<bool>(
+    context: context,
+    builder: (context) => AlertDialog(
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      title: Row(
+        children: const [
+          Icon(Icons.person_off_rounded, color: Colors.red),
+          SizedBox(width: 8),
+          Text('Confirm Bulk Absence'),
+        ],
+      ),
+      content: SingleChildScrollView(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'You are about to mark ${workerIds.length} worker(s) as ABSENT for $_recordDate:',
+              style: const TextStyle(fontWeight: FontWeight.w600),
+            ),
+            const SizedBox(height: 10),
+            ...selectedNames.map(
+              (name) => Padding(
+                padding: const EdgeInsets.only(bottom: 4),
+                child: Row(
+                  children: [
+                    const Icon(Icons.circle, size: 6, color: Colors.red),
+                    const SizedBox(width: 8),
+                    Expanded(child: Text(name)),
+                  ],
+                ),
+              ),
+            ),
+            const SizedBox(height: 10),
+            Text(
+              'This action cannot be applied to workers who already checked in.',
+              style: TextStyle(fontSize: 11.5, color: Colors.grey.shade600),
+            ),
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context, false),
+          child: const Text('Cancel'),
+        ),
+        ElevatedButton(
+          style: ElevatedButton.styleFrom(backgroundColor: Colors.red.shade700),
+          onPressed: () => Navigator.pop(context, true),
+          child: const Text('Mark Absent', style: TextStyle(color: Colors.white)),
+        ),
+      ],
+    ),
+  );
+
+  if (confirm != true) return;
+
+  setState(() => _isLoading = true);
+
+  try {
+    final response = await ApiConfig.dio.post(
+      '/attendance/bulk/status',
+      data: {
+        'site_id': widget.siteId,
+        'record_date': _recordDate,
+        'worker_ids': workerIds,
+        'attendance_status': 'Absent',
+      },
+    );
+
+    final data = response.data is Map ? response.data as Map : <String, dynamic>{};
+    final successful = (data['successful'] as List?)?.length ?? workerIds.length;
+
+    if (mounted) {
+      setState(() {
+        _selectedWorkerIds.removeAll(workerIds);
+        _isLoading = false;
+      });
+      _showToast('$successful worker(s) marked as Absent.', Colors.red.shade700);
+    }
+
+    await _fetchWorkers();
+  } on DioException catch (e) {
+    if (!mounted) return;
+    setState(() => _isLoading = false);
+    final data = e.response?.data;
+    _showToast(
+      data is Map && data['message'] != null
+          ? data['message'].toString()
+          : 'Bulk absence action failed. No changes were saved.',
       Colors.red,
     );
   }
@@ -1618,6 +1748,7 @@ Future<void> _saveLunchTimes() async {
 
     final selectedCheckInCount =
         _eligibleSelectedWorkerIds(true).length;
+final selectedAbsentCount = _eligibleSelectedWorkerIdsForAbsent().length;
 
     final selectedCheckOutCount =
         _eligibleSelectedWorkerIds(false).length;
@@ -1907,7 +2038,25 @@ Future<void> _saveLunchTimes() async {
                   ),
                 ],
               ),
-
+const SizedBox(height: 8),
+SizedBox(
+  width: double.infinity,
+  child: OutlinedButton.icon(
+    onPressed: selectedAbsentCount == 0 ? null : _bulkMarkAbsent,
+    icon: const Icon(Icons.person_off_rounded, size: 18, color: Colors.red),
+    label: Text(
+      selectedAbsentCount == 0
+          ? 'Bulk Mark Absent'
+          : 'Mark Absent ($selectedAbsentCount)',
+      style: const TextStyle(color: Colors.red, fontWeight: FontWeight.bold),
+    ),
+    style: OutlinedButton.styleFrom(
+      side: const BorderSide(color: Colors.red),
+      padding: const EdgeInsets.symmetric(vertical: 12),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+    ),
+  ),
+),
               if (_selectedWorkerIds.isNotEmpty) ...[
                 const SizedBox(height: 8),
                 Text(
