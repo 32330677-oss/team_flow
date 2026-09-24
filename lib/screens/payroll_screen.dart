@@ -540,10 +540,13 @@ Future<void> _selectDate(TextEditingController controller, {bool isStartDate = f
       return;
     }
     try {
-      final response = await ApiConfig.dio.get<List<int>>(
-        '/admin/payroll/batch/$batchId/export.xlsx',
-        options: Options(responseType: ResponseType.bytes),
-      );
+    final response = await ApiConfig.dio.get<List<int>>(
+  '/admin/payroll/batch/$batchId/export.xlsx',
+  options: Options(
+    responseType: ResponseType.bytes,
+    receiveTimeout: const Duration(seconds: 90),
+  ),
+);
       final bytes = response.data;
       if (bytes == null || bytes.isEmpty) throw Exception('Empty Excel response');
       await PayrollExportService.exportBytes(
@@ -581,7 +584,10 @@ Future<void> _exportBatchPdf(Map batch) async {
   try {
     final response = await ApiConfig.dio.get<List<int>>(
       '/admin/payroll/batch/$batchId/export.pdf',
-      options: Options(responseType: ResponseType.bytes),
+      options: Options(
+  responseType: ResponseType.bytes,
+  receiveTimeout: const Duration(seconds: 90),
+),
     );
     final bytes = response.data;
     if (bytes == null || bytes.isEmpty) throw Exception('Empty PDF response');
