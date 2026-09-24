@@ -27,5 +27,6 @@ Future<void> exportPayrollBytes(List<int> bytes, String fileName) async {
   html.document.body?.children.add(anchor);
   anchor.click();
   anchor.remove();
+   await Future<void>.delayed(const Duration(seconds: 1));
   html.Url.revokeObjectUrl(url);
 }
