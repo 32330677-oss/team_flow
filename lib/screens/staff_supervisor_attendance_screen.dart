@@ -84,7 +84,10 @@ class _StaffSupervisorAttendanceScreenState
 
   /// Employees selected for bulk editing and draft saving.
   final Set<int> _selectedStaffIds = <int>{};
+ 
 
+  final TextEditingController _searchController = TextEditingController();
+  String _searchQuery = '';
   List<_StaffRow> _rows = [];
 
   TimeOfDay _globalCheckIn = const TimeOfDay(hour: 8, minute: 0);
@@ -99,6 +102,13 @@ class _StaffSupervisorAttendanceScreenState
     super.initState();
     _loadDay();
   }
+
+  @override
+  void dispose() {
+    _searchController.dispose();
+    super.dispose();
+  }
+
 TimeOfDay _defaultCheckOutFor(double standardHours) {
   const defaultCheckInMinutes = 8 * 60; // 08:00
 
@@ -148,6 +158,27 @@ TimeOfDay _defaultCheckOutFor(double standardHours) {
     return _selectedStaffIds.where(selectable.contains).length;
   }
 
+  /// Only counts checked employees that are ALSO Present — since Bulk
+  /// Check-In / Check-Out / Lunch only ever apply to Present employees.
+  int get _checkedPresentCount => _rows
+      .where((r) =>
+          _selectedStaffIds.contains(r.staffId) &&
+          !r.isLocked &&
+          r.status == 'Present')
+      .length;
+
+  /// Search filter — only affects which staff cards are rendered.
+  /// Selection state, bulk actions, and save/submit always operate on
+  /// the full _rows list, never on this filtered view.
+  List<_StaffRow> get _filteredRows {
+    final query = _searchQuery.trim().toLowerCase();
+    if (query.isEmpty) return _rows;
+    return _rows
+        .where((r) =>
+            r.fullName.toLowerCase().contains(query) ||
+            r.uniqueId.toLowerCase().contains(query))
+        .toList();
+  }
   TimeOfDay? _parseTime(dynamic value) {
     if (value == null) return null;
 
@@ -417,62 +448,130 @@ TimeOfDay _defaultCheckOutFor(double standardHours) {
   }
 
   // ------------------------------------------------------------------
-  // Bulk time entry — affects ONLY the checked employees.
-  // This is local only: nothing is sent to the server until
-  // Save Draft or Submit.
+  // Bulk actions — each one is fully independent now: applying
+  // Check-In does NOT touch Check-Out, and vice versa. All three
+  // (Check-In / Check-Out / Lunch) only ever touch CHECKED employees
+  // who are currently marked Present. This is local only: nothing is
+  // sent to the server until Save Draft or Submit.
   // ------------------------------------------------------------------
-  void _applyGlobalToRows(List<_StaffRow> rows) {
-    for (final row in rows) {
-      if (row.isLocked || row.status != 'Present') continue;
-      row.checkIn = _globalCheckIn;
-      row.checkOut = _globalCheckOut;
-      row.checkInDate = _globalCheckInDate;
-      row.checkOutDate = _globalCheckOutDate;
-      if (_globalLunchStart != null && _globalLunchEnd != null) {
-        row.lunchStart = _globalLunchStart;
-        row.lunchEnd = _globalLunchEnd;
-      }
-    }
-  }
-  // ------------------------------------------------------------------
-  // Explicit Bulk Preset apply — only touches CHECKED employees, and
-  // only the ones currently marked Present. An employee marked Absent
-  // (or any non-Present status) is never touched here, even if their
-  // checkbox happens to be checked.
-  // ------------------------------------------------------------------
-  void _applyBulkToSelected() {
-    final rows = _rows
-        .where((r) => _selectedStaffIds.contains(r.staffId) && !r.isLocked)
+  List<_StaffRow> _eligibleSelectedPresentRows() {
+    return _rows
+        .where((r) =>
+            _selectedStaffIds.contains(r.staffId) &&
+            !r.isLocked &&
+            r.status == 'Present')
         .toList();
+  }
 
-    if (rows.isEmpty) {
+  int _selectedNotLockedCount() {
+    return _rows
+        .where((r) => _selectedStaffIds.contains(r.staffId) && !r.isLocked)
+        .length;
+  }
+
+  void _applyBulkCheckIn() {
+    final totalSelected = _selectedNotLockedCount();
+    if (totalSelected == 0) {
       _showSnack('Check at least one employee first.', Colors.orange);
       return;
     }
 
-    final applicable = rows.where((r) => r.status == 'Present').toList();
-    final skippedCount = rows.length - applicable.length;
+    final applicable = _eligibleSelectedPresentRows();
+    final skippedCount = totalSelected - applicable.length;
 
     if (applicable.isEmpty) {
       _showSnack(
-        'None of the checked employees are marked Present — the bulk preset only applies to Present employees.',
+        'None of the checked employees are marked Present — Bulk Check-In only applies to Present employees.',
         Colors.orange,
       );
       return;
     }
 
-    setState(() => _applyGlobalToRows(applicable));
+    setState(() {
+      for (final row in applicable) {
+        row.checkIn = _globalCheckIn;
+        row.checkInDate = _globalCheckInDate;
+      }
+    });
 
     _showSnack(
       skippedCount > 0
-          ? 'Applied to ${applicable.length} employee(s). $skippedCount skipped (not Present).'
-          : 'Applied to ${applicable.length} employee(s). Remember to Save Draft or Submit.',
+          ? 'Check-in applied to ${applicable.length} employee(s). $skippedCount skipped (not Present).'
+          : 'Check-in applied to ${applicable.length} employee(s). Remember to Save Draft or Submit.',
       Colors.blue.shade700,
     );
   }
-  // Saves Draft for EVERY editable employee at once — no need to check
-  // anyone individually first. Rejected rows are excluded on purpose;
-  // those go through the dedicated resubmit flow (_saveOne).
+
+  void _applyBulkCheckOut() {
+    final totalSelected = _selectedNotLockedCount();
+    if (totalSelected == 0) {
+      _showSnack('Check at least one employee first.', Colors.orange);
+      return;
+    }
+
+    final applicable = _eligibleSelectedPresentRows();
+    final skippedCount = totalSelected - applicable.length;
+
+    if (applicable.isEmpty) {
+      _showSnack(
+        'None of the checked employees are marked Present — Bulk Check-Out only applies to Present employees.',
+        Colors.orange,
+      );
+      return;
+    }
+
+    setState(() {
+      for (final row in applicable) {
+        row.checkOut = _globalCheckOut;
+        row.checkOutDate = _globalCheckOutDate;
+      }
+    });
+
+    _showSnack(
+      skippedCount > 0
+          ? 'Check-out applied to ${applicable.length} employee(s). $skippedCount skipped (not Present).'
+          : 'Check-out applied to ${applicable.length} employee(s). Remember to Save Draft or Submit.',
+      Colors.blue.shade700,
+    );
+  }
+
+  void _applyBulkLunch() {
+    if (_globalLunchStart == null || _globalLunchEnd == null) {
+      _showSnack('Set both a lunch start and end time first.', Colors.orange);
+      return;
+    }
+
+    final totalSelected = _selectedNotLockedCount();
+    if (totalSelected == 0) {
+      _showSnack('Check at least one employee first.', Colors.orange);
+      return;
+    }
+
+    final applicable = _eligibleSelectedPresentRows();
+    final skippedCount = totalSelected - applicable.length;
+
+    if (applicable.isEmpty) {
+      _showSnack(
+        'None of the checked employees are marked Present — Bulk Lunch only applies to Present employees.',
+        Colors.orange,
+      );
+      return;
+    }
+
+    setState(() {
+      for (final row in applicable) {
+        row.lunchStart = _globalLunchStart;
+        row.lunchEnd = _globalLunchEnd;
+      }
+    });
+
+    _showSnack(
+      skippedCount > 0
+          ? 'Lunch applied to ${applicable.length} employee(s). $skippedCount skipped (not Present).'
+          : 'Lunch applied to ${applicable.length} employee(s). Remember to Save Draft or Submit.',
+      Colors.blue.shade700,
+    );
+  }
 
 Future<void> _saveAllAsDraft() async {
   if (_isSaving) return;
@@ -881,7 +980,7 @@ for (final r in rows) {
   }
 
   Widget _buildBulkPresetCard() {
-    final checked = _checkedCount;
+    final checkedPresent = _checkedPresentCount;
 
     return Container(
       margin: const EdgeInsets.only(bottom: 8),
@@ -906,8 +1005,7 @@ for (final r in rows) {
           const SizedBox(height: 4),
           Text(
             'Only needed when several employees share the same check-in/out or lunch. '
-            'Every employee already has its own editable default time below — '
-            'use this only to speed up shared shifts.',
+            'Check-in, check-out, and lunch each apply independently — use only what you need.',
             style: TextStyle(fontSize: 11, color: Colors.grey.shade600),
           ),
           const SizedBox(height: 10),
@@ -926,7 +1024,35 @@ for (final r in rows) {
               ),
             ],
           ),
-          const SizedBox(height: 8),
+          const SizedBox(height: 10),
+          Row(
+            children: [
+              Expanded(
+                child: OutlinedButton.icon(
+                  onPressed: checkedPresent == 0 ? null : _applyBulkCheckIn,
+                  icon: const Icon(Icons.login_rounded, size: 18),
+                  label: Text(
+                    checkedPresent == 0
+                        ? 'Bulk Check-In'
+                        : 'Bulk Check-In ($checkedPresent)',
+                  ),
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: OutlinedButton.icon(
+                  onPressed: checkedPresent == 0 ? null : _applyBulkCheckOut,
+                  icon: const Icon(Icons.logout_rounded, size: 18),
+                  label: Text(
+                    checkedPresent == 0
+                        ? 'Bulk Check-Out'
+                        : 'Bulk Check-Out ($checkedPresent)',
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
           Row(
             children: [
               Expanded(
@@ -974,12 +1100,12 @@ for (final r in rows) {
           SizedBox(
             width: double.infinity,
             child: ElevatedButton.icon(
-              onPressed: checked == 0 ? null : _applyBulkToSelected,
+              onPressed: checkedPresent == 0 ? null : _applyBulkLunch,
               icon: const Icon(Icons.done_all_rounded, size: 18),
               label: Text(
-                checked == 0
+                checkedPresent == 0
                     ? 'Check employees below to enable'
-                    : 'Apply to Selected ($checked)',
+                    : 'Apply Lunch to Selected ($checkedPresent)',
               ),
               style: ElevatedButton.styleFrom(
                 backgroundColor: primaryColor,
@@ -1030,19 +1156,21 @@ for (final r in rows) {
                     ? false
                     : null),
             tristate: true,
-            onChanged:
+                     onChanged:
                 selectableIds.isEmpty
                     ? null
                     : (_) => setState(() {
                           if (allChecked) {
-                            _selectedStaffIds
-                                .clear();
+                            _selectedStaffIds.clear();
                           } else {
                             _selectedStaffIds
                               ..clear()
-                              ..addAll(
-                                selectableIds,
-                              );
+                              ..addAll(selectableIds);
+                            for (final row in _rows) {
+                              if (selectableIds.contains(row.staffId)) {
+                                row.status ??= 'Present';
+                              }
+                            }
                           }
                         }),
           ),
@@ -1106,21 +1234,19 @@ for (final r in rows) {
           children: [
             Row(
               children: [
-                Checkbox(
+                        Checkbox(
                   value: isSelected,
                   onChanged: locked
                       ? null
                       : (v) => setState(() {
                             if (v == true) {
-                              _selectedStaffIds
-                                  .add(
-                                row.staffId,
-                              );
+                              _selectedStaffIds.add(row.staffId);
+                              // Checking a staff member with no status yet
+                              // defaults it to Present — never overwrites
+                              // an already-chosen status (e.g. Absent).
+                              row.status ??= 'Present';
                             } else {
-                              _selectedStaffIds
-                                  .remove(
-                                row.staffId,
-                              );
+                              _selectedStaffIds.remove(row.staffId);
                             }
                           }),
                 ),
@@ -1616,8 +1742,38 @@ for (final r in rows) {
                     ),
                   ),
 
-                const SizedBox(
-                  height: 8,
+                const SizedBox(height: 8),
+
+                // ----------------------------------------------------
+                // Search
+                // ----------------------------------------------------
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(12, 0, 12, 8),
+                  child: TextField(
+                    controller: _searchController,
+                    onChanged: (value) => setState(() => _searchQuery = value),
+                    decoration: InputDecoration(
+                      hintText: 'Search staff by name or ID...',
+                      prefixIcon: const Icon(Icons.search),
+                      filled: true,
+                      fillColor: Colors.white,
+                      suffixIcon: _searchQuery.isEmpty
+                          ? null
+                          : IconButton(
+                              icon: const Icon(Icons.clear),
+                              onPressed: () {
+                                _searchController.clear();
+                                setState(() => _searchQuery = '');
+                              },
+                            ),
+                      contentPadding:
+                          const EdgeInsets.symmetric(vertical: 0, horizontal: 16),
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(14),
+                        borderSide: BorderSide.none,
+                      ),
+                    ),
+                  ),
                 ),
 
                 // ----------------------------------------------------
@@ -1626,50 +1782,38 @@ for (final r in rows) {
                 Expanded(
                   child: _rows.isEmpty
                       ? const Center(
-                          child: Text(
-                            'No active staff found',
-                          ),
+                          child: Text('No active staff found'),
                         )
-                      : RefreshIndicator(
-                          onRefresh:
-                              () =>
-                                  _loadDay(),
-                          child:
-                              ListView.builder(
-                            padding:
-                                const EdgeInsets
-                                    .symmetric(
-                              horizontal: 12,
+                      : _filteredRows.isEmpty
+                          ? Center(
+                              child: Text(
+                                'No staff match "$_searchQuery"',
+                                style: TextStyle(color: Colors.grey.shade600),
+                              ),
+                            )
+                          : RefreshIndicator(
+                              onRefresh: () => _loadDay(),
+                              child: ListView.builder(
+                                padding: const EdgeInsets.symmetric(horizontal: 12),
+
+                                // Bulk time card + selection toolbar + staff rows
+                                itemCount: _filteredRows.length + 2,
+
+                                itemBuilder: (context, index) {
+                                  if (index == 0) {
+                                    return _buildBulkPresetCard();
+                                  }
+
+                                  if (index == 1) {
+                                    return _buildSelectionToolbar();
+                                  }
+
+                                  return _buildStaffCard(
+                                    _filteredRows[index - 2],
+                                  );
+                                },
+                              ),
                             ),
-
-                            // Bulk time card
-                            // + selection toolbar
-                            // + staff rows
-                            itemCount:
-                                _rows.length +
-                                    2,
-
-                            itemBuilder:
-                                (
-                              context,
-                              index,
-                            ) {
-                              if (index ==
-                                  0) {
-                                return _buildBulkPresetCard();
-                              }
-
-                              if (index ==
-                                  1) {
-                                return _buildSelectionToolbar();
-                              }
-
-                              return _buildStaffCard(
-                                _rows[index - 2],
-                              );
-                            },
-                          ),
-                        ),
                 ),
 
                 // ----------------------------------------------------
