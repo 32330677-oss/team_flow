@@ -19,7 +19,10 @@ Future<void> exportPayrollBytes(List<int> bytes, String fileName) async {
   final Uint8List typedBytes =
       bytes is Uint8List ? bytes : Uint8List.fromList(bytes);
 
-  final blob = html.Blob(<Object>[typedBytes.buffer], _mimeTypeFor(fileName));
+ final blob = html.Blob(
+  <Object>[typedBytes],
+  _mimeTypeFor(fileName),
+);
   final url = html.Url.createObjectUrlFromBlob(blob);
   final anchor = html.AnchorElement(href: url)
     ..setAttribute('download', fileName)
@@ -27,6 +30,6 @@ Future<void> exportPayrollBytes(List<int> bytes, String fileName) async {
   html.document.body?.children.add(anchor);
   anchor.click();
   anchor.remove();
-   await Future<void>.delayed(const Duration(seconds: 1));
+   await Future<void>.delayed(const Duration(seconds: 3));
   html.Url.revokeObjectUrl(url);
 }
