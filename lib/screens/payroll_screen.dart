@@ -551,15 +551,26 @@ Future<void> _selectDate(TextEditingController controller, {bool isStartDate = f
         'payroll_batch_$batchId.xlsx',
       );
       if (mounted) _showSnack('Excel payroll file is ready.', Colors.green);
-    } on DioException catch (e) {
-      final data = e.response?.data;
-      final message = data is Map && data['message'] != null
-          ? data['message'].toString()
-          : 'Failed to export Excel payroll file.';
-      _showSnack(message, dangerColor);
-    } catch (_) {
-      _showSnack('Failed to export Excel payroll file.', dangerColor);
-    }
+   } on DioException catch (e, stack) {
+  print('Excel Dio error: ${e.message}');
+  print('Status: ${e.response?.statusCode}');
+  print('Response: ${e.response?.data}');
+  print(stack);
+
+  final data = e.response?.data;
+  final message = data is Map && data['message'] != null
+      ? data['message'].toString()
+      : 'Failed to export Excel payroll file.';
+
+  _showSnack(message, dangerColor);
+} catch (e, stack) {
+  print('Excel export error: $e');
+  print(stack);
+  _showSnack(
+    'Excel export failed: $e',
+    dangerColor,
+  );
+}
   }
 Future<void> _exportBatchPdf(Map batch) async {
   final batchId = int.tryParse('${batch['payroll_batch_id']}');
