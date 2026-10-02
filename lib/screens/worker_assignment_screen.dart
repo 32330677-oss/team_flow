@@ -4,6 +4,7 @@ import '../constants.dart';
 import '../widgets/searchable_picker_sheet.dart';
 import '../widgets/custom_app_bar.dart';
 import '../widgets/app_data_table.dart';
+import '../widgets/help_tip.dart';
 
 class WorkerAssignmentScreen extends StatefulWidget {
   const WorkerAssignmentScreen({Key? key}) : super(key: key);
@@ -43,88 +44,251 @@ class _WorkerAssignmentScreenState extends State<WorkerAssignmentScreen> {
     setState(() => _isLoading = false);
   }
 
-  Future<void> _deleteAssignment(int assignmentId) async {
-    bool? confirm = await showDialog(
+  String _fmtDate(DateTime d) =>
+      '${d.year.toString().padLeft(4, '0')}-${d.month.toString().padLeft(2, '0')}-${d.day.toString().padLeft(2, '0')}';
+
+  String _apiError(Object e, String fallback) {
+    if (e is DioException && e.response?.data is Map) {
+      return (e.response?.data['message'] ?? fallback).toString();
+    }
+    return fallback;
+  }
+
+  /// Shared dialog: date (with rule text) + mandatory reason.
+  Future<Map<String, String>?> _dateReasonDialog({
+    required String title,
+    required String dateLabel,
+    required String dateHelp,
+    required DateTime initialDate,
+    required DateTime firstDate,
+    String confirmLabel = 'Confirm',
+    Color? confirmColor,
+    Widget? extra,
+  }) async {
+    DateTime picked = initialDate;
+    final reasonCtrl = TextEditingController();
+    String? error;
+    final result = await showDialog<Map<String, String>>(
       context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Confirm', style: TextStyle(fontWeight: FontWeight.bold)),
-        content: const Text('Are you sure you want to end this worker assignment?'),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
-          ElevatedButton(
-            style: ElevatedButton.styleFrom(backgroundColor: AppColors.danger),
-            onPressed: () => Navigator.pop(ctx, true), 
-            child: const Text('Confirm', style: TextStyle(color: Colors.white)),
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setD) => AlertDialog(
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          title: Row(children: [
+            Expanded(child: Text(title, style: const TextStyle(fontWeight: FontWeight.bold))),
+            const HelpTip(title: 'Assignment dates', message: HelpTexts.assignmentDates),
+          ]),
+          content: SizedBox(
+            width: 420,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                if (extra != null) ...[extra, const SizedBox(height: 12)],
+                Text(dateLabel, style: const TextStyle(fontWeight: FontWeight.w600)),
+                const SizedBox(height: 6),
+                OutlinedButton.icon(
+                  icon: const Icon(Icons.calendar_today_rounded, size: 18),
+                  label: Text(_fmtDate(picked)),
+                  onPressed: () async {
+                    final d = await showDatePicker(
+                      context: ctx,
+                      initialDate: picked,
+                      firstDate: firstDate,
+                      lastDate: DateTime.now().add(const Duration(days: 365)),
+                    );
+                    if (d != null) setD(() => picked = d);
+                  },
+                ),
+                const SizedBox(height: 4),
+                Text(dateHelp, style: TextStyle(fontSize: 12, color: Colors.grey.shade700)),
+                const SizedBox(height: 14),
+                TextField(
+                  controller: reasonCtrl,
+                  maxLines: 2,
+                  decoration: InputDecoration(
+                    labelText: 'Reason (required)',
+                    errorText: error,
+                    border: const OutlineInputBorder(),
+                  ),
+                ),
+              ],
+            ),
           ),
-        ],
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
+            ElevatedButton(
+              style: ElevatedButton.styleFrom(backgroundColor: confirmColor ?? AppColors.primary),
+              onPressed: () {
+                if (reasonCtrl.text.trim().length < 3) {
+                  setD(() => error = 'Please enter a reason');
+                  return;
+                }
+                Navigator.pop(ctx, {'date': _fmtDate(picked), 'reason': reasonCtrl.text.trim()});
+              },
+              child: Text(confirmLabel, style: const TextStyle(color: Colors.white)),
+            ),
+          ],
+        ),
       ),
     );
+    reasonCtrl.dispose();
+    return result;
+  }
 
-    if (confirm != true) return;
-
+  /// End Assignment: the chosen date is the LAST assigned day (inclusive).
+  Future<void> _deleteAssignment(int assignmentId) async {
+    final a = _assignments.firstWhere(
+      (x) => x['assignment_id'].toString() == assignmentId.toString(),
+      orElse: () => <String, dynamic>{},
+    );
+    final start = DateTime.tryParse(a['assigned_date']?.toString() ?? '') ?? DateTime(2020);
+    final today = DateTime.now();
+    final res = await _dateReasonDialog(
+      title: 'End assignment — ${a['worker_name'] ?? 'Worker'}',
+      dateLabel: 'Last day assigned',
+      dateHelp: 'The worker is still assigned on this day. The next day is the first day outside the assignment.',
+      initialDate: DateTime(today.year, today.month, today.day),
+      firstDate: start.subtract(const Duration(days: 1)),
+      confirmLabel: 'End assignment',
+      confirmColor: AppColors.danger,
+    );
+    if (res == null) return;
     try {
-      await ApiConfig.dio.delete('/assignments/$assignmentId');
-      _loadData(); 
-      _showSnackBar('Assignment ended successfully', Colors.blue);
+      await ApiConfig.dio.post('/assignments/$assignmentId/end',
+          data: {'last_day': res['date'], 'reason': res['reason']});
+      await _loadData();
+      _showSnackBar('Assignment ended. Last assigned day: ${res['date']}', Colors.blue);
     } catch (e) {
-      _showSnackBar('Failed to end assignment', AppColors.danger);
+      _showSnackBar(_apiError(e, 'Failed to end assignment'), AppColors.danger);
     }
   }
 
-  // دالة نقل العامل لموقع جديد
+  /// Direct transfer (no approval workflow, fully audited by the backend):
+  /// transfer date = FIRST day at the new site; old assignment ends the day before.
   Future<void> _transferWorker(Map<String, dynamic> assignment) async {
     final currentSiteId = int.tryParse(assignment['site_id']?.toString() ?? '0') ?? 0;
-    final workerId = int.tryParse(assignment['worker_id']?.toString() ?? '0') ?? 0;
     final workerName = assignment['worker_name'] ?? 'Worker';
+    final currentShiftType = assignment['shift_type']?.toString() == 'Night' ? 'Night' : 'Day';
+    final assignmentId = int.tryParse(assignment['assignment_id']?.toString() ?? '');
 
-    // فلترة المواقع لإظهار المواقع الأخرى عدا الموقع الحالي
-    final availableSites = _sites.where((s) {
-      final sId = int.tryParse(s['site_id']?.toString() ?? '0') ?? 0;
-      return sId != currentSiteId;
-    }).toList();
-
-    if (availableSites.isEmpty) {
-      _showSnackBar('No other available sites to transfer to', Colors.orange);
+    final availableTargets = <Map<String, dynamic>>[];
+    for (final site in _sites) {
+      final siteId = int.tryParse(site['site_id']?.toString() ?? '0') ?? 0;
+      if (siteId == 0) continue;
+      final status = (site['site_status'] ?? site['status'])?.toString();
+      if (status != null && status != 'Active') continue;
+      final supportsShifts = site['supports_shifts'] == 1 || site['supports_shifts'] == true;
+      if (supportsShifts) {
+        for (final shift in ['Day', 'Night']) {
+          if (siteId == currentSiteId && shift == currentShiftType) continue;
+          availableTargets.add({
+            'site_id': siteId,
+            'shift_type': shift,
+            'display_label': '${site['site_name'] ?? ''} — $shift',
+          });
+        }
+      } else {
+        if (siteId == currentSiteId) continue;
+        availableTargets.add({
+          'site_id': siteId,
+          'shift_type': 'Day',
+          'display_label': site['site_name']?.toString() ?? '',
+        });
+      }
+    }
+    if (availableTargets.isEmpty || assignmentId == null) {
+      _showSnackBar('No other active sites or shifts to transfer to', Colors.orange);
       return;
     }
 
-    // فتح شاشة بحث واختيار الموقع الجديد
-    final pickedSite = await SearchablePickerSheet.show<dynamic>(
+    final pickedTarget = await SearchablePickerSheet.show<dynamic>(
       context,
-      title: 'Transfer $workerName to New Site',
-      items: availableSites,
-      labelBuilder: (s) => s['site_name'] ?? '',
+      title: 'Transfer $workerName to',
+      items: availableTargets,
+      labelBuilder: (t) => t['display_label']?.toString() ?? '',
     );
+    if (pickedTarget == null) return;
 
-    if (pickedSite == null) return;
+    final start = DateTime.tryParse(assignment['assigned_date']?.toString() ?? '') ?? DateTime(2020);
+    final today = DateTime.now();
+    final res = await _dateReasonDialog(
+      title: 'Direct transfer — $workerName',
+      dateLabel: 'Transfer date (first day at the new site)',
+      dateHelp: 'The current assignment ends automatically on the previous day. '
+          'Recorded with your name, date and reason in the audit trail.',
+      initialDate: DateTime(today.year, today.month, today.day),
+      firstDate: start.add(const Duration(days: 1)),
+      confirmLabel: 'Transfer',
+      extra: Container(
+        padding: const EdgeInsets.all(10),
+        decoration: BoxDecoration(
+          color: Colors.blue.shade50,
+          borderRadius: BorderRadius.circular(10),
+        ),
+        child: Text(
+          'From: ${assignment['site_name'] ?? ''} ($currentShiftType)\nTo: ${pickedTarget['display_label']}',
+          style: const TextStyle(fontWeight: FontWeight.w600),
+        ),
+      ),
+    );
+    if (res == null) return;
 
-    final newSiteId = int.tryParse(pickedSite['site_id'].toString());
-    final assignmentId = int.tryParse(assignment['assignment_id']?.toString() ?? '0');
-
-    if (newSiteId == null || assignmentId == null) return;
-
-    // إظهار مؤشر تحميل أو تنفيذ النقل
     try {
-      // 1. حذف القديم أو تعديله حسب الـ API لديك (الطريقة القياسية: حذف التعيين القديم وإنشاء جديد أو استدعاء مسار النقل)
-      // هنا سنقوم بحذف التعيين القديم وإنشاء التعيين الجديد في الموقع الجديد مباشرة لضمان سلامة الـ API
-      await ApiConfig.dio.delete('/assignments/$assignmentId');
-      
-      final response = await ApiConfig.dio.post('/assignments', data: {
-        'worker_id': workerId,
-        'site_id': newSiteId,
+      final response = await ApiConfig.dio.post('/assignments/$assignmentId/transfer', data: {
+        'transfer_date': res['date'],
+        'target_site_id': pickedTarget['site_id'],
+        'target_shift_type': pickedTarget['shift_type'],
+        'reason': res['reason'],
       });
-
       if (response.statusCode == 201 || response.statusCode == 200) {
-        _loadData();
-        _showSnackBar('Worker transferred successfully!', Colors.green.shade700);
+        await _loadData();
+        _showSnackBar('Worker transferred. First day at new site: ${res['date']}', Colors.green.shade700);
       }
-    } on DioException catch (e) {
-      final errorMessage = e.response?.data is Map
-          ? (e.response?.data['message'] ?? 'Failed to transfer worker')
-          : 'Failed to transfer worker';
-      _showSnackBar(errorMessage, AppColors.danger);
     } catch (e) {
-      _showSnackBar('Connection error during transfer', AppColors.danger);
+      _showSnackBar(_apiError(e, 'Failed to transfer worker'), AppColors.danger);
+    }
+  }
+
+  /// Read-only assignment history for one worker (closed + current periods).
+  Future<void> _showHistory(Map<String, dynamic> assignment) async {
+    final workerId = assignment['worker_id'];
+    try {
+      final r = await ApiConfig.dio.get('/assignments/worker/$workerId');
+      final rows = (r.data['data'] as List?) ?? [];
+      if (!mounted) return;
+      await showDialog(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: Text('Assignment history — ${assignment['worker_name'] ?? ''}'),
+          content: SizedBox(
+            width: 520,
+            child: rows.isEmpty
+                ? const Text('No history found.')
+                : ListView.separated(
+                    shrinkWrap: true,
+                    itemCount: rows.length,
+                    separatorBuilder: (_, __) => const Divider(height: 1),
+                    itemBuilder: (_, i) {
+                      final h = rows[i];
+                      final end = (h['last_day'] ?? h['unassigned_date'])?.toString();
+                      return ListTile(
+                        dense: true,
+                        leading: Icon(end == null ? Icons.play_circle : Icons.history,
+                            color: end == null ? Colors.green : Colors.grey),
+                        title: Text('${h['site_name'] ?? 'Site ${h['site_id']}'} · ${h['shift_type'] ?? 'Day'}'),
+                        subtitle: Text(
+                          '${h['assigned_date']} → ${end ?? 'open'}'
+                          '${h['end_reason'] != null ? '\nReason: ${h['end_reason']}' : ''}',
+                        ),
+                      );
+                    },
+                  ),
+          ),
+          actions: [TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Close'))],
+        ),
+      );
+    } catch (e) {
+      _showSnackBar(_apiError(e, 'Failed to load history'), AppColors.danger);
     }
   }
 
@@ -163,79 +327,363 @@ class _WorkerAssignmentScreenState extends State<WorkerAssignmentScreen> {
       ),
     );
   }
+@override
+Widget build(BuildContext context) {
+  final filteredSites = _sites.where((site) {
+    final siteName = site['site_name'].toString().toLowerCase();
+    final siteId =
+        int.tryParse(site['site_id']?.toString() ?? '0') ?? 0;
+    final siteWorkers = _getWorkersForSite(siteId);
 
-  @override
-  Widget build(BuildContext context) {
-    final filteredSites = _sites.where((site) {
-      final siteName = site['site_name'].toString().toLowerCase();
-      final siteId = int.tryParse(site['site_id']?.toString() ?? '0') ?? 0;
-      final siteWorkers = _getWorkersForSite(siteId);
-      
-      final matchesSiteName = siteName.contains(_searchQuery.toLowerCase());
-      final matchesWorkerName = siteWorkers.any((w) => 
-        w['worker_name'].toString().toLowerCase().contains(_searchQuery.toLowerCase())
-      );
+    final query = _searchQuery.toLowerCase();
 
-      return matchesSiteName || matchesWorkerName;
-    }).toList();
+    final matchesSiteName = siteName.contains(query);
+    final matchesWorkerName = siteWorkers.any(
+      (w) => w['worker_name']
+          .toString()
+          .toLowerCase()
+          .contains(query),
+    );
 
-    return Scaffold(
-      backgroundColor: Colors.grey[100],
-      appBar: const CustomAppBar(
-        title: 'Workers & Sites Distribution',
-      ),
-      body: _isLoading 
-        ? const Center(child: CircularProgressIndicator()) 
+    return matchesSiteName || matchesWorkerName;
+  }).toList();
+
+  return Scaffold(
+    backgroundColor: Colors.grey[100],
+    appBar: const CustomAppBar(
+      title: 'Workers & Sites Distribution',
+    ),
+    body: _isLoading
+        ? const Center(child: CircularProgressIndicator())
         : Column(
             children: [
               Padding(
                 padding: const EdgeInsets.all(12),
                 child: Row(
                   children: [
-                    _buildStatCard('Sites', _sites.length.toString(), AppColors.primary),
+                    _buildStatCard(
+                      'Sites',
+                      _sites.length.toString(),
+                      AppColors.primary,
+                    ),
                     const SizedBox(width: 10),
-                    _buildStatCard('Assignments', _assignments.length.toString(), Colors.blue.shade700),
+                    _buildStatCard(
+                      'Assignments',
+                      _assignments.length.toString(),
+                      Colors.blue.shade700,
+                    ),
                   ],
                 ),
               ),
+
               Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 12),
                 child: TextField(
-                  onChanged: (val) => setState(() => _searchQuery = val),
+                  onChanged: (val) =>
+                      setState(() => _searchQuery = val),
                   decoration: InputDecoration(
                     hintText: 'Search by site or worker...',
                     prefixIcon: const Icon(Icons.search),
                     filled: true,
                     fillColor: Colors.white,
-                    contentPadding: const EdgeInsets.symmetric(vertical: 0, horizontal: 20),
-                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(30), borderSide: BorderSide.none),
+                    contentPadding: const EdgeInsets.symmetric(
+                      vertical: 0,
+                      horizontal: 20,
+                    ),
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(30),
+                      borderSide: BorderSide.none,
+                    ),
                   ),
                 ),
               ),
+
               const SizedBox(height: 10),
+
               Expanded(
                 child: filteredSites.isEmpty
-                    ? const Center(child: Text('No sites found', style: TextStyle(color: Colors.grey, fontSize: 16)))
+                    ? const Center(
+                        child: Text(
+                          'No sites found',
+                          style: TextStyle(
+                            color: Colors.grey,
+                            fontSize: 16,
+                          ),
+                        ),
+                      )
                     : ListView.builder(
                         padding: const EdgeInsets.all(12),
                         itemCount: filteredSites.length,
                         itemBuilder: (context, index) {
                           final site = filteredSites[index];
-                          final siteId = int.tryParse(site['site_id']?.toString() ?? '0') ?? 0;
-                          final siteWorkers = _getWorkersForSite(siteId);
 
-                          // تحويل العمال إلى صفوف جدول مع إضافة زر النقل (Transfer) وزر الحذف
-                          final rows = List.generate(siteWorkers.length, (wIndex) {
+                          final siteId = int.tryParse(
+                                site['site_id']?.toString() ?? '0',
+                              ) ??
+                              0;
+
+                          final siteWorkers =
+                              _getWorkersForSite(siteId);
+
+                          final supportsShifts =
+                              site['supports_shifts'] == 1 ||
+                              site['supports_shifts'] == true;
+
+                          // ------------------------------------------------
+                          // Helper to build one worker table
+                          // ------------------------------------------------
+                          Widget buildWorkerTable({
+                            required String title,
+                            required List<dynamic> workers,
+                            required IconData shiftIcon,
+                            required Color shiftColor,
+                          }) {
+                            final rows =
+                                List.generate(workers.length, (wIndex) {
+                              final assignment = workers[wIndex];
+
+                              return DataRow(
+                                cells: [
+                                  DataCell(
+                                    Text('${wIndex + 1}'),
+                                  ),
+                                  DataCell(
+                                    Row(
+                                      children: [
+                                        const Icon(
+                                          Icons.person_outline,
+                                          size: 16,
+                                          color: Colors.grey,
+                                        ),
+                                        const SizedBox(width: 8),
+                                        Text(
+                                          assignment['worker_name'] ??
+                                              'N/A',
+                                          style: const TextStyle(
+                                            fontWeight: FontWeight.w500,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                  DataCell(
+                                    Row(
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        IconButton(
+                                          icon: const Icon(Icons.history_rounded, color: Colors.blueGrey, size: 20),
+                                          tooltip: 'Assignment history',
+                                          onPressed: () => _showHistory(assignment),
+                                        ),
+                                        IconButton(
+                                          icon: const Icon(
+                                            Icons.swap_horiz,
+                                            color: Colors.blue,
+                                            size: 20,
+                                          ),
+                                          tooltip: 'Transfer Worker',
+                                          onPressed: () =>
+                                              _transferWorker(
+                                            assignment,
+                                          ),
+                                        ),
+                                        IconButton(
+                                          icon: const Icon(
+                                            Icons.event_busy_rounded,
+                                            color: AppColors.danger,
+                                            size: 20,
+                                          ),
+                                          tooltip: 'End Assignment',
+                                          onPressed: () =>
+                                              _deleteAssignment(
+                                            assignment[
+                                                'assignment_id'],
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                ],
+                              );
+                            });
+
+                            return Padding(
+                              padding: const EdgeInsets.only(
+                                bottom: 12,
+                              ),
+                              child: AppDataTableCard(
+                                title: title,
+                                icon: shiftIcon,
+                                accentColor: shiftColor,
+                                emptyMessage:
+                                    'No workers assigned to this shift.',
+                                trailing: Container(
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 10,
+                                    vertical: 4,
+                                  ),
+                                  decoration: BoxDecoration(
+                                    color:
+                                        shiftColor.withOpacity(0.10),
+                                    borderRadius:
+                                        BorderRadius.circular(10),
+                                  ),
+                                  child: Text(
+                                    'Workers: ${workers.length}',
+                                    style: TextStyle(
+                                      color: shiftColor,
+                                      fontWeight: FontWeight.bold,
+                                      fontSize: 12,
+                                    ),
+                                  ),
+                                ),
+                                columns: const [
+                                  DataColumn(label: Text('#')),
+                                  DataColumn(
+                                    label: Text('Worker Name'),
+                                  ),
+                                  DataColumn(
+                                    label: Text('Actions'),
+                                  ),
+                                ],
+                                rows: rows,
+                              ),
+                            );
+                          }
+
+                          // =================================================
+                          // SHIFT-BASED SITE
+                          // =================================================
+                          if (supportsShifts) {
+                            final dayWorkers =
+                                siteWorkers.where((worker) {
+                              final shift =
+                                  worker['shift_type']?.toString();
+
+                              return shift != 'Night';
+                            }).toList();
+
+                            final nightWorkers =
+                                siteWorkers.where((worker) {
+                              return worker['shift_type']
+                                      ?.toString() ==
+                                  'Night';
+                            }).toList();
+
+                            return Padding(
+                              padding: const EdgeInsets.only(
+                                bottom: 16,
+                              ),
+                              child: Column(
+                                crossAxisAlignment:
+                                    CrossAxisAlignment.stretch,
+                                children: [
+                                  // Site header
+                                  Padding(
+                                    padding: const EdgeInsets.only(
+                                      bottom: 10,
+                                      left: 4,
+                                      right: 4,
+                                    ),
+                                    child: Row(
+                                      children: [
+                                        const Icon(
+                                          Icons.business,
+                                          size: 20,
+                                          color: AppColors.primary,
+                                        ),
+                                        const SizedBox(width: 8),
+                                        Expanded(
+                                          child: Text(
+                                            site['site_name'] ??
+                                                'Unknown Site',
+                                            style: const TextStyle(
+                                              fontSize: 17,
+                                              fontWeight:
+                                                  FontWeight.bold,
+                                            ),
+                                          ),
+                                        ),
+                                        Container(
+                                          padding:
+                                              const EdgeInsets.symmetric(
+                                            horizontal: 10,
+                                            vertical: 4,
+                                          ),
+                                          decoration: BoxDecoration(
+                                            color: Colors.blue.shade50,
+                                            borderRadius:
+                                                BorderRadius.circular(
+                                              10,
+                                            ),
+                                          ),
+                                          child: Text(
+                                            'Workers: ${siteWorkers.length}',
+                                            style: TextStyle(
+                                              color:
+                                                  Colors.blue.shade900,
+                                              fontWeight:
+                                                  FontWeight.bold,
+                                              fontSize: 12,
+                                            ),
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+
+                                  // Day
+                                  buildWorkerTable(
+                                    title: 'Day Shift',
+                                    workers: dayWorkers,
+                                    shiftIcon:
+                                        Icons.wb_sunny_outlined,
+                                    shiftColor:
+                                        Colors.orange.shade700,
+                                  ),
+
+                                  // Night
+                                  buildWorkerTable(
+                                    title: 'Night Shift',
+                                    workers: nightWorkers,
+                                    shiftIcon:
+                                        Icons.nightlight_outlined,
+                                    shiftColor:
+                                        Colors.indigo.shade700,
+                                  ),
+                                ],
+                              ),
+                            );
+                          }
+
+                          // =================================================
+                          // NORMAL SITE — NO SHIFTS
+                          // =================================================
+                          final rows =
+                              List.generate(siteWorkers.length, (wIndex) {
                             final assignment = siteWorkers[wIndex];
+
                             return DataRow(
                               cells: [
-                                DataCell(Text('${wIndex + 1}')),
+                                DataCell(
+                                  Text('${wIndex + 1}'),
+                                ),
                                 DataCell(
                                   Row(
                                     children: [
-                                      const Icon(Icons.person_outline, size: 16, color: Colors.grey),
+                                      const Icon(
+                                        Icons.person_outline,
+                                        size: 16,
+                                        color: Colors.grey,
+                                      ),
                                       const SizedBox(width: 8),
-                                      Text(assignment['worker_name'] ?? 'N/A', style: const TextStyle(fontWeight: FontWeight.w500)),
+                                      Text(
+                                        assignment['worker_name'] ??
+                                            'N/A',
+                                        style: const TextStyle(
+                                          fontWeight: FontWeight.w500,
+                                        ),
+                                      ),
                                     ],
                                   ),
                                 ),
@@ -243,17 +691,35 @@ class _WorkerAssignmentScreenState extends State<WorkerAssignmentScreen> {
                                   Row(
                                     mainAxisSize: MainAxisSize.min,
                                     children: [
-                                      // زر النقل (Transfer)
                                       IconButton(
-                                        icon: const Icon(Icons.swap_horiz, color: Colors.blue, size: 20),
-                                        tooltip: 'Transfer Worker',
-                                        onPressed: () => _transferWorker(assignment),
+                                        icon: const Icon(Icons.history_rounded, color: Colors.blueGrey, size: 20),
+                                        tooltip: 'Assignment history',
+                                        onPressed: () => _showHistory(assignment),
                                       ),
-                                      // زر الحذف (End Assignment)
                                       IconButton(
-                                        icon: const Icon(Icons.delete_forever, color: AppColors.danger, size: 20),
+                                        icon: const Icon(
+                                          Icons.swap_horiz,
+                                          color: Colors.blue,
+                                          size: 20,
+                                        ),
+                                        tooltip: 'Transfer Worker',
+                                        onPressed: () =>
+                                            _transferWorker(
+                                          assignment,
+                                        ),
+                                      ),
+                                      IconButton(
+                                        icon: const Icon(
+                                          Icons.event_busy_rounded,
+                                          color: AppColors.danger,
+                                          size: 20,
+                                        ),
                                         tooltip: 'End Assignment',
-                                        onPressed: () => _deleteAssignment(assignment['assignment_id']),
+                                        onPressed: () =>
+                                            _deleteAssignment(
+                                          assignment[
+                                              'assignment_id'],
+                                        ),
                                       ),
                                     ],
                                   ),
@@ -263,27 +729,44 @@ class _WorkerAssignmentScreenState extends State<WorkerAssignmentScreen> {
                           });
 
                           return Padding(
-                            padding: const EdgeInsets.only(bottom: 16),
+                            padding: const EdgeInsets.only(
+                              bottom: 16,
+                            ),
                             child: AppDataTableCard(
-                              title: site['site_name'] ?? 'Unknown Site',
+                              title: site['site_name'] ??
+                                  'Unknown Site',
                               icon: Icons.business,
                               accentColor: AppColors.primary,
-                              emptyMessage: 'No workers assigned to this site yet.',
+                              emptyMessage:
+                                  'No workers assigned to this site yet.',
                               trailing: Container(
-                                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                                padding:
+                                    const EdgeInsets.symmetric(
+                                  horizontal: 10,
+                                  vertical: 4,
+                                ),
                                 decoration: BoxDecoration(
                                   color: Colors.blue.shade50,
-                                  borderRadius: BorderRadius.circular(10),
+                                  borderRadius:
+                                      BorderRadius.circular(10),
                                 ),
                                 child: Text(
                                   'Workers: ${siteWorkers.length}',
-                                  style: TextStyle(color: Colors.blue.shade900, fontWeight: FontWeight.bold, fontSize: 12),
+                                  style: TextStyle(
+                                    color: Colors.blue.shade900,
+                                    fontWeight: FontWeight.bold,
+                                    fontSize: 12,
+                                  ),
                                 ),
                               ),
                               columns: const [
                                 DataColumn(label: Text('#')),
-                                DataColumn(label: Text('Worker Name')),
-                                DataColumn(label: Text('Actions')),
+                                DataColumn(
+                                  label: Text('Worker Name'),
+                                ),
+                                DataColumn(
+                                  label: Text('Actions'),
+                                ),
                               ],
                               rows: rows,
                             ),
@@ -293,13 +776,16 @@ class _WorkerAssignmentScreenState extends State<WorkerAssignmentScreen> {
               ),
             ],
           ),
-      floatingActionButton: FloatingActionButton(
-        backgroundColor: AppColors.primary,
-        onPressed: _openAddSheet,
-        child: const Icon(Icons.person_add_alt_1, color: Colors.white),
+    floatingActionButton: FloatingActionButton(
+      backgroundColor: AppColors.primary,
+      onPressed: _openAddSheet,
+      child: const Icon(
+        Icons.person_add_alt_1,
+        color: Colors.white,
       ),
-    );
-  }
+    ),
+  );
+}
 
   Widget _buildStatCard(String title, String value, Color color) {
     return Expanded(
@@ -341,18 +827,21 @@ class _AddAssignmentSheetState extends State<_AddAssignmentSheet> {
   int? _selectedSiteId;
   Map<String, dynamic>? _selectedWorkerObj;
   Map<String, dynamic>? _selectedSiteObj;
+  String _selectedShiftType = 'Day';
   bool _isSubmitting = false;
   String? _errorMessage;
 
-final _assignedDateController = TextEditingController(
-  text: DateTime.now().toIso8601String().split('T')[0],
-);
-@override
-void dispose() {
-  _assignedDateController.dispose();
-  super.dispose();
-}
-Future<void> _submit() async {
+  final _assignedDateController = TextEditingController(
+    text: DateTime.now().toIso8601String().split('T')[0],
+  );
+
+  @override
+  void dispose() {
+    _assignedDateController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _submit() async {
     setState(() => _errorMessage = null);
 
     if (_selectedWorkerId == null || _selectedSiteId == null) {
@@ -398,6 +887,9 @@ Future<void> _submit() async {
         'worker_id': _selectedWorkerId,
         'site_id': _selectedSiteId,
         'assigned_date': assignedDate,
+        'shift_type': (_selectedSiteObj?['supports_shifts'] == 1)
+            ? _selectedShiftType
+            : 'Day',
       });
 
       if (response.statusCode == 201 || response.statusCode == 200) {
@@ -440,6 +932,7 @@ Future<void> _submit() async {
           ),
           const SizedBox(height: 20),
           
+          // حقل اختيار العامل
           InkWell(
             onTap: () async {
               final picked = await SearchablePickerSheet.show<dynamic>(
@@ -474,6 +967,7 @@ Future<void> _submit() async {
           
           const SizedBox(height: 16),
           
+          // حقل اختيار الموقع
           InkWell(
             onTap: () async {
               final picked = await SearchablePickerSheet.show<dynamic>(
@@ -504,7 +998,52 @@ Future<void> _submit() async {
               ),
             ),
           ),
+          
           const SizedBox(height: 16),
+          
+          // اختيار الشيفت (يظهر فقط إذا كان الموقع يدعم الشيفتات supports_shifts == 1)
+          if (_selectedSiteObj?['supports_shifts'] == 1) ...[
+            const Text(
+              'Shift Type',
+              style: TextStyle(
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+            const SizedBox(height: 8),
+            Row(
+              children: [
+                Expanded(
+                  child: RadioListTile<String>(
+                    contentPadding: EdgeInsets.zero,
+                    title: const Text('Day'),
+                    value: 'Day',
+                    groupValue: _selectedShiftType,
+                    onChanged: (value) {
+                      if (value != null) {
+                        setState(() => _selectedShiftType = value);
+                      }
+                    },
+                  ),
+                ),
+                Expanded(
+                  child: RadioListTile<String>(
+                    contentPadding: EdgeInsets.zero,
+                    title: const Text('Night'),
+                    value: 'Night',
+                    groupValue: _selectedShiftType,
+                    onChanged: (value) {
+                      if (value != null) {
+                        setState(() => _selectedShiftType = value);
+                      }
+                    },
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+          ],
+
+          // حقل تاريخ التعيين
           TextField(
             controller: _assignedDateController,
             readOnly: true,
@@ -533,6 +1072,7 @@ Future<void> _submit() async {
               }
             },
           ),
+          
           if (_errorMessage != null) ...[
             const SizedBox(height: 16),
             Container(
@@ -544,7 +1084,7 @@ Future<void> _submit() async {
               ),
               child: Row(
                 children: [
-                  const Icon(Icons.error_outline, color: AppColors.danger, size: 22),
+                  const Icon(Icons.error_outline, color: Colors.red, size: 22),
                   const SizedBox(width: 10),
                   Expanded(
                     child: Text(
@@ -560,7 +1100,7 @@ Future<void> _submit() async {
           const SizedBox(height: 24),
           ElevatedButton(
             style: ElevatedButton.styleFrom(
-              backgroundColor: AppColors.primary,
+              backgroundColor: Colors.blue, // استبدل بـ AppColors.primary إذا كنت تعتمدها
               padding: const EdgeInsets.symmetric(vertical: 15),
               shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10))
             ),

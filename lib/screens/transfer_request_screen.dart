@@ -25,7 +25,32 @@ class _TransferRequestScreenState extends State<TransferRequestScreen> {
   Map<String, dynamic>? _selectedWorker;
   Map<String, dynamic>? _selectedCurrentSite;
   Map<String, dynamic>? _selectedTargetSite;
+String? _selectedCurrentShiftType;
+String? _selectedTargetShiftType;
+  // B3: the business date the transfer should take effect (default today).
+  DateTime _effectiveDate = DateTime.now();
+  // C-11: a reason is mandatory for every transfer request.
+  final TextEditingController _reasonController = TextEditingController();
 
+  @override
+  void dispose() {
+    _reasonController.dispose();
+    super.dispose();
+  }
+
+  String get _effectiveDateStr =>
+      '${_effectiveDate.year.toString().padLeft(4, '0')}-${_effectiveDate.month.toString().padLeft(2, '0')}-${_effectiveDate.day.toString().padLeft(2, '0')}';
+
+  Future<void> _pickEffectiveDate() async {
+    final picked = await showDatePicker(
+      context: context,
+      initialDate: _effectiveDate,
+      firstDate: DateTime.now().subtract(const Duration(days: 60)),
+      lastDate: DateTime.now().add(const Duration(days: 60)),
+      helpText: 'Transfer effective date',
+    );
+    if (picked != null) setState(() => _effectiveDate = picked);
+  }
   @override
   void initState() {
     super.initState();
@@ -104,7 +129,10 @@ Future<void> _loadWorkersForSite(int siteId) async {
 
       final response = await ApiConfig.dio.get(
         '/attendance/sites/$siteId/workers',
-        queryParameters: {'record_date': today},
+        queryParameters: {
+  'record_date': today,
+  'shift_type': _selectedCurrentShiftType,
+},
       );
       
       setState(() {
@@ -120,24 +148,101 @@ Future<void> _loadWorkersForSite(int siteId) async {
     }
   }
 
-  Future<void> _pickCurrentSite() async {
-    if (_supervisorSites.isEmpty) {
-      _showSnack('No supervisor sites available', Colors.orange);
-      return;
-    }
-    final picked = await SearchablePickerSheet.show<dynamic>(
-      context,
-      title: 'Select Current Site',
-      items: _supervisorSites,
-      labelBuilder: (s) => s['site_name'] ?? '',
-    );
-    if (picked != null) {
-      setState(() => _selectedCurrentSite = picked);
-      if (picked['site_id'] != null) {
-        _loadWorkersForSite(picked['site_id']);
-      }
-    }
+Future<void> _pickCurrentSite() async {
+  if (_supervisorSites.isEmpty) {
+    _showSnack('No supervisor sites available', Colors.orange);
+    return;
   }
+
+  final picked = await SearchablePickerSheet.show<dynamic>(
+    context,
+    title: 'Select Current Site',
+    items: _supervisorSites,
+    labelBuilder: (s) => s['site_name'] ?? '',
+  );
+
+  if (picked == null) return;
+
+  setState(() {
+    _selectedCurrentSite = picked;
+    _selectedCurrentShiftType = null;
+    _selectedWorker = null;
+    _workersInSite = [];
+  });
+
+  if (!mounted) return;
+
+  final selectedShift = await showDialog<String>(
+    context: context,
+    builder: (context) => AlertDialog(
+      title: const Text('Select Current Shift'),
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          ListTile(
+            leading: const Icon(Icons.wb_sunny_outlined),
+            title: const Text('Day'),
+            onTap: () => Navigator.pop(context, 'Day'),
+          ),
+          ListTile(
+            leading: const Icon(Icons.nightlight_outlined),
+            title: const Text('Night'),
+            onTap: () => Navigator.pop(context, 'Night'),
+          ),
+        ],
+      ),
+    ),
+  );
+
+  if (selectedShift == null) {
+    setState(() {
+      _selectedCurrentSite = null;
+      _selectedCurrentShiftType = null;
+      _workersInSite = [];
+    });
+    return;
+  }
+
+  setState(() {
+    _selectedCurrentShiftType = selectedShift;
+  });
+
+  if (picked['site_id'] != null) {
+    await _loadWorkersForSite(picked['site_id']);
+  }
+}
+
+
+
+Future<void> _pickTargetShift() async {
+  final selectedShift = await showDialog<String>(
+    context: context,
+    builder: (context) => AlertDialog(
+      title: const Text('Select Target Shift'),
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          ListTile(
+            leading: const Icon(Icons.wb_sunny_outlined),
+            title: const Text('Day'),
+            onTap: () => Navigator.pop(context, 'Day'),
+          ),
+          ListTile(
+            leading: const Icon(Icons.nightlight_outlined),
+            title: const Text('Night'),
+            onTap: () => Navigator.pop(context, 'Night'),
+          ),
+        ],
+      ),
+    ),
+  );
+
+  if (selectedShift != null) {
+    setState(() {
+      _selectedTargetShiftType = selectedShift;
+    });
+  }
+}
 
   Future<void> _pickWorker() async {
     if (_selectedCurrentSite == null) {
@@ -174,30 +279,42 @@ Future<void> _loadWorkersForSite(int siteId) async {
   }
 
 Future<void> _submit() async {
-  if (_selectedWorker == null ||
-      _selectedCurrentSite == null ||
-      _selectedTargetSite == null) {
+if (_selectedWorker == null ||
+    _selectedCurrentSite == null ||
+    _selectedCurrentShiftType == null ||
+    _selectedTargetSite == null ||
+    _selectedTargetShiftType == null) {
     _showSnack('Please fill in all fields', Colors.orange);
     return;
   }
 
   if (_selectedCurrentSite!['site_id'] ==
-      _selectedTargetSite!['site_id']) {
-    _showSnack(
-      'Target site cannot be the same as current site',
-      Colors.orange,
-    );
+        _selectedTargetSite!['site_id'] &&
+    _selectedCurrentShiftType == _selectedTargetShiftType) {
+  _showSnack(
+    'Target site and shift cannot be the same as current',
+    Colors.orange,
+  );
+  return;
+}
+
+  if (_reasonController.text.trim().length < 5) {
+    _showSnack('Please enter the reason for the transfer (min. 5 characters)', Colors.orange);
     return;
   }
 
   setState(() => _isSubmitting = true);
 
   try {
-    final response = await ApiConfig.dio.post('/transfers', data: {
-      'worker_id': _selectedWorker!['worker_id'],
-      'current_site_id': _selectedCurrentSite!['site_id'],
-      'target_site_id': _selectedTargetSite!['site_id'],
-    });
+ final response = await ApiConfig.dio.post('/transfers', data: {
+  'transfer_reason': _reasonController.text.trim(),
+  'worker_id': _selectedWorker!['worker_id'],
+  'current_site_id': _selectedCurrentSite!['site_id'],
+  'current_shift_type': _selectedCurrentShiftType,
+  'target_site_id': _selectedTargetSite!['site_id'],
+  'target_shift_type': _selectedTargetShiftType,
+  'effective_date': _effectiveDateStr,
+});
 
     if (!mounted) return;
 
@@ -233,12 +350,14 @@ Future<void> _submit() async {
       );
     }
 
-    setState(() {
-      _selectedWorker = null;
-      _selectedCurrentSite = null;
-      _selectedTargetSite = null;
-      _workersInSite = [];
-    });
+setState(() {
+  _selectedWorker = null;
+  _selectedCurrentSite = null;
+  _selectedCurrentShiftType = null;
+  _selectedTargetSite = null;
+  _selectedTargetShiftType = null;
+  _workersInSite = [];
+});
   } on DioException catch (e) {
     String msg = e.response?.data['message'] ?? 'Failed to submit request';
     _showSnack(msg, Colors.red);
@@ -337,13 +456,40 @@ Future<void> _submit() async {
                     isLoading: _isLoadingWorkers,
                   ),
                   const SizedBox(height: 16),
-                  _buildSelector(
-                    label: 'Target Site',
-                    icon: Icons.location_on,
-                    value: _selectedTargetSite?['site_name'],
-                    onTap: _pickTargetSite,
-                  ),
-                  const SizedBox(height: 28),
+      _buildSelector(
+  label: 'Target Site',
+  icon: Icons.location_on,
+  value: _selectedTargetSite?['site_name'],
+  onTap: _pickTargetSite,
+),
+const SizedBox(height: 16),
+_buildSelector(
+  label: 'Target Shift',
+  icon: Icons.schedule,
+  value: _selectedTargetShiftType,
+  onTap: _pickTargetShift,
+),
+const SizedBox(height: 16),
+_buildSelector(
+  label: 'Effective Date (first day at the new site)',
+  icon: Icons.event,
+  value: _effectiveDateStr,
+  onTap: _pickEffectiveDate,
+),
+const SizedBox(height: 16),
+TextField(
+  controller: _reasonController,
+  maxLines: 3,
+  maxLength: 500,
+  decoration: InputDecoration(
+    labelText: 'Reason for transfer (required)',
+    hintText: 'Why should this worker move?',
+    filled: true,
+    fillColor: Colors.white,
+    border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+  ),
+),
+const SizedBox(height: 20),
                   ElevatedButton.icon(
                     onPressed: _isSubmitting ? null : _submit,
                     icon: _isSubmitting

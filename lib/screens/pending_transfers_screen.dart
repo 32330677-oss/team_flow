@@ -60,13 +60,15 @@ class _PendingTransfersScreenState extends State<PendingTransfersScreen> {
     }
   }
 
-  Future<void> _review(int requestId, String status) async {
+  Future<void> _review(int requestId, String status, {String? requestedEffectiveDate}) async {
     String? adminNote;
+    String? effectiveDate;
 
     if (status == 'Approved') {
-      // نافذة تأكيد للموافقة لمنع الضغط الخطأ
-      bool confirmed = await _showApproveDialog();
-      if (!confirmed) return;
+      // B3: the admin confirms the business date the transfer takes effect
+      // (pre-filled with the date requested by the supervisor).
+      effectiveDate = await _showApproveDialog(initialDate: requestedEffectiveDate);
+      if (effectiveDate == null) return;
     } else if (status == 'Rejected') {
       // نافذة إدخال ملاحظات الأدمن عند الرفض
       adminNote = await _showRejectDialog();
@@ -80,6 +82,7 @@ class _PendingTransfersScreenState extends State<PendingTransfersScreen> {
         data: {
           'status': status,
           'admin_notes': adminNote,
+          if (effectiveDate != null) 'effective_date': effectiveDate,
         },
       );
       if (response.data['status'] == 'success') {
@@ -92,7 +95,12 @@ class _PendingTransfersScreenState extends State<PendingTransfersScreen> {
         await _fetchPending();
       }
     } on DioException catch (e) {
-      final msg = e.response?.data['message'] ?? 'Failed to process request';
+      final data = e.response?.data;
+      var msg = (data is Map ? data['message'] : null)?.toString() ?? 'Failed to process request';
+      final conflicts = data is Map ? data['conflicts'] : null;
+      if (conflicts is List && conflicts.isNotEmpty) {
+        msg = '$msg\nConflicting dates: ${conflicts.take(5).map((c) => c is Map ? c['record_date'] : c).join(', ')}';
+      }
       _showSnack(msg, Colors.red);
     } catch (e) {
       _showSnack('Server connection error', Colors.red);
@@ -102,35 +110,72 @@ class _PendingTransfersScreenState extends State<PendingTransfersScreen> {
   }
 
   // نافذة تأكيد القبول
-  Future<bool> asyncConfirmApprove() => _showApproveDialog();
+  Future<bool> asyncConfirmApprove() async => (await _showApproveDialog()) != null;
 
-  Future<bool> _showApproveDialog() async {
+  String _fmtDate(DateTime d) =>
+      '${d.year.toString().padLeft(4, '0')}-${d.month.toString().padLeft(2, '0')}-${d.day.toString().padLeft(2, '0')}';
+
+  /// Returns the chosen effective date (YYYY-MM-DD) or null when cancelled.
+  Future<String?> _showApproveDialog({String? initialDate}) async {
+    final today = DateTime.now();
+    // B3: future-dated transfers are allowed (the requested date is kept as is).
+    var picked = DateTime.tryParse(initialDate ?? '') ?? today;
     final result = await showDialog<bool>(
       context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Approve Transfer'),
-        content: const Text(
-          'Are you sure you want to approve this transfer request? This will reassign the worker to the new site.',
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setD) => AlertDialog(
+          title: const Text('Approve Transfer'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text(
+                'The worker moves to the new site/shift from the effective date. '
+                'The old assignment ends the day before. The approval date does not matter.',
+              ),
+              const SizedBox(height: 12),
+              OutlinedButton.icon(
+                icon: const Icon(Icons.event, size: 16),
+                label: Text('Effective date: ${_fmtDate(picked)}'),
+                onPressed: () async {
+                  final d = await showDatePicker(
+                    context: ctx,
+                    initialDate: picked,
+                    firstDate: DateTime(2023),
+                    lastDate: today.add(const Duration(days: 365)),
+                    helpText: 'Transfer effective date',
+                  );
+                  if (d != null) setD(() => picked = d);
+                },
+              ),
+              if (initialDate != null && initialDate != _fmtDate(picked))
+                Padding(
+                  padding: const EdgeInsets.only(top: 6),
+                  child: Text('Requested by the supervisor: $initialDate',
+                      style: TextStyle(fontSize: 11.5, color: Colors.grey.shade700)),
+                ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: const Text('Cancel'),
+            ),
+            ElevatedButton(
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.green.shade700,
+              ),
+              onPressed: () => Navigator.pop(ctx, true),
+              child: const Text(
+                'Approve',
+                style: TextStyle(color: Colors.white),
+              ),
+            ),
+          ],
         ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx, false),
-            child: const Text('Cancel'),
-          ),
-          ElevatedButton(
-            style: ElevatedButton.styleFrom(
-              backgroundColor: Colors.green.shade700,
-            ),
-            onPressed: () => Navigator.pop(ctx, true),
-            child: const Text(
-              'Approve',
-              style: TextStyle(color: Colors.white),
-            ),
-          ),
-        ],
       ),
     );
-    return result ?? false;
+    return result == true ? _fmtDate(picked) : null;
   }
 
   // نافذة كتابة ملاحظات الرفض
@@ -166,7 +211,11 @@ class _PendingTransfersScreenState extends State<PendingTransfersScreen> {
           ),
           ElevatedButton(
             style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
-            onPressed: () => Navigator.pop(ctx, controller.text),
+            onPressed: () {
+              // Rejection reason is mandatory (stored and audited).
+              if (controller.text.trim().length < 3) return;
+              Navigator.pop(ctx, controller.text.trim());
+            },
             child: const Text(
               'Confirm Rejection',
               style: TextStyle(color: Colors.white),
@@ -265,12 +314,12 @@ class _PendingTransfersScreenState extends State<PendingTransfersScreen> {
                                 children: [
                                   Expanded(
                                     child: _siteChip(
-                                      icon: Icons.logout,
-                                      label: 'From',
-                                      site:
-                                          req['current_site_name'] ?? '',
-                                      color: Colors.grey.shade700,
-                                    ),
+  icon: Icons.logout,
+  label: 'From',
+  site: req['current_site_name'] ?? '',
+  shiftType: req['current_shift_type'],
+  color: Colors.grey.shade700,
+),
                                   ),
                                   const Icon(
                                     Icons.arrow_forward,
@@ -279,15 +328,39 @@ class _PendingTransfersScreenState extends State<PendingTransfersScreen> {
                                   ),
                                   Expanded(
                                     child: _siteChip(
-                                      icon: Icons.login,
-                                      label: 'To',
-                                      site: req['target_site_name'] ?? '',
-                                      color: Colors.green.shade700,
-                                    ),
+  icon: Icons.login,
+  label: 'To',
+  site: req['target_site_name'] ?? '',
+  shiftType: req['target_shift_type'],
+  color: Colors.green.shade700,
+),
                                   ),
                                 ],
                               ),
+                              if ((req['request_reason'] ?? '').toString().isNotEmpty) ...[
+                                const SizedBox(height: 8),
+                                Container(
+                                  width: double.infinity,
+                                  padding: const EdgeInsets.all(8),
+                                  decoration: BoxDecoration(
+                                    color: Colors.blueGrey.shade50,
+                                    borderRadius: BorderRadius.circular(8),
+                                  ),
+                                  child: Text(
+                                    'Reason: ${req['request_reason']}',
+                                    style: const TextStyle(fontSize: 12.5),
+                                  ),
+                                ),
+                              ],
                               const SizedBox(height: 8),
+                              Text(
+                                'Effective date: ${req['effective_date'] ?? 'not set (choose when approving)'}',
+                                style: const TextStyle(
+                                  fontSize: 12.5,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                              const SizedBox(height: 4),
                               Text(
                                 'Requested by: ${req['requested_by_name'] ?? ''}',
                                 style: TextStyle(
@@ -343,6 +416,8 @@ class _PendingTransfersScreenState extends State<PendingTransfersScreen> {
                                           : () => _review(
                                                 req['request_id'],
                                                 'Approved',
+                                                requestedEffectiveDate:
+                                                    req['effective_date']?.toString(),
                                               ),
                                       icon: isProcessing
                                           ? const SizedBox(
@@ -382,34 +457,64 @@ class _PendingTransfersScreenState extends State<PendingTransfersScreen> {
     );
   }
 
-  Widget _siteChip({
-    required IconData icon,
-    required String label,
-    required String site,
-    required Color color,
-  }) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
+Widget _siteChip({
+  required IconData icon,
+  required String label,
+  required String site,
+  required String? shiftType,
+  required Color color,
+}) {
+  final bool isNight = shiftType == 'Night';
+
+  return Column(
+    crossAxisAlignment: CrossAxisAlignment.start,
+    children: [
+      Row(
+        children: [
+          Icon(icon, size: 14, color: color),
+          const SizedBox(width: 4),
+          Text(
+            label,
+            style: TextStyle(
+              fontSize: 11,
+              color: color,
+            ),
+          ),
+        ],
+      ),
+      const SizedBox(height: 2),
+      Text(
+        site,
+        style: const TextStyle(
+          fontWeight: FontWeight.w600,
+          fontSize: 13,
+        ),
+        overflow: TextOverflow.ellipsis,
+      ),
+      if (shiftType != null) ...[
+        const SizedBox(height: 4),
         Row(
           children: [
-            Icon(icon, size: 14, color: color),
+            Icon(
+              isNight
+                  ? Icons.nightlight_outlined
+                  : Icons.wb_sunny_outlined,
+              size: 13,
+              color: Colors.grey.shade600,
+            ),
             const SizedBox(width: 4),
             Text(
-              label,
-              style: TextStyle(fontSize: 11, color: color),
+              shiftType!,
+              style: TextStyle(
+                fontSize: 11,
+                fontWeight: FontWeight.w600,
+                color: Colors.grey.shade700,
+              ),
             ),
           ],
         ),
-        const SizedBox(height: 2),
-        Text(
-          site,
-          style: const TextStyle(
-            fontWeight: FontWeight.w600,
-            fontSize: 13,
-          ),
-        ),
       ],
-    );
-  }
+    ],
+  );
+}
 }
