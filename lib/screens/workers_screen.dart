@@ -7,6 +7,8 @@ import '../widgets/custom_app_bar.dart';
 import '../widgets/protected_image.dart';
 import 'WorkerProfileScreen.dart';
 import '../widgets/app_drawer.dart';
+import '../widgets/app_data_table.dart';
+import '../widgets/searchable_picker_sheet.dart';
 class WorkersScreen extends StatefulWidget {
   const WorkersScreen({Key? key}) : super(key: key);
 
@@ -51,6 +53,7 @@ bool _isBulkSubmitting = false;
   final Color primaryColor = const Color(0xFF2563EB);
 
   List<dynamic> _workers = [];
+    List<dynamic> _sites = [];
   List<dynamic> _filteredWorkers = [];
   bool _isLoading = true;
   
@@ -71,6 +74,7 @@ final _effectiveDateController = TextEditingController();
   void initState() {
     super.initState();
     _fetchWorkers();
+    _fetchSites();
     _searchController.addListener(_filterWorkers);
   }
 
@@ -122,7 +126,366 @@ _hireDateController.dispose();
       _showSnackBar('Failed to fetch workers data', Colors.red);
     }
   }
+  Future<void> _fetchSites() async {
+    try {
+      final response = await ApiConfig.dio.get('/sites/all-sites');
+      if (response.statusCode == 200 && response.data['status'] == 'success') {
+        if (mounted) setState(() => _sites = response.data['data'] ?? []);
+      }
+    } catch (e) {
+      debugPrint('Failed to load sites: $e');
+    }
+  }
 
+  String _fmtDate(DateTime d) =>
+      '${d.year.toString().padLeft(4, '0')}-${d.month.toString().padLeft(2, '0')}-${d.day.toString().padLeft(2, '0')}';
+
+  String _apiError(Object e, String fallback) {
+    if (e is DioException && e.response?.data is Map) {
+      return (e.response?.data['message'] ?? fallback).toString();
+    }
+    return fallback;
+  }
+
+  /// Assign (إذا ما عنده assignment) أو Transfer (إذا عنده assignment حالي)
+  Future<void> _openAssignDialog(Map<String, dynamic> worker) async {
+    if (worker['status'] != 'Active') {
+      _showSnackBar('Only active workers can be assigned.', Colors.orange);
+      return;
+    }
+    if (_sites.isEmpty) await _fetchSites();
+    if (!mounted) return;
+
+    // الـ assignment الحالي (المفتوح أولاً)
+    final assignments = (worker['assignments'] as List?) ?? [];
+    Map<String, dynamic>? current;
+    for (final a in assignments) {
+      if (a['last_day'] == null) {
+        current = Map<String, dynamic>.from(a as Map);
+        break;
+      }
+    }
+    if (current == null && assignments.isNotEmpty) {
+      current = Map<String, dynamic>.from(assignments.first as Map);
+    }
+    final bool isTransfer = current != null;
+    final int currentSiteId = int.tryParse(current?['site_id']?.toString() ?? '0') ?? 0;
+    final String currentShift = current?['shift_type']?.toString() ?? 'Day';
+
+    // الوجهات المتاحة (موقع + شيفت)
+    final targets = <Map<String, dynamic>>[];
+    for (final site in _sites) {
+      final siteId = int.tryParse(site['site_id']?.toString() ?? '0') ?? 0;
+      if (siteId == 0) continue;
+      final supportsShifts = site['supports_shifts'] == 1 || site['supports_shifts'] == true;
+      if (supportsShifts) {
+        for (final shift in ['Day', 'Night']) {
+          if (isTransfer && siteId == currentSiteId && shift == currentShift) continue;
+          targets.add({
+            'site_id': siteId,
+            'shift_type': shift,
+            'label': '${site['site_name'] ?? ''} — $shift',
+          });
+        }
+      } else {
+        if (isTransfer && siteId == currentSiteId) continue;
+        targets.add({
+          'site_id': siteId,
+          'shift_type': 'Day',
+          'label': site['site_name']?.toString() ?? '',
+        });
+      }
+    }
+    if (targets.isEmpty) {
+      _showSnackBar('No available sites to assign to.', Colors.orange);
+      return;
+    }
+
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+    final hireDate = DateTime.tryParse(worker['hire_date']?.toString() ?? '') ?? DateTime(2015);
+    final currentStart = DateTime.tryParse(current?['assigned_date']?.toString() ?? '');
+
+    // Assign: من تاريخ التوظيف لليوم | Transfer: بعد بداية الـ assignment الحالي
+    final DateTime firstDate = isTransfer
+        ? (currentStart ?? hireDate).add(const Duration(days: 1))
+        : hireDate;
+    final DateTime lastDate = isTransfer ? today.add(const Duration(days: 365)) : today;
+
+    Map<String, dynamic>? picked;
+    DateTime pickedDate = today.isBefore(firstDate) ? firstDate : today;
+    final reasonCtrl = TextEditingController();
+    String? error;
+    bool saving = false;
+
+    final done = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setD) => AlertDialog(
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          title: Text(
+            isTransfer ? 'Transfer — ${worker['full_name']}' : 'Assign — ${worker['full_name']}',
+            style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 17),
+          ),
+          content: SizedBox(
+            width: 420,
+            child: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  if (isTransfer)
+                    Container(
+                      padding: const EdgeInsets.all(10),
+                      margin: const EdgeInsets.only(bottom: 12),
+                      decoration: BoxDecoration(
+                        color: Colors.blue.shade50,
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                      child: Text(
+                        'Currently at: ${current!['site_name'] ?? ''} ($currentShift)\n'
+                        'The current assignment ends the day before the transfer date.',
+                        style: const TextStyle(fontSize: 12.5),
+                      ),
+                    ),
+                  InkWell(
+                    onTap: saving
+                        ? null
+                        : () async {
+                            final r = await SearchablePickerSheet.show<Map<String, dynamic>>(
+                              ctx,
+                              title: 'Select Site',
+                              items: targets,
+                              labelBuilder: (t) => t['label']?.toString() ?? '',
+                            );
+                            if (r != null) setD(() { picked = r; error = null; });
+                          },
+                    child: InputDecorator(
+                      decoration: const InputDecoration(
+                        labelText: 'Site / Shift',
+                        border: OutlineInputBorder(),
+                        prefixIcon: Icon(Icons.location_on),
+                      ),
+                      child: Text(
+                        picked?['label'] ?? 'Click to search & select site',
+                        style: TextStyle(
+                          color: picked != null ? Colors.black87 : Colors.grey.shade600,
+                        ),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 14),
+                  OutlinedButton.icon(
+                    icon: const Icon(Icons.calendar_today_rounded, size: 18),
+                    label: Text(
+                      '${isTransfer ? 'Transfer date (first day at new site)' : 'Start date'}: ${_fmtDate(pickedDate)}',
+                    ),
+                    onPressed: saving
+                        ? null
+                        : () async {
+                            final d = await showDatePicker(
+                              context: ctx,
+                              initialDate: pickedDate,
+                              firstDate: firstDate,
+                              lastDate: lastDate,
+                            );
+                            if (d != null) setD(() => pickedDate = d);
+                          },
+                  ),
+                  if (isTransfer) ...[
+                    const SizedBox(height: 14),
+                    TextField(
+                      controller: reasonCtrl,
+                      maxLines: 2,
+                      decoration: const InputDecoration(
+                        labelText: 'Reason (required)',
+                        border: OutlineInputBorder(),
+                      ),
+                    ),
+                  ],
+                  if (error != null) ...[
+                    const SizedBox(height: 12),
+                    Container(
+                      padding: const EdgeInsets.all(10),
+                      decoration: BoxDecoration(
+                        color: Colors.red.shade50,
+                        border: Border.all(color: Colors.red.shade300),
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                      child: Text(error!,
+                          style: TextStyle(color: Colors.red.shade900, fontWeight: FontWeight.w600, fontSize: 13)),
+                    ),
+                  ],
+                ],
+              ),
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: saving ? null : () => Navigator.pop(ctx, false),
+              child: const Text('Cancel'),
+            ),
+            ElevatedButton(
+              style: ElevatedButton.styleFrom(backgroundColor: primaryColor),
+              onPressed: saving
+                  ? null
+                  : () async {
+                      if (picked == null) {
+                        setD(() => error = 'Please select a site first');
+                        return;
+                      }
+                      if (isTransfer && reasonCtrl.text.trim().length < 3) {
+                        setD(() => error = 'Please enter a reason');
+                        return;
+                      }
+                      setD(() { saving = true; error = null; });
+                      try {
+                        if (isTransfer) {
+                          await ApiConfig.dio.post(
+                            '/assignments/${current!['assignment_id']}/transfer',
+                            data: {
+                              'transfer_date': _fmtDate(pickedDate),
+                              'target_site_id': picked!['site_id'],
+                              'target_shift_type': picked!['shift_type'],
+                              'reason': reasonCtrl.text.trim(),
+                            },
+                          );
+                        } else {
+                          await ApiConfig.dio.post('/assignments', data: {
+                            'worker_id': worker['worker_id'],
+                            'site_id': picked!['site_id'],
+                            'assigned_date': _fmtDate(pickedDate),
+                            'shift_type': picked!['shift_type'],
+                          });
+                        }
+                        if (ctx.mounted) Navigator.pop(ctx, true);
+                      } catch (e) {
+                        setD(() {
+                          saving = false;
+                          error = _apiError(e, 'Operation failed');
+                        });
+                      }
+                    },
+              child: saving
+                  ? const SizedBox(
+                      width: 18, height: 18,
+                      child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                  : Text(isTransfer ? 'Transfer' : 'Assign',
+                      style: const TextStyle(color: Colors.white)),
+            ),
+          ],
+        ),
+      ),
+    );
+    reasonCtrl.dispose();
+
+    if (done == true) {
+      await _fetchWorkers();
+      _showSnackBar(
+        isTransfer ? 'Worker transferred successfully' : 'Worker assigned successfully',
+        Colors.green,
+      );
+    }
+  }
+
+  List<DataRow> _buildWorkerRows() {
+    return List.generate(_filteredWorkers.length, (i) {
+      final worker = Map<String, dynamic>.from(_filteredWorkers[i] as Map);
+      final isActive = worker['status'] == 'Active';
+      final siteName = worker['assigned_site_name']?.toString();
+      final isAssigned = siteName != null && siteName.trim().isNotEmpty;
+      final hasAssignment = ((worker['assignments'] as List?) ?? []).isNotEmpty;
+
+      Widget pad(Widget child) =>
+          Padding(padding: const EdgeInsets.symmetric(horizontal: 12), child: child);
+
+      return DataRow(
+        onSelectChanged: (_) => Navigator.push(
+          context,
+          MaterialPageRoute(builder: (_) => WorkerProfileScreen(worker: worker)),
+        ),
+        cells: [
+          DataCell(pad(Text('${i + 1}'))),
+          DataCell(pad(Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              ProtectedAvatar(
+                url: worker['personal_photo']?.toString(),
+                radius: 16,
+                backgroundColor: isActive ? primaryColor.withOpacity(0.1) : Colors.grey.shade200,
+                iconColor: isActive ? primaryColor : Colors.grey,
+              ),
+              const SizedBox(width: 10),
+              Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(worker['full_name'] ?? '',
+                      style: const TextStyle(fontWeight: FontWeight.w700)),
+                  Text('ID: ${worker['worker_unique_id'] ?? ''}',
+                      style: TextStyle(fontSize: 11, color: Colors.grey.shade600)),
+                ],
+              ),
+            ],
+          ))),
+          DataCell(pad(Text(worker['job_position']?.toString() ?? 'N/A'))),
+          DataCell(pad(Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(Icons.location_on,
+                  size: 14, color: isAssigned ? Colors.green.shade700 : Colors.red.shade700),
+              const SizedBox(width: 4),
+              Text(
+                isAssigned ? siteName! : 'Not assigned',
+                style: TextStyle(
+                  fontWeight: FontWeight.w600,
+                  color: isAssigned ? Colors.green.shade700 : Colors.red.shade700,
+                ),
+              ),
+            ],
+          ))),
+          DataCell(pad(StatusBadge.fromStatus(isActive ? 'Active' : 'Inactive'))),
+          DataCell(pad(Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              IconButton(
+                tooltip: hasAssignment ? 'Transfer to another site' : 'Assign to site',
+                icon: Icon(
+                  hasAssignment ? Icons.swap_horiz : Icons.add_location_alt_outlined,
+                  color: isActive ? primaryColor : Colors.grey,
+                  size: 22,
+                ),
+                onPressed: isActive ? () => _openAssignDialog(worker) : null,
+              ),
+              PopupMenuButton<String>(
+                onSelected: (value) {
+                  if (value == 'edit') {
+                    _openWorkerSheet(worker: worker);
+                  } else if (value == 'status') {
+                    _toggleWorkerStatus(worker['worker_unique_id'], worker['status']);
+                  }
+                },
+                itemBuilder: (context) => [
+                  const PopupMenuItem(
+                      value: 'edit',
+                      child: Row(children: [Icon(Icons.edit, size: 18), SizedBox(width: 8), Text('Edit')])),
+                  PopupMenuItem(
+                    value: 'status',
+                    child: Row(children: [
+                      Icon(isActive ? Icons.block : Icons.check_circle,
+                          size: 18, color: isActive ? Colors.orange : Colors.green),
+                      const SizedBox(width: 8),
+                      Text(isActive ? 'Set Inactive' : 'Set Active'),
+                    ]),
+                  ),
+                ],
+              ),
+            ],
+          ))),
+        ],
+      );
+    });
+  }
   Future<void> _selectBirthDate(BuildContext context) async {
     final DateTime? picked = await showDatePicker(
       context: context,
@@ -1099,164 +1462,33 @@ const SizedBox(height: 20),
                   ),
                 ),
                 const SizedBox(height: 12),
-                Expanded(
-                  child: _filteredWorkers.isEmpty
-                      ? Center(
-                          child: Column(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            children: [
-                              Icon(Icons.person_off_rounded, size: 64, color: Colors.grey.shade400),
-                              const SizedBox(height: 12),
-                              Text('No workers found', style: TextStyle(fontSize: 16, color: Colors.grey.shade600)),
-                            ],
-                          ),
-                        )
-                      : ListView.builder(
-                          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-                          itemCount: _filteredWorkers.length,
-                          itemBuilder: (context, index) {
-                            final worker = _filteredWorkers[index];
-                            final isActive = worker['status'] == 'Active';
-                            return Card(
-                              elevation: 1,
-                              margin: const EdgeInsets.only(bottom: 10),
-                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-                              child: ListTile(
-                                onTap: () {
-                                  Navigator.push(
-                                    context,
-                                    MaterialPageRoute(
-                                      builder: (context) => WorkerProfileScreen(worker: worker),
-                                    ),
-                                  );
-                                },
-                                contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                                leading: ProtectedAvatar(
-                                  url: worker['personal_photo']?.toString(),
-                                  backgroundColor: isActive ? primaryColor.withOpacity(0.1) : Colors.grey.shade200,
-                                  iconColor: isActive ? primaryColor : Colors.grey,
-                                ),
-                                title: Text(
-                                  worker['full_name'] ?? '',
-                                  style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
-                                ),
-                                subtitle: Column(
-  crossAxisAlignment: CrossAxisAlignment.start,
-  children: [
-    const SizedBox(height: 4),
-
-    Text(
-      'ID: ${worker['worker_unique_id']} | Position: ${worker['job_position'] ?? 'N/A'}',
-      style: TextStyle(
-        color: Colors.grey.shade600,
-        fontSize: 13,
-      ),
-    ),
-
-    const SizedBox(height: 4),
-
-    // Active / Inactive badge
-    Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-      decoration: BoxDecoration(
-        color: isActive
-            ? Colors.green.shade50
-            : Colors.red.shade50,
-        borderRadius: BorderRadius.circular(6),
-      ),
-      child: Text(
-        isActive ? 'Active' : 'Inactive',
-        style: TextStyle(
-          color: isActive
-              ? Colors.green.shade700
-              : Colors.red.shade700,
-          fontSize: 11,
-          fontWeight: FontWeight.bold,
-        ),
-      ),
-    ),
-
-    // ==========================================
-    // Assigned Site
-    // ==========================================
-    const SizedBox(height: 4),
-
-    Builder(
-      builder: (_) {
-        final siteName = worker['assigned_site_name']?.toString();
-        final isAssigned =
-            siteName != null && siteName.trim().isNotEmpty;
-
-        return Container(
-          padding: const EdgeInsets.symmetric(
-            horizontal: 8,
-            vertical: 2,
-          ),
-          decoration: BoxDecoration(
-            color: isAssigned
-                ? Colors.green.shade50
-                : Colors.red.shade50,
-            borderRadius: BorderRadius.circular(6),
-          ),
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Icon(
-                Icons.location_on,
-                size: 12,
-                color: isAssigned
-                    ? Colors.green.shade700
-                    : Colors.red.shade700,
-              ),
-              const SizedBox(width: 4),
-              Flexible(
-                child: Text(
-                  isAssigned
-                      ? siteName!
-                      : 'Not assigned to a site',
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                    color: isAssigned
-                        ? Colors.green.shade700
-                        : Colors.red.shade700,
-                    fontSize: 11,
-                    fontWeight: FontWeight.bold,
+                    Expanded(
+                  child: RefreshIndicator(
+                    onRefresh: () async {
+                      await _fetchWorkers();
+                      await _fetchSites();
+                    },
+                    child: SingleChildScrollView(
+                      physics: const AlwaysScrollableScrollPhysics(),
+                      padding: const EdgeInsets.fromLTRB(16, 4, 16, 90),
+                      child: AppDataTableCard(
+                        title: 'Workers',
+                        subtitle: '${_filteredWorkers.length} of $_totalWorkers workers',
+                        icon: Icons.engineering_rounded,
+                        accentColor: AppColors.primary,
+                        emptyMessage: 'No workers found',
+                        columns: const [
+                          DataColumn(label: Padding(padding: EdgeInsets.symmetric(horizontal: 12), child: Text('#'))),
+                          DataColumn(label: Padding(padding: EdgeInsets.symmetric(horizontal: 12), child: Text('Worker'))),
+                          DataColumn(label: Padding(padding: EdgeInsets.symmetric(horizontal: 12), child: Text('Position'))),
+                          DataColumn(label: Padding(padding: EdgeInsets.symmetric(horizontal: 12), child: Text('Site / Shift'))),
+                          DataColumn(label: Padding(padding: EdgeInsets.symmetric(horizontal: 12), child: Text('Status'))),
+                          DataColumn(label: Padding(padding: EdgeInsets.symmetric(horizontal: 12), child: Text('Actions'))),
+                        ],
+                        rows: _buildWorkerRows(),
+                      ),
+                    ),
                   ),
-                ),
-              ),
-            ],
-          ),
-        );
-      },
-    ),
-  ],
-),
-                                trailing: PopupMenuButton<String>(
-                                  onSelected: (value) {
-                                    if (value == 'edit') {
-                                      _openWorkerSheet(worker: worker);
-                                    } else if (value == 'status') {
-                                      _toggleWorkerStatus(worker['worker_unique_id'], worker['status']);
-                                    }
-                                  },
-                                  itemBuilder: (context) => [
-                                    const PopupMenuItem(value: 'edit', child: Row(children: [Icon(Icons.edit, size: 18), SizedBox(width: 8), Text('Edit')])),
-                                    PopupMenuItem(
-                                      value: 'status',
-                                      child: Row(
-                                        children: [
-                                          Icon(isActive ? Icons.block : Icons.check_circle, size: 18, color: isActive ? Colors.orange : Colors.green),
-                                          const SizedBox(width: 8),
-                                          Text(isActive ? 'Set Inactive' : 'Set Active'),
-                                        ],
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              ),
-                            );
-                          },
-                        ),
                 ),
               ],
             ),
