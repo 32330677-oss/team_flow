@@ -802,7 +802,7 @@ class _AnalyticsDashboardScreenState extends State<AnalyticsDashboardScreen>
                   Text(
                     live == null
                         ? 'Loading…'
-                        : '${live.isToday ? 'Today' : 'Date'} · ${_day(live.businessDate)} (Asia/Beirut)',
+                        : '${live.isToday ? 'Today' : 'Date'} · ${_day(live.businessDate)} (Asia/Damascus)',
                     style:
                         const TextStyle(color: OpsColors.muted, fontSize: 12),
                   ),
