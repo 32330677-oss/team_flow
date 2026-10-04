@@ -1196,7 +1196,11 @@ class _WorkerPayrollCard extends StatelessWidget {
   (double.tryParse(worker['days_worked'].toString()) ?? 0).toStringAsFixed(2),
   Colors.blueGrey,
 ),
-                  _miniStat('Daily Rate', formatSyp(worker['daily_rate'] ?? sites.firstOrNull?['daily_rate_snapshot']), Colors.blueGrey),
+                  _miniStat('Daily Rate',
+                      worker['rate_changed'] == true
+                          ? _ratesText(sites, 'daily_rate_snapshot')
+                          : formatSyp(worker['daily_rate'] ?? sites.firstOrNull?['daily_rate_snapshot']),
+                      Colors.blueGrey),
                   _miniStat('Net Pay', formatSyp(worker['net_salary']), Colors.green.shade700, bold: true),
                 ],
               )
@@ -1312,11 +1316,15 @@ class _PayslipDialogState extends State<_PayslipDialog> {
                 _infoRow('Total Overtime Hours', '${totalOvertimeHours.toStringAsFixed(2)} h'),
               ] else if (payTypeLabel == 'Daily') ...[
                 _infoRow('Days Worked', '${totalDaysWorked.toStringAsFixed(0)}'),
-                _infoRow('Daily Rate', formatSyp(w['daily_rate'] ?? sites.firstOrNull?['daily_rate_snapshot'])),
+                _infoRow('Daily Rate', w['rate_changed'] == true
+                    ? _ratesText(sites, 'daily_rate_snapshot')
+                    : formatSyp(w['daily_rate'] ?? sites.firstOrNull?['daily_rate_snapshot'])),
               ] else ...[
                 _infoRow('Regular Hours', '${totalRegularHours.toStringAsFixed(2)} h'),
                 _infoRow('Overtime Hours', '${totalOvertimeHours.toStringAsFixed(2)} h'),
-                _infoRow('Regular Rate', formatSyp(w['regular_rate'] ?? sites.firstOrNull?['hourly_rate_snapshot'])),
+                _infoRow('Regular Rate', w['rate_changed'] == true
+                    ? _ratesText(sites, 'hourly_rate_snapshot')
+                    : formatSyp(w['regular_rate'] ?? sites.firstOrNull?['hourly_rate_snapshot'])),
                 _infoRow('Overtime Rate', formatSyp(w['overtime_rate'] ?? sites.firstOrNull?['overtime_hourly_rate_snapshot'])),
               ],
 
@@ -1356,6 +1364,13 @@ class _PayslipDialogState extends State<_PayslipDialog> {
                         ],
                       ),
                       const SizedBox(height: 4),
+                      // Rate period (a raise inside the batch period = one line per rate).
+                      if (sites.length > 1 && s['rate_from'] != null)
+                        Padding(
+                          padding: const EdgeInsets.only(bottom: 2),
+                          child: Text('Period: ${s['rate_from']} → ${s['rate_to']}',
+                              style: TextStyle(fontSize: 11.5, fontWeight: FontWeight.w600, color: Colors.teal.shade700)),
+                        ),
                       if (isDaily)
                         Text(
                           'Days: ${_num(s['days_worked']).toStringAsFixed(0)}  •  Rate: ${formatSyp(s['daily_rate_snapshot'])}  •  Total: ${formatSyp(s['base_salary'])}',
@@ -1416,4 +1431,17 @@ class _PayslipDialogState extends State<_PayslipDialog> {
       ),
     );
   }
+}
+
+/// Rates of a worker's payroll lines in date order, e.g. "100,000 ل.س → 120,000 ل.س"
+/// (a raise inside the batch period gives one line per rate).
+String _ratesText(List sites, String field) {
+  final seen = <String>[];
+  for (final s in sites) {
+    final v = s is Map ? s[field] : null;
+    if (v == null) continue;
+    final label = formatSyp(v);
+    if (seen.isEmpty || seen.last != label) seen.add(label);
+  }
+  return seen.join(' → ');
 }
