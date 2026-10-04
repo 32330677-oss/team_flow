@@ -526,6 +526,13 @@ Future<void> _showManagementLeaveDialog(
     final longShiftCtrl = TextEditingController(text: '${data['long_shift_review_hours'] ?? 16}');
     final reasonCtrl = TextEditingController();
     int weekStart = int.tryParse('${data['attendance_week_start_day'] ?? 6}') ?? 6;
+    // Initial values: only fields the Admin actually changed are sent, so an
+    // overtime-rate-only change never touches the lunch / standard-hours rules.
+    final bool lunchPaidInitial = lunchPaid;
+    final int weekStartInitial = weekStart;
+    final String minutesInitial = minutesCtrl.text.trim();
+    final String otRateInitial = otRateCtrl.text.trim();
+    final String longShiftInitial = longShiftCtrl.text.trim();
     final bool gateInitial = '${data['attendance_daily_gate_enabled'] ?? 'true'}'.toLowerCase() != 'false';
     final String gateStartInitial = '${data['attendance_daily_gate_start_date'] ?? ''}';
     bool gateEnabled = gateInitial;
@@ -658,30 +665,42 @@ Future<void> _showManagementLeaveDialog(
             TextButton(onPressed: () => Navigator.pop(dialogContext), child: const Text('Cancel')),
             FilledButton(
               onPressed: () async {
-                final value = int.tryParse(minutesCtrl.text.trim());
-                if (value == null || value <= 0 || value > 1440) {
-                  _showMessage('Minutes must be between 1 and 1440.', false);
-                  return;
+                final body = <String, dynamic>{};
+                if (lunchPaid != lunchPaidInitial) body['is_lunch_paid'] = lunchPaid;
+                if (weekStart != weekStartInitial) body['attendance_week_start_day'] = weekStart;
+                if (minutesCtrl.text.trim() != minutesInitial) {
+                  final value = int.tryParse(minutesCtrl.text.trim());
+                  if (value == null || value <= 0 || value > 1440) {
+                    _showMessage('Minutes must be between 1 and 1440.', false);
+                    return;
+                  }
+                  body['standard_work_minutes'] = value;
                 }
-                final body = <String, dynamic>{
-                  'is_lunch_paid': lunchPaid,
-                  'standard_work_minutes': value,
-                  'attendance_week_start_day': weekStart,
-                  'effective_from': fmt(effective),
-                  if (reasonCtrl.text.trim().isNotEmpty) 'reason': reasonCtrl.text.trim(),
-                };
-                if (otRateCtrl.text.trim().isNotEmpty) {
+                if (otRateCtrl.text.trim() != otRateInitial && otRateCtrl.text.trim().isNotEmpty) {
                   final ot = double.tryParse(otRateCtrl.text.trim());
-                  if (ot == null || ot < 0) {
+                  if (ot == null || ot <= 0) {
                     _showMessage('Overtime rate must be a positive number.', false);
                     return;
                   }
                   body['overtime_flat_rate_syp'] = ot;
                 }
-                final ls = double.tryParse(longShiftCtrl.text.trim());
-                if (ls != null) body['long_shift_review_hours'] = ls;
+                if (longShiftCtrl.text.trim() != longShiftInitial) {
+                  final ls = double.tryParse(longShiftCtrl.text.trim());
+                  if (ls == null || ls < 4 || ls > 48) {
+                    _showMessage('Long-session threshold must be between 4 and 48 hours.', false);
+                    return;
+                  }
+                  body['long_shift_review_hours'] = ls;
+                }
                 if (gateEnabled != gateInitial) body['attendance_daily_gate_enabled'] = gateEnabled;
                 if (gateStart != gateStartInitial) body['attendance_daily_gate_start_date'] = gateStart;
+                if (body.isEmpty) {
+                  if (dialogContext.mounted) Navigator.pop(dialogContext);
+                  if (mounted) _showMessage('Nothing changed.', true);
+                  return;
+                }
+                body['effective_from'] = fmt(effective);
+                if (reasonCtrl.text.trim().isNotEmpty) body['reason'] = reasonCtrl.text.trim();
                 try {
                   await ApiConfig.dio.put('/admin/attendance/settings/breaks', data: body);
                   if (dialogContext.mounted) Navigator.pop(dialogContext);
