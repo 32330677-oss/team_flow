@@ -226,7 +226,15 @@ class _SiteAttendanceScreenState extends State<SiteAttendanceScreen> {
     }).toList();
   }
 
-  bool _canCheckIn(Map w) => !_locked && !_dailyGate && _isDraftOrNone(w) && w['attendance_id'] == null;
+  // A Draft day recorded as Absent / Sick / Vacation / Holiday (no clock
+  // activity) can still be checked in: the backend turns it into Present.
+  bool _isRevivableLeave(Map w) =>
+      w['attendance_id'] != null && _workflow(w) == 'Draft' && !_hasIn(w) && !_hasOut(w) && !_isCarryOver(w) &&
+      const ['Absent', 'Sick', 'Vacation', 'Holiday'].contains(w['attendance_status']);
+  bool _canCheckIn(Map w) =>
+      !_locked && !_dailyGate && _isDraftOrNone(w) && (w['attendance_id'] == null || _isRevivableLeave(w));
+  // Bulk check-in on the backend only accepts workers with no record yet.
+  bool _canBulkCheckIn(Map w) => !_locked && !_dailyGate && _isDraftOrNone(w) && w['attendance_id'] == null;
   bool _canCheckOut(Map w) => !_locked && _workflow(w) == 'Draft' && _hasIn(w) && !_hasOut(w) && !_onBreak(w);
   bool _canSetStatus(Map w) =>
       !_locked && !_dailyGate && _isDraftOrNone(w) && !_hasIn(w) && !_hasOut(w) && !_isCarryOver(w);
@@ -494,7 +502,7 @@ class _SiteAttendanceScreenState extends State<SiteAttendanceScreen> {
       _workers.where((w) => _selected.contains(_id(w)) && test(w)).map(_id).toList();
 
   Future<void> _bulkCheckIn() async {
-    final ids = _eligible(_canCheckIn);
+    final ids = _eligible(_canBulkCheckIn);
     if (ids.isEmpty) return _toast('None of the selected workers can be checked in.', color: Colors.orange.shade800);
     final t = await _pickTimeOnRecordDate('Check-in time for ${ids.length} worker(s)');
     if (t == null) return;
@@ -1490,7 +1498,7 @@ class _SiteAttendanceScreenState extends State<SiteAttendanceScreen> {
 
   Widget _bottomBar() {
     if (_selected.isNotEmpty) {
-      final nIn = _eligible(_canCheckIn).length;
+      final nIn = _eligible(_canBulkCheckIn).length;
       final nOut = _eligible(_canCheckOut).length;
       final nAbs = _eligible(_canSetStatus).length;
       return SafeArea(
