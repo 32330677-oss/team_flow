@@ -123,6 +123,13 @@ class HelpTexts {
       'records still in Draft for this site and shift. Days without any record (for example a Friday '
       'with no work) never block. Submit the listed days first.';
 
+  static const dailyGate =
+      'Days are recorded and submitted in order, per site and shift. Before you can record or submit a '
+      'day, every earlier day must be submitted: record every worker (Present, Absent, Sick, Vacation or '
+      'Holiday) and press Submit. A Friday with nothing entered is skipped. If the Admin adds a worker '
+      'to a day you already submitted, you can still record and submit that worker alone; the records you '
+      'already submitted are not changed. Tap a day below to open it.';
+
   static const payrollLocked =
       'This date is inside a payroll period that is Finalized or Paid. Normal attendance changes are '
       'locked so the finalized payroll is never changed silently. An Admin can still correct a record '

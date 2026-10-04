@@ -526,6 +526,10 @@ Future<void> _showManagementLeaveDialog(
     final longShiftCtrl = TextEditingController(text: '${data['long_shift_review_hours'] ?? 16}');
     final reasonCtrl = TextEditingController();
     int weekStart = int.tryParse('${data['attendance_week_start_day'] ?? 6}') ?? 6;
+    final bool gateInitial = '${data['attendance_daily_gate_enabled'] ?? 'true'}'.toLowerCase() != 'false';
+    final String gateStartInitial = '${data['attendance_daily_gate_start_date'] ?? ''}';
+    bool gateEnabled = gateInitial;
+    String gateStart = gateStartInitial;
     DateTime effective = DateTime.tryParse(today) ?? DateTime.now();
     final todayDate = DateTime.tryParse(today) ?? DateTime.now();
     const days = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
@@ -589,6 +593,40 @@ Future<void> _showManagementLeaveDialog(
                     items: List.generate(7, (i) => DropdownMenuItem(value: i, child: Text(days[i]))),
                     onChanged: (v) => setDialogState(() => weekStart = v ?? weekStart),
                   ),
+                  const SizedBox(height: 4),
+                  SwitchListTile.adaptive(
+                    contentPadding: EdgeInsets.zero,
+                    title: const Text('Supervisors submit days in order'),
+                    subtitle: const Text('A day cannot be recorded or submitted while an earlier day of the same '
+                        'site/shift is still Draft or not recorded. An empty Friday is skipped.'),
+                    value: gateEnabled,
+                    onChanged: (value) => setDialogState(() => gateEnabled = value),
+                  ),
+                  if (gateEnabled)
+                    ListTile(
+                      contentPadding: EdgeInsets.zero,
+                      leading: const Icon(Icons.flag_outlined),
+                      title: Text(gateStart.isEmpty ? 'Check the last 60 days' : 'Check days from $gateStart'),
+                      subtitle: const Text('Older days are never checked'),
+                      trailing: Row(mainAxisSize: MainAxisSize.min, children: [
+                        if (gateStart.isNotEmpty)
+                          IconButton(
+                            tooltip: 'Clear',
+                            icon: const Icon(Icons.clear),
+                            onPressed: () => setDialogState(() => gateStart = ''),
+                          ),
+                        const Icon(Icons.edit_calendar),
+                      ]),
+                      onTap: () async {
+                        final d = await showDatePicker(
+                          context: context,
+                          initialDate: DateTime.tryParse(gateStart) ?? todayDate,
+                          firstDate: DateTime(2024),
+                          lastDate: todayDate,
+                        );
+                        if (d != null) setDialogState(() => gateStart = fmt(d));
+                      },
+                    ),
                   const SizedBox(height: 12),
                   ListTile(
                     contentPadding: EdgeInsets.zero,
@@ -642,6 +680,8 @@ Future<void> _showManagementLeaveDialog(
                 }
                 final ls = double.tryParse(longShiftCtrl.text.trim());
                 if (ls != null) body['long_shift_review_hours'] = ls;
+                if (gateEnabled != gateInitial) body['attendance_daily_gate_enabled'] = gateEnabled;
+                if (gateStart != gateStartInitial) body['attendance_daily_gate_start_date'] = gateStart;
                 try {
                   await ApiConfig.dio.put('/admin/attendance/settings/breaks', data: body);
                   if (dialogContext.mounted) Navigator.pop(dialogContext);

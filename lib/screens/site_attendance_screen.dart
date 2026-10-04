@@ -153,7 +153,7 @@ class _SiteAttendanceScreenState extends State<SiteAttendanceScreen> {
       if (mounted) setState(() => _busy = false);
       final d = e.response?.data;
       final code = d is Map ? d['code']?.toString() : null;
-      if (code == 'PREVIOUS_WEEK_UNSUBMITTED' || code == 'PAYROLL_PERIOD_FINALIZED') {
+      if (code == 'PREVIOUS_WEEK_UNSUBMITTED' || code == 'PREVIOUS_DAY_UNSUBMITTED' || code == 'PAYROLL_PERIOD_FINALIZED') {
         await _load();
       }
       _toast(_msg(e, 'Action failed. Nothing was saved.'), color: Colors.red.shade700);
@@ -176,6 +176,10 @@ class _SiteAttendanceScreenState extends State<SiteAttendanceScreen> {
 
   bool get _locked => _day['payroll_locked'] == true;
   List get _prevWeekDrafts => (_day['previous_week_drafts'] as List?) ?? const [];
+  /// Earlier open days of this site/shift (Draft or skipped). The backend only
+  /// blocks Supervisors (daily_gate_applies); Admin sees them as information.
+  List<Map> get _pendingDays => ((_day['pending_days'] as List?) ?? const []).whereType<Map>().toList();
+  bool get _dailyGate => _day['daily_gate_applies'] == true;
 
   String? _workflow(Map w) => w['workflow_status']?.toString();
   bool _isDraftOrNone(Map w) => _workflow(w) == null || _workflow(w) == 'Draft';
@@ -222,9 +226,10 @@ class _SiteAttendanceScreenState extends State<SiteAttendanceScreen> {
     }).toList();
   }
 
-  bool _canCheckIn(Map w) => !_locked && _isDraftOrNone(w) && w['attendance_id'] == null;
+  bool _canCheckIn(Map w) => !_locked && !_dailyGate && _isDraftOrNone(w) && w['attendance_id'] == null;
   bool _canCheckOut(Map w) => !_locked && _workflow(w) == 'Draft' && _hasIn(w) && !_hasOut(w) && !_onBreak(w);
-  bool _canSetStatus(Map w) => !_locked && _isDraftOrNone(w) && !_hasIn(w) && !_hasOut(w) && !_isCarryOver(w);
+  bool _canSetStatus(Map w) =>
+      !_locked && !_dailyGate && _isDraftOrNone(w) && !_hasIn(w) && !_hasOut(w) && !_isCarryOver(w);
   bool _canBreak(Map w) => !_locked && _workflow(w) == 'Draft' && _hasIn(w) && !_hasOut(w);
   bool _canEditTimes(Map w) => !_locked && _workflow(w) == 'Draft' && _hasIn(w);
 
@@ -233,6 +238,7 @@ class _SiteAttendanceScreenState extends State<SiteAttendanceScreen> {
     final out = <String>[];
     if (_locked) out.add('payroll period locked');
     if (_day['is_future'] == true) out.add('future date');
+    if (_dailyGate) out.add('an earlier day is not submitted');
     if (_prevWeekDrafts.isNotEmpty) out.add('previous week has Draft days');
     final notRecorded = _workers.where((w) => w['attendance_id'] == null && w['active_on_date'] != false).length;
     if (notRecorded > 0) out.add('$notRecorded not recorded');
@@ -618,6 +624,11 @@ class _SiteAttendanceScreenState extends State<SiteAttendanceScreen> {
         setState(() => _filter = _Filter.notRecorded);
         return;
       }
+      if (d is Map && d['code'] == 'PREVIOUS_DAY_UNSUBMITTED') {
+        await _load();
+        _toast(_msg(e, 'An earlier day is not submitted.'), color: Colors.red.shade700);
+        return;
+      }
       if (d is Map && d['open_workers'] is List) {
         final names = (d['open_workers'] as List).whereType<Map>().map((m) => m['full_name']).join(', ');
         await HelpTip.show(context, 'Shifts still open', '${d['message']}\n\n$names');
@@ -972,6 +983,42 @@ class _SiteAttendanceScreenState extends State<SiteAttendanceScreen> {
         color: Colors.red.shade700,
         text: 'Payroll for this date is finalized (batch #${_day['payroll_lock_batch_id']}). Attendance is read-only.',
         help: HelpTexts.payrollLocked,
+      ));
+    }
+    if (_pendingDays.isNotEmpty) {
+      final first = _pendingDays.first['record_date'].toString();
+      list.add(_card(
+        color: _dailyGate ? Colors.red.shade50 : Colors.amber.shade50,
+        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Row(children: [
+            Icon(_dailyGate ? Icons.block_rounded : Icons.warning_amber_rounded,
+                color: _dailyGate ? Colors.red.shade700 : Colors.amber.shade900),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Text(
+                  _dailyGate
+                      ? 'Finish ${DateFormat('EEE d MMM').format(DateTime.parse(first))} first. '
+                          'Days are recorded and submitted in order; this day is read-only until then.'
+                      : 'Earlier days of this site/shift are not submitted yet.',
+                  style: const TextStyle(fontWeight: FontWeight.w600)),
+            ),
+            const HelpTip(title: 'Daily order rule', message: HelpTexts.dailyGate),
+          ]),
+          const SizedBox(height: 6),
+          Wrap(
+            spacing: 6,
+            runSpacing: 6,
+            children: _pendingDays.map((d) {
+              final date = d['record_date'].toString();
+              final what = d['reason'] == 'draft' ? '${d['drafts']} draft' : 'not recorded';
+              return ActionChip(
+                avatar: const Icon(Icons.open_in_new_rounded, size: 16),
+                label: Text('${DateFormat('EEE d MMM').format(DateTime.parse(date))} · $what'),
+                onPressed: () => _changeDate(DateTime.parse(date)),
+              );
+            }).toList(),
+          ),
+        ]),
       ));
     }
     if (_prevWeekDrafts.isNotEmpty) {
