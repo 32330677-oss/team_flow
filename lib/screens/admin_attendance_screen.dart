@@ -246,6 +246,10 @@ class _AdminAttendanceScreenState extends State<AdminAttendanceScreen> {
     final inCtrl = TextEditingController(text: full(item['check_in_time']));
     final outCtrl = TextEditingController(text: full(item['check_out_time']));
     final reasonCtrl = TextEditingController();
+    final lunchFromCtrl = TextEditingController();
+    final lunchToCtrl = TextEditingController();
+    bool workedThroughLunch = false;
+    final hmRe = RegExp(r'^\d{2}:\d{2}$');
     String status = '${item['attendance_status'] ?? 'Present'}';
     const statuses = ['Present', 'Absent', 'Sick', 'Vacation', 'Holiday'];
     if (!statuses.contains(status)) status = 'Present';
@@ -288,6 +292,37 @@ class _AdminAttendanceScreenState extends State<AdminAttendanceScreen> {
                         helperText: 'Night shift: check-out may be on the next day',
                         border: OutlineInputBorder()),
                   ),
+                  const SizedBox(height: 12),
+                  // Lunch: empty = the site's lunch of that day (like Submit Day).
+                  Row(children: [
+                    Expanded(
+                      child: TextField(
+                        controller: lunchFromCtrl,
+                        enabled: !workedThroughLunch,
+                        decoration: const InputDecoration(labelText: 'Lunch from (HH:MM)', border: OutlineInputBorder()),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: TextField(
+                        controller: lunchToCtrl,
+                        enabled: !workedThroughLunch,
+                        decoration: const InputDecoration(labelText: 'Lunch to (HH:MM)', border: OutlineInputBorder()),
+                      ),
+                    ),
+                  ]),
+                  Padding(
+                    padding: const EdgeInsets.only(top: 4),
+                    child: Text('Leave empty to use the site\'s lunch of that day.',
+                        style: TextStyle(fontSize: 11.5, color: Colors.grey.shade600)),
+                  ),
+                  CheckboxListTile(
+                    contentPadding: EdgeInsets.zero,
+                    dense: true,
+                    value: workedThroughLunch,
+                    title: const Text('Worked through lunch (no lunch deducted)'),
+                    onChanged: (v) => setD(() => workedThroughLunch = v ?? false),
+                  ),
                 ],
                 const SizedBox(height: 12),
                 TextField(
@@ -313,6 +348,13 @@ class _AdminAttendanceScreenState extends State<AdminAttendanceScreen> {
                   setD(() => err = 'Times must look like 2026-10-01 07:30');
                   return;
                 }
+                final lf = lunchFromCtrl.text.trim();
+                final lt = lunchToCtrl.text.trim();
+                if (status == 'Present' && !workedThroughLunch && (lf.isNotEmpty || lt.isNotEmpty) &&
+                    (!hmRe.hasMatch(lf) || !hmRe.hasMatch(lt))) {
+                  setD(() => err = 'Lunch times must look like 12:00 and 13:00');
+                  return;
+                }
                 Navigator.pop(ctx, true);
               },
               child: const Text('Save correction'),
@@ -328,6 +370,11 @@ class _AdminAttendanceScreenState extends State<AdminAttendanceScreen> {
           'attendance_status': status,
           if (status == 'Present') 'check_in_time': '${inCtrl.text.trim()}:00',
           if (status == 'Present' && outCtrl.text.trim().isNotEmpty) 'check_out_time': '${outCtrl.text.trim()}:00',
+          if (status == 'Present' && workedThroughLunch) 'worked_through_lunch': true,
+          if (status == 'Present' && !workedThroughLunch && lunchFromCtrl.text.trim().isNotEmpty)
+            'lunch_start_time': lunchFromCtrl.text.trim(),
+          if (status == 'Present' && !workedThroughLunch && lunchToCtrl.text.trim().isNotEmpty)
+            'lunch_end_time': lunchToCtrl.text.trim(),
         });
         final msg = r.data is Map ? (r.data['message'] ?? 'Correction saved').toString() : 'Correction saved';
         _showMessage(msg, true);
@@ -339,6 +386,8 @@ class _AdminAttendanceScreenState extends State<AdminAttendanceScreen> {
     inCtrl.dispose();
     outCtrl.dispose();
     reasonCtrl.dispose();
+    lunchFromCtrl.dispose();
+    lunchToCtrl.dispose();
   }
 
   Future<String?> _promptForReason(BuildContext context) async {
