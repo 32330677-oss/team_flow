@@ -445,6 +445,50 @@ class _SiteAttendanceScreenState extends State<SiteAttendanceScreen> {
         success: 'Break started.');
   }
 
+  // ------------------------------------------------------- single lunch
+  // Only while the record is Draft (not submitted) and payroll is not locked.
+  bool _hasLunch(Map w) => (int.tryParse('${w['lunch_count'] ?? 0}') ?? 0) > 0;
+  bool _canRemoveLunch(Map w) => !_locked && _workflow(w) == 'Draft' && _hasLunch(w);
+  bool _canEditLunch(Map w) => _canRemoveLunch(w) && _hasOut(w) && w['lunch_end_time'] != null;
+
+  Future<void> _editLunch(Map w) async {
+    TimeOfDay? tod(dynamic v) {
+      final d = _parse(v);
+      return d == null ? null : TimeOfDay.fromDateTime(d);
+    }
+    final start = await showTimePicker(
+        context: context, initialTime: tod(w['lunch_start_time']) ?? TimeOfDay.now(), helpText: 'Lunch start — ${w['full_name']}');
+    if (start == null || !mounted) return;
+    final end = await showTimePicker(
+        context: context, initialTime: tod(w['lunch_end_time']) ?? start, helpText: 'Lunch end — ${w['full_name']}');
+    if (end == null) return;
+    await _run(() => ApiConfig.dio.patch('/attendance/${w['attendance_id']}/lunch', data: {
+          'start_time': _t(start), 'end_time': _t(end),
+        }), success: 'Lunch updated. Hours recalculated.');
+  }
+
+  Future<void> _removeLunch(Map w) async {
+    final time = w['lunch_start_time'] == null ? '' : ' (${_hm(w['lunch_start_time'])}–${_hm(w['lunch_end_time'])})';
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Remove lunch?'),
+        content: Text('The lunch$time of ${w['full_name']} will be removed from this record.'
+            '${_hasOut(w) ? '\n\nWorking hours will be recalculated without the lunch deduction.' : ''}'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.red.shade700, foregroundColor: Colors.white),
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Remove lunch'),
+          ),
+        ],
+      ),
+    );
+    if (confirm != true) return;
+    await _run(() => ApiConfig.dio.delete('/attendance/${w['attendance_id']}/lunch'), success: 'Lunch removed.');
+  }
+
   Future<void> _editTimes(Map w) async {
     DateTime? newIn = _parse(w['check_in_time']);
     DateTime? newOut = _parse(w['check_out_time']);
@@ -1399,6 +1443,8 @@ class _SiteAttendanceScreenState extends State<SiteAttendanceScreen> {
       if (_canEditTimes(w)) const PopupMenuItem(value: 'times', child: Text('Edit check-in / check-out')),
       if (_canSetStatus(w) && w['attendance_id'] != null) const PopupMenuItem(value: 'status', child: Text('Change status')),
       if (_canBreak(w) && !_onBreak(w) && !_canCheckOut(w)) const PopupMenuItem(value: 'break', child: Text('Start break')),
+      if (_canEditLunch(w)) const PopupMenuItem(value: 'lunch_edit', child: Text('Edit lunch')),
+      if (_canRemoveLunch(w)) const PopupMenuItem(value: 'lunch_remove', child: Text('Remove lunch')),
       const PopupMenuItem(value: 'transfer', child: Text('Request transfer')),
     ];
 
@@ -1455,6 +1501,12 @@ class _SiteAttendanceScreenState extends State<SiteAttendanceScreen> {
                     break;
                   case 'transfer':
                     _transfer(w);
+                    break;
+                  case 'lunch_edit':
+                    _editLunch(w);
+                    break;
+                  case 'lunch_remove':
+                    _removeLunch(w);
                     break;
                 }
               },
