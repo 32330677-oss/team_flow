@@ -312,6 +312,22 @@ class _WorkerAssignmentScreenState extends State<WorkerAssignmentScreen> {
     }).toList();
   }
 
+  /// Workers of a site that match the search box:
+  ///  * empty search or the SITE name matches → all its workers;
+  ///  * otherwise only the workers whose name or worker ID matches.
+  List<dynamic> _visibleWorkersForSite(dynamic site) {
+    final siteId = int.tryParse(site['site_id']?.toString() ?? '0') ?? 0;
+    final workers = _getWorkersForSite(siteId);
+    final q = _searchQuery.trim().toLowerCase();
+    if (q.isEmpty) return workers;
+    if ((site['site_name'] ?? '').toString().toLowerCase().contains(q)) return workers;
+    return workers.where((w) {
+      final name = (w['worker_name'] ?? '').toString().toLowerCase();
+      final uid = (w['worker_unique_id'] ?? '').toString().toLowerCase();
+      return name.contains(q) || uid.contains(q);
+    }).toList();
+  }
+
   void _openAddSheet() {
     showModalBottomSheet(
       context: context,
@@ -329,23 +345,11 @@ class _WorkerAssignmentScreenState extends State<WorkerAssignmentScreen> {
   }
 @override
 Widget build(BuildContext context) {
+  final query = _searchQuery.trim().toLowerCase();
   final filteredSites = _sites.where((site) {
-    final siteName = site['site_name'].toString().toLowerCase();
-    final siteId =
-        int.tryParse(site['site_id']?.toString() ?? '0') ?? 0;
-    final siteWorkers = _getWorkersForSite(siteId);
-
-    final query = _searchQuery.toLowerCase();
-
-    final matchesSiteName = siteName.contains(query);
-    final matchesWorkerName = siteWorkers.any(
-      (w) => w['worker_name']
-          .toString()
-          .toLowerCase()
-          .contains(query),
-    );
-
-    return matchesSiteName || matchesWorkerName;
+    if (query.isEmpty) return true;
+    final siteName = (site['site_name'] ?? '').toString().toLowerCase();
+    return siteName.contains(query) || _visibleWorkersForSite(site).isNotEmpty;
   }).toList();
 
   return Scaffold(
@@ -417,13 +421,8 @@ Widget build(BuildContext context) {
                         itemBuilder: (context, index) {
                           final site = filteredSites[index];
 
-                          final siteId = int.tryParse(
-                                site['site_id']?.toString() ?? '0',
-                              ) ??
-                              0;
-
                           final siteWorkers =
-                              _getWorkersForSite(siteId);
+                              _visibleWorkersForSite(site);
 
                           final supportsShifts =
                               site['supports_shifts'] == 1 ||
