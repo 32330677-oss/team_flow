@@ -240,6 +240,10 @@ class _SiteAttendanceScreenState extends State<SiteAttendanceScreen> {
       !_locked && !_dailyGate && _isDraftOrNone(w) && !_hasIn(w) && !_hasOut(w) && !_isCarryOver(w);
   bool _canBreak(Map w) => !_locked && _workflow(w) == 'Draft' && _hasIn(w) && !_hasOut(w);
   bool _canEditTimes(Map w) => !_locked && _workflow(w) == 'Draft' && _hasIn(w);
+  // Bulk time edit (backend: /attendance/bulk/edit-times) only corrects existing
+  // times on this date's Draft records; leave records and carry-overs are excluded.
+  bool _canBulkEditIn(Map w) => _canEditTimes(w) && !_isLeave(w) && !_isCarryOver(w);
+  bool _canBulkEditOut(Map w) => _canBulkEditIn(w) && _hasOut(w);
 
   // Readiness for "Submit day" (the backend re-checks everything).
   List<String> get _blockers {
@@ -551,6 +555,93 @@ class _SiteAttendanceScreenState extends State<SiteAttendanceScreen> {
           'site_id': widget.siteId, 'shift_type': widget.shiftType, 'record_date': _recordDate,
           'worker_ids': ids, 'attendance_status': 'Absent',
         }), success: '${ids.length} worker(s) marked absent.');
+    if (ok) setState(_selected.clear);
+  }
+
+  Future<void> _bulkEditTimes() async {
+    final inIds = _eligible(_canBulkEditIn);
+    final outIds = _eligible(_canBulkEditOut);
+    if (inIds.isEmpty) {
+      return _toast('None of the selected workers has times that can be edited.', color: Colors.orange.shade800);
+    }
+
+    // 1) Which time to edit.
+    final field = await showModalBottomSheet<String>(
+      context: context,
+      builder: (ctx) => SafeArea(
+        child: Column(mainAxisSize: MainAxisSize.min, children: [
+          const ListTile(title: Text('Edit which time?', style: TextStyle(fontWeight: FontWeight.bold))),
+          ListTile(
+            leading: const Icon(Icons.login_rounded),
+            title: Text('Check-in time (${inIds.length})'),
+            onTap: () => Navigator.pop(ctx, 'check_in'),
+          ),
+          ListTile(
+            enabled: outIds.isNotEmpty,
+            leading: const Icon(Icons.logout_rounded),
+            title: Text('Check-out time (${outIds.length})'),
+            subtitle: outIds.isEmpty ? const Text('No selected worker is checked out yet') : null,
+            onTap: () => Navigator.pop(ctx, 'check_out'),
+          ),
+        ]),
+      ),
+    );
+    if (field == null || !mounted) return;
+    final isIn = field == 'check_in';
+    final ids = isIn ? inIds : outIds;
+    final label = isIn ? 'check-in' : 'check-out';
+
+    // 2) New time.
+    final t = isIn
+        ? await _pickTimeOnRecordDate('New check-in time for ${ids.length} worker(s)')
+        : await _pickTimeSameOrNextDay('New check-out time for ${ids.length} worker(s)');
+    if (t == null || !mounted) return;
+
+    // 3) Show exactly who will change (old → new) and confirm.
+    final key = isIn ? 'check_in_time' : 'check_out_time';
+    final rows = _workers.where((w) => ids.contains(_id(w))).toList();
+    final skipped = _selected.length - ids.length;
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text('Edit $label time?'),
+        content: SizedBox(
+          width: double.maxFinite,
+          child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Text('${ids.length} worker(s) on ${DateFormat('EEE d MMM yyyy').format(_dateObj)} '
+                'will get $label ${_hm(t)}${_dayLabel(t)}:'),
+            if (skipped > 0)
+              Padding(
+                padding: const EdgeInsets.only(top: 6),
+                child: Text('$skipped selected worker(s) will NOT be changed (no $label, leave, or not editable).',
+                    style: TextStyle(color: Colors.orange.shade800, fontSize: 12)),
+              ),
+            const SizedBox(height: 8),
+            Flexible(
+              child: ListView(shrinkWrap: true, children: [
+                for (final w in rows)
+                  ListTile(
+                    dense: true,
+                    contentPadding: EdgeInsets.zero,
+                    title: Text(w['full_name']?.toString() ?? 'Worker'),
+                    trailing: Text('${_hm(w[key])}${_dayLabel(w[key])} → ${_hm(t)}${_dayLabel(t)}'),
+                  ),
+              ]),
+            ),
+          ]),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
+          ElevatedButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Update times')),
+        ],
+      ),
+    );
+    if (confirm != true) return;
+
+    final ok = await _run(() => ApiConfig.dio.post('/attendance/bulk/edit-times', data: {
+          'site_id': widget.siteId, 'shift_type': widget.shiftType, 'record_date': _recordDate,
+          'worker_ids': ids, 'field': field, 'time': t,
+        }), success: '${ids.length} worker(s) $label time updated.');
     if (ok) setState(_selected.clear);
   }
 
@@ -1217,6 +1308,29 @@ class _SiteAttendanceScreenState extends State<SiteAttendanceScreen> {
     return ('Checked out', Colors.blue.shade700, Icons.check_circle_rounded);
   }
 
+  /// Lunch indicator for a worker who is (or was) on site today:
+  ///  green  = lunch recorded (shows the time),
+  ///  orange = checked out with NO lunch → worked through lunch (no lunch deducted),
+  ///  grey   = still working, no lunch recorded yet.
+  /// Nothing for leave / not-recorded rows, or while the worker is at lunch now
+  /// (the main status already says "On lunch break").
+  Widget? _lunchPill(Map w) {
+    final s = w['attendance_status']?.toString();
+    if (!_hasIn(w) || (s != null && s != 'Present')) return null;
+    if (_onBreak(w) && w['current_leave_type']?.toString() == 'Lunch') return null;
+    final hasLunch = (int.tryParse('${w['lunch_count'] ?? 0}') ?? 0) > 0;
+    if (hasLunch) {
+      final start = w['lunch_start_time'];
+      final end = w['lunch_end_time'];
+      final time = start == null ? '' : ' ${_hm(start)}–${_hm(end)}';
+      return StatusPill(label: 'Lunch$time', color: Colors.green.shade700, icon: Icons.restaurant_rounded);
+    }
+    if (_hasOut(w)) {
+      return StatusPill(label: 'Worked through lunch', color: Colors.deepOrange, icon: Icons.no_food_rounded);
+    }
+    return StatusPill(label: 'No lunch yet', color: Colors.grey.shade600, icon: Icons.schedule_rounded);
+  }
+
   Widget _workerCard(Map<String, dynamic> w) {
     final id = _id(w);
     final name = (w['full_name'] ?? 'Worker').toString();
@@ -1227,7 +1341,8 @@ class _SiteAttendanceScreenState extends State<SiteAttendanceScreen> {
     final hours = w['total_working_hours'] != null
         ? (double.tryParse(w['total_working_hours'].toString()) ?? 0) + (double.tryParse((w['overtime_hours'] ?? '0').toString()) ?? 0)
         : null;
-    final selectable = !_locked && (_canCheckIn(w) || _canCheckOut(w) || _canSetStatus(w));
+    final selectable = !_locked && (_canCheckIn(w) || _canCheckOut(w) || _canSetStatus(w) || _canBulkEditIn(w));
+    final lunchPill = _lunchPill(w);
 
     Widget? primary;
     if (_canCheckIn(w)) {
@@ -1354,6 +1469,7 @@ class _SiteAttendanceScreenState extends State<SiteAttendanceScreen> {
               if (wf == 'Draft') StatusPill(label: 'Draft', color: WorkflowColors.of('Draft')),
               if (_isCarryOver(w)) StatusPill(label: 'Started ${_short(w['attendance_record_date'])}', color: Colors.teal, icon: Icons.nights_stay_rounded),
               if (w['attendance_source'] == 'Biometric') StatusPill(label: 'Biometric', color: Colors.cyan.shade800, icon: Icons.fingerprint_rounded),
+              if (lunchPill != null) lunchPill,
             ]),
             if (w['attendance_status'] == null || w['attendance_status'] == 'Present') ...[
               const SizedBox(height: 8),
@@ -1501,6 +1617,7 @@ class _SiteAttendanceScreenState extends State<SiteAttendanceScreen> {
       final nIn = _eligible(_canBulkCheckIn).length;
       final nOut = _eligible(_canCheckOut).length;
       final nAbs = _eligible(_canSetStatus).length;
+      final nEdit = _eligible(_canBulkEditIn).length;
       return SafeArea(
         child: Container(
           padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
@@ -1512,6 +1629,7 @@ class _SiteAttendanceScreenState extends State<SiteAttendanceScreen> {
               FilledButton.tonal(onPressed: nIn == 0 || _busy ? null : _bulkCheckIn, child: Text('Check in ($nIn)')),
               FilledButton.tonal(onPressed: nOut == 0 || _busy ? null : _bulkCheckOut, child: Text('Check out ($nOut)')),
               FilledButton.tonal(onPressed: nAbs == 0 || _busy ? null : _bulkAbsent, child: Text('Absent ($nAbs)')),
+              FilledButton.tonal(onPressed: nEdit == 0 || _busy ? null : _bulkEditTimes, child: Text('Edit times ($nEdit)')),
               IconButton(
                 tooltip: 'Clear selection',
                 onPressed: () => setState(_selected.clear),
