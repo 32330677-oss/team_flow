@@ -28,9 +28,57 @@ class _StaffPayrollScreenState extends State<StaffPayrollScreen> {
   final TextEditingController _startDateController = TextEditingController();
   final TextEditingController _endDateController = TextEditingController();
 
+  // Monthly payroll is the default; a custom day range stays available.
+  bool _monthlyMode = true;
+  late DateTime _selectedMonth;
+
+  static final DateFormat _ymd = DateFormat('yyyy-MM-dd');
+
+  DateTime get _today {
+    final now = DateTime.now();
+    return DateTime(now.year, now.month, now.day);
+  }
+
+  DateTime _monthStart(DateTime m) => DateTime(m.year, m.month, 1);
+  DateTime _monthEnd(DateTime m) => DateTime(m.year, m.month + 1, 0);
+
+  /// Months that have fully ended (newest first). A month whose last day is
+  /// after today cannot be generated: its remaining days have no attendance.
+  List<DateTime> get _availableMonths {
+    final months = <DateTime>[];
+    var cursor = DateTime(_today.year, _today.month, 1);
+    if (_monthEnd(cursor).isAfter(_today)) {
+      cursor = DateTime(cursor.year, cursor.month - 1, 1);
+    }
+    for (var i = 0; i < 24; i++) {
+      months.add(DateTime(cursor.year, cursor.month - i, 1));
+    }
+    return months;
+  }
+
+  void _applyMonth(DateTime month) {
+    _selectedMonth = month;
+    _startDateController.text = _ymd.format(_monthStart(month));
+    _endDateController.text = _ymd.format(_monthEnd(month));
+  }
+
+  /// Working days the payroll counts: every day except Friday.
+  int _workingDays(DateTime start, DateTime end) {
+    var count = 0;
+    for (var d = start; !d.isAfter(end); d = DateTime(d.year, d.month, d.day + 1)) {
+      if (d.weekday != DateTime.friday) count++;
+    }
+    return count;
+  }
+
+  bool _isFullCalendarMonth(DateTime start, DateTime end) =>
+      start.day == 1 && start.year == end.year && start.month == end.month &&
+      end.day == _monthEnd(start).day;
+
   @override
   void initState() {
     super.initState();
+    _applyMonth(_availableMonths.first);
     _loadBatches();
   }
 
@@ -56,11 +104,144 @@ class _StaffPayrollScreenState extends State<StaffPayrollScreen> {
   }
 
   Future<void> _pickDate(TextEditingController controller) async {
-    final picked = await showDatePicker(context: context, initialDate: DateTime.now(), firstDate: DateTime(2023), lastDate: DateTime(2035));
+    // A payroll period must already have ended, so future dates are not offered.
+    final current = DateTime.tryParse(controller.text);
+    final picked = await showDatePicker(
+      context: context,
+      initialDate: current != null && !current.isAfter(_today) ? current : _today,
+      firstDate: DateTime(2023),
+      lastDate: _today,
+    );
     if (picked != null) {
       controller.text = DateFormat('yyyy-MM-dd').format(picked);
       setState(() {});
     }
+  }
+
+  /// Summary shown before anything is generated: what period, how many
+  /// working days, and how missing attendance is treated.
+  Future<bool> _confirmGeneration(DateTime start, DateTime end) async {
+    final calendarDays = end.difference(start).inDays + 1;
+    final workingDays = _workingDays(start, end);
+    final fullMonth = _isFullCalendarMonth(start, end);
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Generate staff payroll?'),
+        content: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              _summaryLine(Icons.date_range, 'Period',
+                  fullMonth
+                      ? '${DateFormat('MMMM yyyy').format(start)} (${_ymd.format(start)} → ${_ymd.format(end)})'
+                      : '${_ymd.format(start)} → ${_ymd.format(end)}'),
+              _summaryLine(Icons.calendar_view_month, 'Days',
+                  '$calendarDays calendar days · $workingDays working days (Fridays excluded)'),
+              _summaryLine(Icons.category_outlined, 'Type', fullMonth ? 'Full month' : 'Custom range'),
+              const SizedBox(height: 10),
+              if (!fullMonth)
+                _noteBox(
+                  Colors.orange,
+                  'This is not a full calendar month. Each salary is prorated to $workingDays working days '
+                  'out of this range, and this range cannot be generated again unless the batch is voided.',
+                ),
+              _noteBox(
+                AppColors.primary,
+                'Only Approved attendance is paid. A working day with no approved record counts as an unpaid absence. '
+                'Staff hired or terminated inside the period are paid only for the days they were employed.',
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(backgroundColor: AppColors.primary, foregroundColor: Colors.white),
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Generate'),
+          ),
+        ],
+      ),
+    );
+    return ok == true;
+  }
+
+  Widget _summaryLine(IconData icon, String label, String value) => Padding(
+        padding: const EdgeInsets.only(bottom: 6),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Icon(icon, size: 18, color: AppColors.primary),
+            const SizedBox(width: 8),
+            SizedBox(width: 56, child: Text(label, style: const TextStyle(fontWeight: FontWeight.w600))),
+            Expanded(child: Text(value)),
+          ],
+        ),
+      );
+
+  Widget _noteBox(Color color, String text) => Container(
+        width: double.infinity,
+        margin: const EdgeInsets.only(bottom: 8),
+        padding: const EdgeInsets.all(10),
+        decoration: BoxDecoration(
+          color: color.withOpacity(0.08),
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(color: color.withOpacity(0.3)),
+        ),
+        child: Text(text, style: TextStyle(fontSize: 12.5, color: color is MaterialColor ? color.shade900 : color)),
+      );
+
+  /// Unresolved (Draft / Submitted / Rejected) attendance: says plainly that
+  /// these days will be deducted, and scrolls when the list is long.
+  Future<bool?> _confirmPendingDeduction(List pendingList, {required String continueLabel}) {
+    return showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text('${pendingList.length} day(s) not approved yet'),
+        content: SizedBox(
+          width: 460,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              _noteBox(
+                AppColors.danger,
+                'If you continue, every day below is treated as an UNPAID ABSENCE and deducted from the salary. '
+                'To pay them, cancel, approve the attendance first, then generate again.',
+              ),
+              Flexible(
+                child: ListView.separated(
+                  shrinkWrap: true,
+                  itemCount: pendingList.length,
+                  separatorBuilder: (_, __) => const Divider(height: 1),
+                  itemBuilder: (_, i) {
+                    final item = pendingList[i];
+                    return ListTile(
+                      dense: true,
+                      contentPadding: EdgeInsets.zero,
+                      title: Text('${item['full_name'] ?? 'Staff'}'),
+                      subtitle: Text('${item['record_date'] ?? ''}'),
+                      trailing: Text('${item['status'] ?? ''}',
+                          style: const TextStyle(color: Colors.orange, fontWeight: FontWeight.w600)),
+                    );
+                  },
+                ),
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(backgroundColor: AppColors.danger, foregroundColor: Colors.white),
+            onPressed: () => Navigator.pop(ctx, true),
+            child: Text(continueLabel),
+          ),
+        ],
+      ),
+    );
   }
 
   Future<void> _generateBatch() async {
@@ -68,6 +249,18 @@ class _StaffPayrollScreenState extends State<StaffPayrollScreen> {
       _showSnack('Please select the start and end dates', Colors.orange);
       return;
     }
+    final start = DateTime.tryParse(_startDateController.text);
+    final end = DateTime.tryParse(_endDateController.text);
+    if (start == null || end == null || end.isBefore(start)) {
+      _showSnack('The end date must be on or after the start date', Colors.orange);
+      return;
+    }
+    if (end.isAfter(_today)) {
+      _showSnack('This period has not ended yet (it ends ${_ymd.format(end)}). Generate it after that day.', Colors.orange);
+      return;
+    }
+    if (!await _confirmGeneration(start, end)) return;
+
     setState(() => _isGenerating = true);
     try {
       final requestData = <String, dynamic>{
@@ -95,36 +288,21 @@ class _StaffPayrollScreenState extends State<StaffPayrollScreen> {
           rethrow;
         }
 
-        final pending = (data['pending_attendance'] as List? ?? [])
-            .map((item) => '${item['full_name'] ?? 'Staff'} — ${item['record_date'] ?? ''} (${item['status'] ?? ''})')
-            .join('\n');
         if (!mounted) return;
-        final acknowledge = await showDialog<bool>(
-          context: context,
-          builder: (dialogContext) => AlertDialog(
-            title: const Text('Unresolved attendance found'),
-            content: Text(
-              'The following records are still unresolved:\n\n$pending\n\n'
-              'Acknowledge them and continue? Payroll will use only approved attendance and will not silently convert these records into approved attendance.',
-            ),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.pop(dialogContext, false),
-                child: const Text('Cancel'),
-              ),
-              ElevatedButton(
-                onPressed: () => Navigator.pop(dialogContext, true),
-                child: const Text('Acknowledge & continue'),
-              ),
-            ],
-          ),
+        final acknowledge = await _confirmPendingDeduction(
+          data['pending_attendance'] as List? ?? const [],
+          continueLabel: 'Deduct these days & generate',
         );
         if (acknowledge != true) return;
         response = await generate(acknowledgePending: true);
       }
       _showSnack(response.data['message'] ?? 'Payroll batch generated', Colors.green.shade700);
-      _startDateController.clear();
-      _endDateController.clear();
+      if (_monthlyMode) {
+        _applyMonth(_selectedMonth);
+      } else {
+        _startDateController.clear();
+        _endDateController.clear();
+      }
       _loadBatches();
     } on DioException catch (e) {
       final msg = e.response?.data is Map ? (e.response?.data['message'] ?? 'Failed to generate batch') : 'Failed to generate batch';
@@ -252,20 +430,10 @@ class _StaffPayrollScreenState extends State<StaffPayrollScreen> {
     } on DioException catch (e) {
       final data = e.response?.data;
       if (data is Map && data['code'] == 'PENDING_ATTENDANCE' && !acknowledgePending) {
-        final pending = (data['pending_attendance'] as List? ?? [])
-            .map((item) => '${item['full_name'] ?? 'Staff'} — ${item['record_date'] ?? ''} (${item['status'] ?? ''})')
-            .join('\n');
         if (!mounted) return;
-        final ok = await showDialog<bool>(
-          context: context,
-          builder: (ctx) => AlertDialog(
-            title: const Text('Unresolved attendance found'),
-            content: SingleChildScrollView(child: Text('$pending\n\nThese records will NOT be paid in the new version. Continue?')),
-            actions: [
-              TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
-              ElevatedButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Acknowledge & continue')),
-            ],
-          ),
+        final ok = await _confirmPendingDeduction(
+          data['pending_attendance'] as List? ?? const [],
+          continueLabel: 'Deduct these days & create version',
         );
         if (ok == true) await _supersede(batchId, reason: reason, acknowledgePending: true);
         return;
@@ -541,13 +709,62 @@ void _showBatchDetailsSheet(Map batch, List staff) {
                     children: [
                       const Text('Generate Staff Payroll', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: AppColors.primary)),
                       const SizedBox(height: 12),
-                      Row(
-                        children: [
-                          Expanded(child: TextField(controller: _startDateController, readOnly: true, onTap: () => _pickDate(_startDateController), decoration: const InputDecoration(labelText: 'Start Date', border: OutlineInputBorder()))),
-                          const SizedBox(width: 10),
-                          Expanded(child: TextField(controller: _endDateController, readOnly: true, onTap: () => _pickDate(_endDateController), decoration: const InputDecoration(labelText: 'End Date', border: OutlineInputBorder()))),
-                        ],
+                      SizedBox(
+                        width: double.infinity,
+                        child: SegmentedButton<bool>(
+                          segments: const [
+                            ButtonSegment(value: true, icon: Icon(Icons.calendar_month), label: Text('Monthly (recommended)')),
+                            ButtonSegment(value: false, icon: Icon(Icons.date_range), label: Text('Custom range')),
+                          ],
+                          selected: {_monthlyMode},
+                          onSelectionChanged: _isGenerating
+                              ? null
+                              : (s) => setState(() {
+                                    _monthlyMode = s.first;
+                                    if (_monthlyMode) {
+                                      _applyMonth(_selectedMonth);
+                                    } else {
+                                      _startDateController.clear();
+                                      _endDateController.clear();
+                                    }
+                                  }),
+                        ),
                       ),
+                      const SizedBox(height: 12),
+                      if (_monthlyMode) ...[
+                        DropdownButtonFormField<DateTime>(
+                          value: _availableMonths.firstWhere(
+                            (m) => m.year == _selectedMonth.year && m.month == _selectedMonth.month,
+                            orElse: () => _availableMonths.first,
+                          ),
+                          decoration: const InputDecoration(labelText: 'Month', border: OutlineInputBorder()),
+                          items: _availableMonths
+                              .map((m) => DropdownMenuItem(value: m, child: Text(DateFormat('MMMM yyyy').format(m))))
+                              .toList(),
+                          onChanged: _isGenerating ? null : (m) => setState(() => _applyMonth(m!)),
+                        ),
+                        const SizedBox(height: 6),
+                        Text(
+                          '${_startDateController.text} → ${_endDateController.text} · '
+                          '${_workingDays(_monthStart(_selectedMonth), _monthEnd(_selectedMonth))} working days (Fridays excluded). '
+                          'Only months that have fully ended are listed.',
+                          style: TextStyle(fontSize: 12, color: Colors.grey.shade700),
+                        ),
+                      ] else ...[
+                        Row(
+                          children: [
+                            Expanded(child: TextField(controller: _startDateController, readOnly: true, onTap: () => _pickDate(_startDateController), decoration: const InputDecoration(labelText: 'Start Date', border: OutlineInputBorder()))),
+                            const SizedBox(width: 10),
+                            Expanded(child: TextField(controller: _endDateController, readOnly: true, onTap: () => _pickDate(_endDateController), decoration: const InputDecoration(labelText: 'End Date', border: OutlineInputBorder()))),
+                          ],
+                        ),
+                        const SizedBox(height: 8),
+                        _noteBox(
+                          Colors.orange,
+                          'Custom ranges are for special cases. Salaries are prorated to the working days of the range, '
+                          'and a range that overlaps an existing batch cannot be generated.',
+                        ),
+                      ],
                                           const SizedBox(height: 12),
                       SizedBox(
                         width: double.infinity,
@@ -566,7 +783,14 @@ void _showBatchDetailsSheet(Map batch, List staff) {
                           icon: _isGenerating
                               ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
                               : const Icon(Icons.bolt, color: Colors.white),
-                          label: Text(_isGenerating ? 'Generating...' : 'Generate Batch', style: const TextStyle(color: Colors.white)),
+                          label: Text(
+                            _isGenerating
+                                ? 'Generating...'
+                                : (_monthlyMode
+                                    ? 'Generate ${DateFormat('MMMM yyyy').format(_selectedMonth)} Payroll'
+                                    : 'Generate Batch'),
+                            style: const TextStyle(color: Colors.white),
+                          ),
                           style: ElevatedButton.styleFrom(backgroundColor: AppColors.primary, padding: const EdgeInsets.symmetric(vertical: 14)),
                         ),
                       ),

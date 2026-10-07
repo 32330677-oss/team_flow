@@ -86,6 +86,23 @@ class _StaffRow {
       workflowStatus == 'Approved' ||
       staffCurrentStatus == 'Inactive';
 }
+/// Result of the on-screen hours calculation for one Present row.
+class _ShiftPreview {
+  final double netHours;
+  final double overtime;
+  final double shortage;
+  final bool friday;
+  final String? error;
+
+  const _ShiftPreview({
+    this.netHours = 0,
+    this.overtime = 0,
+    this.shortage = 0,
+    this.friday = false,
+    this.error,
+  });
+}
+
 class _StaffSupervisorAttendanceScreenState
     extends State<StaffSupervisorAttendanceScreen> {
   static const Color primaryColor = Color(0xff1a2a6c);
@@ -110,8 +127,33 @@ class _StaffSupervisorAttendanceScreenState
   String _searchQuery = '';
   List<_StaffRow> _rows = [];
 
-  TimeOfDay _globalCheckIn = const TimeOfDay(hour: 8, minute: 0);
-  TimeOfDay _globalCheckOut = const TimeOfDay(hour: 18, minute: 0);
+  // ------------------------------------------------------------------
+  // Default shift. One definition used by every new row AND the Bulk
+  // Preset: check-in 08:00, a 12:00–13:00 lunch, and a check-out that gives
+  // exactly the employee's standard hours AFTER the lunch is deducted.
+  // (Previously new rows ended at 08:00 + standard hours with a 1h lunch
+  // pre-filled, i.e. 1h short every day, while the Bulk Preset used 18:00.)
+  // ------------------------------------------------------------------
+  static const TimeOfDay _defaultCheckIn = TimeOfDay(hour: 8, minute: 0);
+  static const TimeOfDay _defaultLunchStartTime = TimeOfDay(hour: 12, minute: 0);
+  static const TimeOfDay _defaultLunchEndTime = TimeOfDay(hour: 13, minute: 0);
+  static int get _defaultLunchMinutes =>
+      (_defaultLunchEndTime.hour * 60 + _defaultLunchEndTime.minute) -
+      (_defaultLunchStartTime.hour * 60 + _defaultLunchStartTime.minute);
+
+  TimeOfDay _globalCheckIn = _defaultCheckIn;
+  TimeOfDay _globalCheckOut = const TimeOfDay(hour: 17, minute: 0);
+  /// Once the supervisor edits a Bulk Preset time it is never reset by a reload.
+  bool _globalTimesTouched = false;
+
+  /// From GET /supervisor/day: payroll lock + previous-week drafts.
+  Map<String, dynamic> _dayMeta = {};
+
+  /// From GET /supervisor/week: one entry per day of the attendance week.
+  List<Map<String, dynamic>> _weekDays = [];
+
+  /// Summary-bar filter: 'all' | 'notSet' | 'unsaved'.
+  String _listFilter = 'all';
   DateTime _globalCheckInDate = DateTime.now();
   DateTime _globalCheckOutDate = DateTime.now();
   DateTime? _globalLunchStart;
@@ -129,19 +171,60 @@ class _StaffSupervisorAttendanceScreenState
     super.dispose();
   }
 
-TimeOfDay _defaultCheckOutFor(double standardHours) {
-  const defaultCheckInMinutes = 8 * 60; // 08:00
+  /// Check-out that yields exactly [standardHours] of work after the default lunch.
+  TimeOfDay _defaultCheckOutFor(double standardHours) {
+    final totalMinutes = _defaultCheckIn.hour * 60 +
+        _defaultCheckIn.minute +
+        (standardHours * 60).round() +
+        _defaultLunchMinutes;
+    final normalized = totalMinutes % (24 * 60);
+    return TimeOfDay(hour: normalized ~/ 60, minute: normalized % 60);
+  }
 
-  final totalMinutes =
-      defaultCheckInMinutes + (standardHours * 60).round();
+  /// Standard hours shared by most staff on screen (used by the Bulk Preset).
+  double get _commonStandardHours {
+    if (_rows.isEmpty) return 8;
+    final counts = <double, int>{};
+    for (final r in _rows) {
+      counts[r.standardHours] = (counts[r.standardHours] ?? 0) + 1;
+    }
+    return counts.entries.reduce((a, b) => b.value > a.value ? b : a).key;
+  }
 
-  final normalized = totalMinutes % (24 * 60);
+  // ------------------------------------------------------------------
+  // Live hours preview — mirrors calculateStaffShiftHours on the server:
+  // net = (out - in) - lunch; regular = min(net, standard);
+  // OT = net above standard; shortage = standard - net (deducted from pay).
+  // ------------------------------------------------------------------
+  _ShiftPreview? _previewFor(_StaffRow row) {
+    if (row.status != 'Present' || row.checkOutPending) return null;
+    final inDt = _combine(row.checkInDate, row.checkIn);
+    final outDt = _resolveOut(row);
+    final grossMin = outDt.difference(inDt).inMinutes;
+    if (grossMin > 24 * 60) {
+      return const _ShiftPreview(error: 'Shift longer than 24h');
+    }
+    var lunchMin = 0;
+    if (row.lunchStart != null || row.lunchEnd != null) {
+      if (row.lunchStart == null || row.lunchEnd == null || !row.lunchEnd!.isAfter(row.lunchStart!)) {
+        return const _ShiftPreview(error: 'Lunch start/end incomplete');
+      }
+      if (row.lunchStart!.isBefore(inDt) || row.lunchEnd!.isAfter(outDt)) {
+        return const _ShiftPreview(error: 'Lunch is outside the shift');
+      }
+      lunchMin = row.lunchEnd!.difference(row.lunchStart!).inMinutes;
+    }
+    final net = (grossMin - lunchMin) / 60.0;
+    final std = row.standardHours > 0 ? row.standardHours : 8.0;
+    return _ShiftPreview(
+      netHours: net,
+      overtime: net > std ? net - std : 0,
+      shortage: net < std ? std - net : 0,
+      friday: _isFridaySelected,
+    );
+  }
 
-  return TimeOfDay(
-    hour: normalized ~/ 60,
-    minute: normalized % 60,
-  );
-}
+  String _h(double v) => v.toStringAsFixed(v.truncateToDouble() == v ? 0 : 1);
   String get _dateStr => DateFormat('yyyy-MM-dd').format(_selectedDate);
 
   /// Yesterday is allowed because a night shift may start yesterday
@@ -192,12 +275,22 @@ TimeOfDay _defaultCheckOutFor(double standardHours) {
   /// the full _rows list, never on this filtered view.
   List<_StaffRow> get _filteredRows {
     final query = _searchQuery.trim().toLowerCase();
-    if (query.isEmpty) return _rows;
-    return _rows
-        .where((r) =>
-            r.fullName.toLowerCase().contains(query) ||
-            r.uniqueId.toLowerCase().contains(query))
-        .toList();
+    return _rows.where((r) {
+      if (_listFilter == 'notSet' && !(r.status == null && !r.isLocked)) return false;
+      if (_listFilter == 'unsaved' && !(r.dirty && !r.isLocked)) return false;
+      if (query.isEmpty) return true;
+      return r.fullName.toLowerCase().contains(query) ||
+          r.uniqueId.toLowerCase().contains(query);
+    }).toList();
+  }
+
+  bool get _hasUnsavedChanges => _rows.any((r) => r.dirty && !r.isLocked);
+
+  bool get _isToday {
+    final now = DateTime.now();
+    return _selectedDate.year == now.year &&
+        _selectedDate.month == now.month &&
+        _selectedDate.day == now.day;
   }
   TimeOfDay? _parseTime(dynamic value) {
     if (value == null) return null;
@@ -287,10 +380,12 @@ TimeOfDay _defaultCheckOutFor(double standardHours) {
         // Default lunch window shown for any employee who doesn't have a
         // saved record yet — purely a UI suggestion, fully editable per row.
         final defaultLunchStart = DateTime(
-          _selectedDate.year, _selectedDate.month, _selectedDate.day, 12, 0,
+          _selectedDate.year, _selectedDate.month, _selectedDate.day,
+          _defaultLunchStartTime.hour, _defaultLunchStartTime.minute,
         );
         final defaultLunchEnd = DateTime(
-          _selectedDate.year, _selectedDate.month, _selectedDate.day, 13, 0,
+          _selectedDate.year, _selectedDate.month, _selectedDate.day,
+          _defaultLunchEndTime.hour, _defaultLunchEndTime.minute,
         );
 
         final row = _StaffRow(
@@ -313,11 +408,7 @@ TimeOfDay _defaultCheckOutFor(double standardHours) {
           // fallback only fires for brand-new rows.
           status: raw['attendance_status']?.toString(),
           checkIn:
-              _parseTime(raw['check_in_time']) ??
-                  const TimeOfDay(
-                    hour: 8,
-                    minute: 0,
-                  ),
+              _parseTime(raw['check_in_time']) ?? _defaultCheckIn,
        checkOut:
     _parseTime(raw['check_out_time']) ??
         _defaultCheckOutFor(standard),
@@ -365,8 +456,18 @@ TimeOfDay _defaultCheckOutFor(double standardHours) {
 
       if (!mounted) return;
 
+      final day = response.data['day'];
+
       setState(() {
         _rows = newRows;
+        _dayMeta = day is Map ? Map<String, dynamic>.from(day) : {};
+
+        // Bulk Preset follows the same default shift as the rows, unless
+        // the supervisor already changed it.
+        if (!_globalTimesTouched) {
+          _globalCheckIn = _defaultCheckIn;
+          _globalCheckOut = _defaultCheckOutFor(_commonStandardHours);
+        }
 
         // Drop selections of rows that no longer exist
         // or became locked.
@@ -388,6 +489,81 @@ TimeOfDay _defaultCheckOutFor(double standardHours) {
         Colors.red,
       );
     }
+    _loadWeek();
+  }
+
+  /// Week strip colours. Failure is silent: the strip simply stays neutral.
+  Future<void> _loadWeek() async {
+    final requested = _dateStr;
+    try {
+      final response = await ApiConfig.dio.get(
+        '/staff-attendance/supervisor/week',
+        queryParameters: {'date': requested},
+      );
+      final list = (response.data['data'] as List?) ?? [];
+      if (!mounted || requested != _dateStr) return;
+      setState(() {
+        _weekDays = list.map((e) => Map<String, dynamic>.from(e as Map)).toList();
+      });
+    } catch (_) {
+      if (mounted && requested == _dateStr) setState(() => _weekDays = []);
+    }
+  }
+
+  /// Switch to another date (arrows, week strip, picker, banners).
+  /// Unsaved edits are lost on reload, so ask first.
+  Future<void> _goToDate(DateTime date) async {
+    final target = DateTime(date.year, date.month, date.day);
+    final now = DateTime.now();
+    if (target.isAfter(DateTime(now.year, now.month, now.day))) return;
+    if (DateFormat('yyyy-MM-dd').format(target) == _dateStr) return;
+
+    if (_hasUnsavedChanges) {
+      final leave = await showDialog<bool>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: const Text('Unsaved changes'),
+          content: const Text('You have changes that are not saved. Leave this date and discard them?'),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Stay')),
+            FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Discard & leave')),
+          ],
+        ),
+      );
+      if (leave != true || !mounted) return;
+    }
+
+    setState(() {
+      _selectedDate = target;
+      _globalCheckInDate = target;
+      _globalCheckOutDate = target;
+      _globalLunchStart = null;
+      _globalLunchEnd = null;
+      _selectedStaffIds.clear();
+      _listFilter = 'all';
+    });
+    _loadDay();
+  }
+
+  /// "Mark remaining Present": only rows with no status yet; never overwrites
+  /// a status the supervisor already chose.
+  void _markRemainingPresent() {
+    final targets = _rows.where((r) => !r.isLocked && r.status == null).toList();
+    if (targets.isEmpty) {
+      _showSnack('Everyone already has a status.', Colors.blueGrey);
+      return;
+    }
+    setState(() {
+      for (final r in targets) {
+        r.status = 'Present';
+        r.dirty = true;
+      }
+      if (_listFilter == 'notSet') _listFilter = 'all';
+    });
+    _showSnack(
+      '${targets.length} employee(s) marked Present with the default shift. Review times, then Save Draft or Submit.',
+      Colors.blue.shade700,
+    );
   }
 
   Future<void> _pickDate() async {
@@ -399,18 +575,7 @@ TimeOfDay _defaultCheckOutFor(double standardHours) {
       helpText: 'Select attendance date (past dates allowed)',
     );
 
-    if (picked != null) {
-      setState(() {
-        _selectedDate = picked;
-        _globalCheckInDate = picked;
-        _globalCheckOutDate = picked;
-        _globalLunchStart = null;
-        _globalLunchEnd = null;
-        _selectedStaffIds.clear();
-      });
-
-      _loadDay();
-    }
+    if (picked != null) await _goToDate(picked);
   }
 
   Future<void> _pickRowDate(_StaffRow row, {required bool checkIn}) async {
@@ -1086,6 +1251,370 @@ for (final r in rows) {
     }
   }
 
+  // ------------------------------------------------------------------
+  // Quick status buttons
+  // ------------------------------------------------------------------
+  static const Map<String, String> _statusShort = {
+    'Present': 'P',
+    'Absent': 'A',
+    'Sick': 'Sick',
+    'Vacation': 'Vac',
+    'Holiday': 'Hol',
+  };
+
+  Color _statusColor(String status) {
+    switch (status) {
+      case 'Present':
+        return Colors.green.shade700;
+      case 'Absent':
+        return Colors.red.shade700;
+      case 'Sick':
+        return Colors.orange.shade800;
+      case 'Vacation':
+        return Colors.teal.shade700;
+      default:
+        return Colors.deepPurple.shade600;
+    }
+  }
+
+  Widget _quickStatusBar(_StaffRow row) {
+    return Wrap(
+      spacing: 6,
+      runSpacing: 6,
+      children: _statuses.map((s) {
+        final selected = row.status == s;
+        final color = _statusColor(s);
+        return Tooltip(
+          message: s == 'Sick' ? 'Sick (unpaid unless the admin marks it paid)' : s,
+          child: ChoiceChip(
+            label: Text(_statusShort[s]!),
+            selected: selected,
+            showCheckmark: false,
+            visualDensity: VisualDensity.compact,
+            labelStyle: TextStyle(
+              fontWeight: FontWeight.w700,
+              color: selected ? Colors.white : color,
+            ),
+            selectedColor: color,
+            backgroundColor: color.withOpacity(0.08),
+            side: BorderSide(color: color.withOpacity(selected ? 1 : 0.35)),
+            onSelected: (_) => setState(() {
+              if (row.status != s) {
+                row.status = s;
+                row.dirty = true;
+              }
+            }),
+          ),
+        );
+      }).toList(),
+    );
+  }
+
+  Widget _inlineNote(IconData icon, String text, Color color) {
+    return Row(
+      children: [
+        Icon(icon, size: 14, color: color),
+        const SizedBox(width: 6),
+        Expanded(child: Text(text, style: TextStyle(fontSize: 11.5, color: color))),
+      ],
+    );
+  }
+
+  /// "Net 7h · 1h short (deducted)" / "Net 8h ✓" / "Net 9.5h · +1.5h OT".
+  Widget _hoursPreview(_StaffRow row) {
+    final p = _previewFor(row);
+    if (p == null) return const SizedBox.shrink();
+
+    late final Color color;
+    late final IconData icon;
+    late final String text;
+    if (p.error != null) {
+      color = Colors.red.shade700;
+      icon = Icons.error_outline;
+      text = '${p.error} — fix before saving';
+    } else if (p.friday) {
+      color = Colors.deepPurple.shade600;
+      icon = Icons.schedule;
+      text = 'Net ${_h(p.netHours)}h · Friday: all hours count as overtime';
+    } else if (p.shortage > 0.004) {
+      color = Colors.red.shade700;
+      icon = Icons.trending_down;
+      text = 'Net ${_h(p.netHours)}h of ${_h(row.standardHours)}h · ${_h(p.shortage)}h short (deducted unless covered by OT)';
+    } else if (p.overtime > 0.004) {
+      color = Colors.blue.shade700;
+      icon = Icons.trending_up;
+      text = 'Net ${_h(p.netHours)}h · +${_h(p.overtime)}h OT';
+    } else {
+      color = Colors.green.shade700;
+      icon = Icons.check_circle_outline;
+      text = 'Net ${_h(p.netHours)}h — full day';
+    }
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      decoration: BoxDecoration(
+        color: color.withOpacity(0.07),
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: _inlineNote(icon, text, color),
+    );
+  }
+
+  // ------------------------------------------------------------------
+  // Week strip: previous / next day + colour of each day of the week
+  // ------------------------------------------------------------------
+  static const Map<String, String> _weekStateLabel = {
+    'complete': 'Submitted',
+    'draft': 'Draft',
+    'missing': 'Missing',
+    'off': 'No work',
+    'future': 'Upcoming',
+  };
+
+  Color _weekStateColor(String? state) {
+    switch (state) {
+      case 'complete':
+        return Colors.green.shade600;
+      case 'draft':
+        return Colors.amber.shade700;
+      case 'missing':
+        return Colors.red.shade600;
+      default:
+        return Colors.grey.shade400;
+    }
+  }
+
+  Widget _buildWeekStrip() {
+    if (_weekDays.isEmpty) return const SizedBox.shrink();
+    return Container(
+      margin: const EdgeInsets.fromLTRB(12, 0, 12, 8),
+      padding: const EdgeInsets.fromLTRB(8, 8, 8, 6),
+      decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(14)),
+      child: Column(
+        children: [
+          Row(
+            children: _weekDays.map((d) {
+              final date = DateTime.parse(d['date'].toString());
+              final state = d['state']?.toString();
+              final color = _weekStateColor(state);
+              final selected = d['date'] == _dateStr;
+              final future = state == 'future';
+              return Expanded(
+                child: Tooltip(
+                  message: '${DateFormat('EEE dd MMM').format(date)} — ${_weekStateLabel[state] ?? ''}'
+                      '${(d['expected'] ?? 0) > 0 ? '\nExpected ${d['expected']} · missing ${d['missing']}' : ''}'
+                      '\nDraft ${d['Draft'] ?? 0} · Submitted ${d['Submitted'] ?? 0} · Approved ${d['Approved'] ?? 0}'
+                      '${(d['Rejected'] ?? 0) > 0 ? ' · Rejected ${d['Rejected']}' : ''}',
+                  child: InkWell(
+                    borderRadius: BorderRadius.circular(10),
+                    onTap: future ? null : () => _goToDate(date),
+                    child: Container(
+                      margin: const EdgeInsets.symmetric(horizontal: 2),
+                      padding: const EdgeInsets.symmetric(vertical: 6),
+                      decoration: BoxDecoration(
+                        color: selected ? primaryColor : color.withOpacity(future ? 0.06 : 0.12),
+                        borderRadius: BorderRadius.circular(10),
+                        border: Border.all(color: selected ? primaryColor : color.withOpacity(0.5)),
+                      ),
+                      child: Column(
+                        children: [
+                          Text(
+                            DateFormat('EEE').format(date),
+                            style: TextStyle(fontSize: 10.5, color: selected ? Colors.white70 : Colors.grey.shade700),
+                          ),
+                          Text(
+                            '${date.day}',
+                            style: TextStyle(
+                              fontWeight: FontWeight.bold,
+                              color: selected ? Colors.white : (future ? Colors.grey.shade400 : Colors.black87),
+                            ),
+                          ),
+                          const SizedBox(height: 3),
+                          Container(
+                            width: 8,
+                            height: 8,
+                            decoration: BoxDecoration(
+                              color: selected ? Colors.white : color,
+                              shape: BoxShape.circle,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+              );
+            }).toList(),
+          ),
+          const SizedBox(height: 6),
+          Wrap(
+            spacing: 12,
+            children: ['complete', 'draft', 'missing', 'off'].map((s) {
+              return Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Container(
+                    width: 8,
+                    height: 8,
+                    decoration: BoxDecoration(color: _weekStateColor(s), shape: BoxShape.circle),
+                  ),
+                  const SizedBox(width: 4),
+                  Text(_weekStateLabel[s]!, style: TextStyle(fontSize: 10.5, color: Colors.grey.shade700)),
+                ],
+              );
+            }).toList(),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // ------------------------------------------------------------------
+  // Banners shown as soon as the day opens (data already in /supervisor/day)
+  // ------------------------------------------------------------------
+  Widget _banner({
+    required Color color,
+    required IconData icon,
+    required String text,
+    List<Widget> actions = const [],
+  }) {
+    return Container(
+      width: double.infinity,
+      margin: const EdgeInsets.only(bottom: 8),
+      padding: const EdgeInsets.all(10),
+      decoration: BoxDecoration(
+        color: color.withOpacity(0.08),
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: color.withOpacity(0.35)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Icon(icon, size: 18, color: color),
+              const SizedBox(width: 8),
+              Expanded(child: Text(text, style: TextStyle(fontSize: 12, color: color, fontWeight: FontWeight.w600))),
+            ],
+          ),
+          if (actions.isNotEmpty) ...[
+            const SizedBox(height: 6),
+            Wrap(spacing: 6, runSpacing: 6, children: actions),
+          ],
+        ],
+      ),
+    );
+  }
+
+  List<Widget> _buildDayBanners() {
+    final banners = <Widget>[];
+
+    if (_dayMeta['payroll_locked'] == true) {
+      final batchId = _dayMeta['payroll_lock_batch_id'];
+      banners.add(_banner(
+        color: Colors.red.shade700,
+        icon: Icons.lock_outline,
+        text: 'This date is inside a finalized staff payroll${batchId != null ? ' (batch #$batchId)' : ''}. '
+            'Attendance for it is locked and cannot be saved or submitted. Ask an Admin to use "Correct finalized attendance".',
+      ));
+    }
+
+    final drafts = (_dayMeta['previous_week_drafts'] as List?) ?? const [];
+    if (drafts.isNotEmpty) {
+      final prev = _dayMeta['previous_week'] is Map ? _dayMeta['previous_week'] as Map : const {};
+      banners.add(_banner(
+        color: Colors.orange.shade800,
+        icon: Icons.warning_amber_rounded,
+        text: 'Last week (${prev['start'] ?? ''} → ${prev['end'] ?? ''}) still has Draft attendance. '
+            'You must submit those days before you can submit this one.',
+        actions: drafts.map((d) {
+          final m = d is Map ? d : const {};
+          final date = DateTime.tryParse('${m['record_date']}');
+          return ActionChip(
+            avatar: const Icon(Icons.arrow_forward, size: 16),
+            label: Text('${m['record_date']} (${m['drafts']} draft)'),
+            onPressed: date == null ? null : () => _goToDate(date),
+          );
+        }).toList(),
+      ));
+    }
+    return banners;
+  }
+
+  // ------------------------------------------------------------------
+  // Summary bar: counts + filters + "mark remaining Present"
+  // ------------------------------------------------------------------
+  Widget _countChip(String label, int value, Color color) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+      decoration: BoxDecoration(
+        color: color.withOpacity(0.08),
+        borderRadius: BorderRadius.circular(20),
+      ),
+      child: Text('$label $value', style: TextStyle(color: color, fontWeight: FontWeight.w700, fontSize: 12)),
+    );
+  }
+
+  Widget _buildSummaryBar() {
+    final present = _rows.where((r) => r.status == 'Present').length;
+    final absent = _rows.where((r) => r.status == 'Absent').length;
+    final leave = _rows.where((r) => const ['Sick', 'Vacation', 'Holiday'].contains(r.status)).length;
+    final notSet = _rows.where((r) => r.status == null && !r.isLocked).length;
+    final unsaved = _rows.where((r) => r.dirty && !r.isLocked).length;
+
+    Widget filter(String key, String label) => ChoiceChip(
+          label: Text(label),
+          selected: _listFilter == key,
+          visualDensity: VisualDensity.compact,
+          onSelected: (_) => setState(() => _listFilter = key),
+        );
+
+    return Container(
+      margin: const EdgeInsets.only(bottom: 8),
+      padding: const EdgeInsets.all(10),
+      decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(14)),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Wrap(
+            spacing: 6,
+            runSpacing: 6,
+            children: [
+              _countChip('Present', present, Colors.green.shade700),
+              _countChip('Absent', absent, Colors.red.shade700),
+              _countChip('Leave', leave, Colors.teal.shade700),
+              _countChip('Not set', notSet, notSet > 0 ? Colors.orange.shade800 : Colors.grey.shade600),
+              _countChip('Unsaved', unsaved, unsaved > 0 ? Colors.blue.shade700 : Colors.grey.shade600),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Row(
+            children: [
+              Expanded(
+                child: Wrap(
+                  spacing: 6,
+                  runSpacing: 6,
+                  children: [
+                    filter('all', 'All'),
+                    filter('notSet', 'Not set only ($notSet)'),
+                    filter('unsaved', 'Unsaved ($unsaved)'),
+                  ],
+                ),
+              ),
+              if (notSet > 0)
+                TextButton.icon(
+                  onPressed: _isSaving ? null : _markRemainingPresent,
+                  icon: const Icon(Icons.done_all, size: 18),
+                  label: Text('Mark remaining Present ($notSet)'),
+                ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _buildBulkPresetCard() {
     final checkedPresent = _checkedPresentCount;
 
@@ -1121,15 +1650,28 @@ for (final r in rows) {
               const Text('In: '),
               _timeField(
                 _globalCheckIn,
-                (v) => setState(() => _globalCheckIn = v),
+                (v) => setState(() {
+                  _globalCheckIn = v;
+                  _globalTimesTouched = true;
+                }),
               ),
               const SizedBox(width: 20),
               const Text('Out: '),
               _timeField(
                 _globalCheckOut,
-                (v) => setState(() => _globalCheckOut = v),
+                (v) => setState(() {
+                  _globalCheckOut = v;
+                  _globalTimesTouched = true;
+                }),
               ),
             ],
+          ),
+          const SizedBox(height: 6),
+          Text(
+            'Default shift: ${_fmtTime(_defaultCheckIn)} → ${_fmtTime(_defaultCheckOutFor(_commonStandardHours))} '
+            '= ${_h(_commonStandardHours)}h work + ${_h(_defaultLunchMinutes / 60)}h lunch '
+            '(${_fmtTime(_defaultLunchStartTime)}–${_fmtTime(_defaultLunchEndTime)}).',
+            style: TextStyle(fontSize: 11, color: Colors.grey.shade700),
           ),
           const SizedBox(height: 10),
           Row(
@@ -1403,25 +1945,6 @@ for (final r in rows) {
                     ],
                   ),
                 ),
-         DropdownButton<String>(
-  value: row.status,
-  items: _statuses
-      .map(
-        (s) => DropdownMenuItem(
-      value: s,
-      child: Text(s),
-    ),
-  )
-      .toList(),
-  onChanged: locked
-      ? null
-      : (v) => setState(() {
-            if (v != null && v != row.status) {
-              row.status = v;
-              row.dirty = true;
-            }
-          }),
-),
                 IconButton(
                   tooltip: row.workflowStatus == 'Rejected'
                       ? 'Resubmit this employee'
@@ -1440,6 +1963,22 @@ for (final r in rows) {
                 ),
               ],
             ),
+
+            // --------------------------------------------------------
+            // Quick status buttons (replace the dropdown)
+            // --------------------------------------------------------
+            if (!locked) ...[
+              const SizedBox(height: 8),
+              _quickStatusBar(row),
+            ],
+            if (!locked && row.status == 'Sick') ...[
+              const SizedBox(height: 6),
+              _inlineNote(
+                Icons.info_outline,
+                'Sick days are unpaid unless the admin marks them as paid.',
+                Colors.orange.shade800,
+              ),
+            ],
 
             // --------------------------------------------------------
             // Rejection reason
@@ -1659,6 +2198,8 @@ for (final r in rows) {
                     child: const Text('Clear lunch'),
                   ),
                 ),
+              const SizedBox(height: 6),
+              _hoursPreview(row),
             ],
           ],
         ),
@@ -1671,11 +2212,15 @@ for (final r in rows) {
     BuildContext context,
   ) {
     final checked = _checkedCount;
-    final canSaveDraft =
+    // A date inside a finalized payroll is locked on the server; the banner
+    // explains why, and the buttons are disabled instead of failing later.
+    final payrollLocked = _dayMeta['payroll_locked'] == true;
+    final canSaveDraft = !payrollLocked &&
         _rows.any((r) => !r.isLocked && r.workflowStatus != 'Rejected');
-    final canSubmitAttendance = _rows.any((r) =>
-        !r.isLocked &&
-        r.workflowStatus != 'Rejected');
+    final canSubmitAttendance = !payrollLocked &&
+        _rows.any((r) =>
+            !r.isLocked &&
+            r.workflowStatus != 'Rejected');
 
     return Scaffold(
       backgroundColor:
@@ -1721,6 +2266,12 @@ for (final r in rows) {
                   ),
                   child: Row(
                     children: [
+                      IconButton(
+                        tooltip: 'Previous day',
+                        visualDensity: VisualDensity.compact,
+                        icon: const Icon(Icons.chevron_left, color: primaryColor),
+                        onPressed: () => _goToDate(_selectedDate.subtract(const Duration(days: 1))),
+                      ),
                       const Icon(
                         Icons.calendar_today,
                         color:
@@ -1832,9 +2383,20 @@ for (final r in rows) {
                           'Change',
                         ),
                       ),
+                      IconButton(
+                        tooltip: 'Next day',
+                        visualDensity: VisualDensity.compact,
+                        icon: Icon(Icons.chevron_right, color: _isToday ? Colors.grey.shade300 : primaryColor),
+                        onPressed: _isToday ? null : () => _goToDate(_selectedDate.add(const Duration(days: 1))),
+                      ),
                     ],
                   ),
                 ),
+
+                // ----------------------------------------------------
+                // Week strip
+                // ----------------------------------------------------
+                _buildWeekStrip(),
 
                 // ----------------------------------------------------
                 // Friday banner
@@ -1926,43 +2488,58 @@ for (final r in rows) {
                 ),
 
                 // ----------------------------------------------------
-                // Staff list
+                // Staff list. Banners, the summary bar, the Bulk Preset
+                // and the selection toolbar scroll with the list, so the
+                // list keeps its height on small screens and the filters
+                // stay reachable even when a filter matches nobody.
                 // ----------------------------------------------------
                 Expanded(
                   child: _rows.isEmpty
-                      ? const Center(
-                          child: Text('No active staff found'),
-                        )
-                      : _filteredRows.isEmpty
-                          ? Center(
-                              child: Text(
-                                'No staff match "$_searchQuery"',
-                                style: TextStyle(color: Colors.grey.shade600),
-                              ),
-                            )
-                          : RefreshIndicator(
-                              onRefresh: () => _loadDay(),
-                              child: ListView.builder(
-                                padding: const EdgeInsets.symmetric(horizontal: 12),
-
-                                // Bulk time card + selection toolbar + staff rows
-                                itemCount: _filteredRows.length + 2,
-
-                                itemBuilder: (context, index) {
-                                  if (index == 0) {
-                                    return _buildBulkPresetCard();
-                                  }
-
-                                  if (index == 1) {
-                                    return _buildSelectionToolbar();
-                                  }
-
-                                  return _buildStaffCard(
-                                    _filteredRows[index - 2],
-                                  );
-                                },
-                              ),
+                      ? ListView(
+                          padding: const EdgeInsets.symmetric(horizontal: 12),
+                          children: [
+                            ..._buildDayBanners(),
+                            const Padding(
+                              padding: EdgeInsets.symmetric(vertical: 40),
+                              child: Center(child: Text('No active staff found')),
                             ),
+                          ],
+                        )
+                      : Builder(builder: (context) {
+                          final leading = <Widget>[
+                            ..._buildDayBanners(),
+                            _buildSummaryBar(),
+                            _buildBulkPresetCard(),
+                            _buildSelectionToolbar(),
+                          ];
+                          final visible = _filteredRows;
+                          return RefreshIndicator(
+                            onRefresh: () => _loadDay(),
+                            child: ListView.builder(
+                              padding: const EdgeInsets.symmetric(horizontal: 12),
+                              itemCount: leading.length + (visible.isEmpty ? 1 : visible.length),
+                              itemBuilder: (context, index) {
+                                if (index < leading.length) return leading[index];
+                                if (visible.isEmpty) {
+                                  return Padding(
+                                    padding: const EdgeInsets.symmetric(vertical: 32),
+                                    child: Center(
+                                      child: Text(
+                                        _searchQuery.isNotEmpty
+                                            ? 'No staff match "$_searchQuery"'
+                                            : (_listFilter == 'notSet'
+                                                ? 'Everyone has a status.'
+                                                : 'No unsaved changes.'),
+                                        style: TextStyle(color: Colors.grey.shade600),
+                                      ),
+                                    ),
+                                  );
+                                }
+                                return _buildStaffCard(visible[index - leading.length]);
+                              },
+                            ),
+                          );
+                        }),
                 ),
 
                 // ----------------------------------------------------

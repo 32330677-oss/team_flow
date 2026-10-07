@@ -3,6 +3,7 @@ import 'package:dio/dio.dart';
 import '../constants.dart';
 import '../widgets/custom_app_bar.dart';
 import '../widgets/help_tip.dart';
+import '../widgets/app_data_table.dart' show AppDataTableCard;
 
 class StaffAttendanceReviewScreen extends StatefulWidget {
   const StaffAttendanceReviewScreen({super.key});
@@ -298,9 +299,28 @@ class _StaffAttendanceReviewScreenState extends State<StaffAttendanceReviewScree
     );
   }
 
-  Widget _staffCard(Map<String, dynamic> item) {
+  bool _isPaid(Map<String, dynamic> item) => '${item['is_paid']}' == '1' || item['is_paid'] == true;
+
+  /// The shared table has no cell spacing of its own; every cell pads itself.
+  DataCell _cell(Widget child) => DataCell(
+        Padding(padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6), child: child),
+      );
+
+  static const List<String> _columnTitles = [
+    '', 'Staff', 'Review', 'Attendance', 'In', 'Out', 'Hours', 'OT', 'Paid leave', 'Notes', 'Actions',
+  ];
+
+  List<DataColumn> get _columns => _columnTitles
+      .map((t) => DataColumn(
+            label: Padding(padding: const EdgeInsets.symmetric(horizontal: 10), child: Text(t)),
+          ))
+      .toList();
+
+  /// One table row per record. Same buttons as the former card:
+  /// Approve, Reject (manual records only), Mark as paid / Mark unpaid.
+  DataRow? _staffRow(Map<String, dynamic> item) {
     final id = int.tryParse('${item['staff_attendance_id']}');
-    if (id == null) return const SizedBox.shrink();
+    if (id == null) return null;
 
     final status = '${item['status'] ?? 'Submitted'}';
     final rejected = status == 'Rejected';
@@ -308,109 +328,83 @@ class _StaffAttendanceReviewScreenState extends State<StaffAttendanceReviewScree
     final attendanceStatus = '${item['attendance_status'] ?? 'Present'}';
     final isPresent = attendanceStatus == 'Present';
     final overtimeHours = double.tryParse('${item['overtime_hours'] ?? 0}') ?? 0;
+    final isLeave = ['Sick', 'Vacation', 'Holiday'].contains(attendanceStatus);
+    final paid = _isPaid(item);
+    final hasAnomaly = item['anomaly_code'] != null;
+    final anomalyOpen = hasAnomaly && item['anomaly_ack_at'] == null;
+    final rejectionNote = item['admin_rejection_notes'];
 
-    return Container(
-      margin: const EdgeInsets.only(bottom: 8),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: selected ? Colors.indigo : Colors.grey.shade200, width: selected ? 1.4 : 1),
-      ),
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-        child: Column(
+    Widget notes;
+    if (hasAnomaly) {
+      final text = anomalyOpen
+          ? 'Needs review: ${item['anomaly_detail'] ?? item['anomaly_code']}'
+          : 'Reviewed: ${item['anomaly_ack_note'] ?? ''}';
+      notes = Row(mainAxisSize: MainAxisSize.min, children: [
+        Icon(Icons.report_problem_rounded, size: 16, color: anomalyOpen ? Colors.orange.shade800 : Colors.grey.shade600),
+        const SizedBox(width: 4),
+        ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 220),
+          child: Tooltip(
+            message: text,
+            child: Text(text,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(fontSize: 12, color: anomalyOpen ? Colors.orange.shade900 : Colors.grey.shade700)),
+          ),
+        ),
+        const HelpTip(title: 'Long session', message: HelpTexts.longShift, size: 16),
+      ]);
+    } else if (rejected && rejectionNote != null) {
+      notes = ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 240),
+        child: Tooltip(
+          message: '$rejectionNote',
+          child: Text('$rejectionNote',
+              maxLines: 2, overflow: TextOverflow.ellipsis, style: TextStyle(color: Colors.red.shade800, fontSize: 12)),
+        ),
+      );
+    } else {
+      notes = Text('—', style: TextStyle(color: Colors.grey.shade400));
+    }
+
+    return DataRow(
+      selected: selected,
+      cells: [
+        _cell(Checkbox(
+          value: selected,
+          visualDensity: VisualDensity.compact,
+          materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+          onChanged: rejected ? null : (v) => setState(() => v == true ? _selectedIds.add(id) : _selectedIds.remove(id)),
+        )),
+        _cell(Column(
+          mainAxisAlignment: MainAxisAlignment.center,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Row(
-              children: [
-                Checkbox(
-                  value: selected,
-                  visualDensity: VisualDensity.compact,
-                  materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                 onChanged: rejected ? null : (v) => setState(() => v == true ? _selectedIds.add(id) : _selectedIds.remove(id)),
-                ),
-                const SizedBox(width: 4),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        '${item['full_name'] ?? 'Staff'}',
-                        style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w700),
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                      Text(
-                        '${item['staff_unique_id'] ?? ''}${item['site_name'] != null ? ' • ${item['site_name']}' : ''}',
-                        style: TextStyle(fontSize: 11, color: Colors.grey.shade600),
-                      ),
-                    ],
-                  ),
-                ),
-                _statusChip(status),
-              ],
+            Text('${item['full_name'] ?? 'Staff'}', style: const TextStyle(fontWeight: FontWeight.w700)),
+            Text(
+              '${item['staff_unique_id'] ?? ''}${item['site_name'] != null ? ' • ${item['site_name']}' : ''}',
+              style: TextStyle(fontSize: 11, color: Colors.grey.shade600),
             ),
-            const SizedBox(height: 6),
-            Wrap(
-              spacing: 10,
-              runSpacing: 4,
-              children: [
-                _attendanceStatusChip(attendanceStatus),
-                if (isPresent) ...[
-                  Row(mainAxisSize: MainAxisSize.min, children: [
-                    Icon(Icons.login_rounded, size: 13, color: Colors.grey.shade600),
-                    const SizedBox(width: 3),
-                    Text(_timeOnly(item['check_in_time']), style: const TextStyle(fontSize: 12.5)),
-                  ]),
-                  Row(mainAxisSize: MainAxisSize.min, children: [
-                    Icon(Icons.logout_rounded, size: 13, color: Colors.grey.shade600),
-                    const SizedBox(width: 3),
-                    Text(_timeOnly(item['check_out_time']), style: const TextStyle(fontSize: 12.5)),
-                  ]),
-                  Row(mainAxisSize: MainAxisSize.min, children: [
-                    Icon(Icons.timelapse_rounded, size: 13, color: Colors.grey.shade600),
-                    const SizedBox(width: 3),
-                    Text('${item['regular_hours'] ?? '--'}h', style: const TextStyle(fontSize: 12.5)),
-                  ]),
-                  if (overtimeHours > 0)
-                    Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                      decoration: BoxDecoration(color: Colors.deepPurple.withOpacity(.10), borderRadius: BorderRadius.circular(20)),
-                      child: Text('OT: ${overtimeHours.toStringAsFixed(2)}h',
-                          style: TextStyle(fontSize: 11, fontWeight: FontWeight.w700, color: Colors.deepPurple.shade400)),
-                    ),
-                ],
-              ],
-            ),
-            if (item['anomaly_code'] != null) ...[
-              const SizedBox(height: 8),
-              Container(
-                width: double.infinity,
-                padding: const EdgeInsets.all(8),
-                decoration: BoxDecoration(
-                  color: item['anomaly_ack_at'] == null ? Colors.orange.shade50 : Colors.grey.shade100,
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: Row(children: [
-                  Icon(Icons.report_problem_rounded, size: 16, color: Colors.orange.shade800),
-                  const SizedBox(width: 6),
-                  Expanded(
-                    child: Text(
-                      item['anomaly_ack_at'] == null
-                          ? 'Needs review: ${item['anomaly_detail'] ?? item['anomaly_code']}'
-                          : 'Reviewed: ${item['anomaly_ack_note'] ?? ''}',
-                      style: TextStyle(fontSize: 12, color: Colors.orange.shade900),
-                    ),
-                  ),
-                  const HelpTip(title: 'Long session', message: HelpTexts.longShift, size: 16),
-                ]),
-              ),
-            ],
-            if (['Sick', 'Vacation', 'Holiday'].contains(attendanceStatus)) ...[
-              const SizedBox(height: 6),
-              Row(children: [
+          ],
+        )),
+        _cell(_statusChip(status)),
+        _cell(_attendanceStatusChip(attendanceStatus)),
+        _cell(Text(isPresent ? _timeOnly(item['check_in_time']) : '—')),
+        _cell(Text(isPresent ? _timeOnly(item['check_out_time']) : '—')),
+        _cell(Text(isPresent ? '${item['regular_hours'] ?? '--'}h' : '—')),
+        _cell(overtimeHours > 0
+            ? Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                decoration: BoxDecoration(color: Colors.deepPurple.withOpacity(.10), borderRadius: BorderRadius.circular(20)),
+                child: Text('${overtimeHours.toStringAsFixed(2)}h',
+                    style: TextStyle(fontSize: 11, fontWeight: FontWeight.w700, color: Colors.deepPurple.shade400)),
+              )
+            : Text('—', style: TextStyle(color: Colors.grey.shade400))),
+        _cell(isLeave
+            ? Row(mainAxisSize: MainAxisSize.min, children: [
                 StatusPill(
-                  label: ('${item['is_paid']}' == '1' || item['is_paid'] == true) ? 'Paid' : 'Not paid',
-                  color: ('${item['is_paid']}' == '1' || item['is_paid'] == true) ? Colors.green.shade700 : Colors.grey.shade700,
+                  label: paid ? 'Paid' : 'Not paid',
+                  color: paid ? Colors.green.shade700 : Colors.grey.shade700,
                   icon: Icons.payments_outlined,
                 ),
                 const SizedBox(width: 4),
@@ -420,130 +414,108 @@ class _StaffAttendanceReviewScreenState extends State<StaffAttendanceReviewScree
                       'The Admin marks them as paid (or unpaid) explicitly; every decision is recorded.',
                   size: 16,
                 ),
-                const Spacer(),
-                if (status == 'Submitted' || status == 'Approved')
-                  TextButton(
-                    onPressed: _working
-                        ? null
-                        : () => _setPaid(id, !('${item['is_paid']}' == '1' || item['is_paid'] == true)),
-                    child: Text(('${item['is_paid']}' == '1' || item['is_paid'] == true) ? 'Mark unpaid' : 'Mark as paid'),
-                  ),
-              ]),
-            ],
-            if (rejected && item['admin_rejection_notes'] != null) ...[
-              const SizedBox(height: 8),
-              Container(
-                width: double.infinity,
-                padding: const EdgeInsets.all(8),
-                decoration: BoxDecoration(color: Colors.red.shade50, borderRadius: BorderRadius.circular(8)),
-                child: Text('${item['admin_rejection_notes']}', style: TextStyle(color: Colors.red.shade800, fontSize: 12)),
+              ])
+            : Text('—', style: TextStyle(color: Colors.grey.shade400))),
+        _cell(notes),
+        _cell(Row(mainAxisSize: MainAxisSize.min, children: [
+          if (!rejected)
+            TextButton.icon(
+              onPressed: _working ? null : () => _reviewSelected([id], 'Approved'),
+              icon: const Icon(Icons.check, size: 16),
+              label: const Text('Approve', style: TextStyle(fontSize: 12.5)),
+              style: TextButton.styleFrom(
+                foregroundColor: Colors.green.shade700,
+                padding: const EdgeInsets.symmetric(horizontal: 8),
               ),
-            ],
-            const SizedBox(height: 8),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.end,
-           children: [
-
-  if (!rejected)
-    TextButton.icon(
-      onPressed: _working ? null : () => _reviewSelected([id], 'Approved'),
-      icon: const Icon(Icons.check, size: 16),
-      label: const Text('Approve', style: TextStyle(fontSize: 12.5)),
-      style: TextButton.styleFrom(
-        foregroundColor: Colors.green.shade700,
-        padding: const EdgeInsets.symmetric(horizontal: 8),
-      ),
-    ),
-
-    if (!rejected && item['source'] != 'Biometric')
-    TextButton.icon(
-      onPressed: _working
-          ? null
-          : () async {
-              final note = await _promptForReason(context);
-              if (note != null && note.trim().isNotEmpty) {
-                await _reviewSelected([id], 'Rejected', note: note.trim());
-              }
-            },
-      icon: const Icon(Icons.close, size: 16),
-      label: const Text('Reject', style: TextStyle(fontSize: 12.5)),
-      style: TextButton.styleFrom(
-        foregroundColor: Colors.red.shade700,
-        padding: const EdgeInsets.symmetric(horizontal: 8),
-      ),
-    ),
-
-],
             ),
-          ],
-        ),
-      ),
+          if (!rejected && item['source'] != 'Biometric')
+            TextButton.icon(
+              onPressed: _working
+                  ? null
+                  : () async {
+                      final note = await _promptForReason(context);
+                      if (note != null && note.trim().isNotEmpty) {
+                        await _reviewSelected([id], 'Rejected', note: note.trim());
+                      }
+                    },
+              icon: const Icon(Icons.close, size: 16),
+              label: const Text('Reject', style: TextStyle(fontSize: 12.5)),
+              style: TextButton.styleFrom(
+                foregroundColor: Colors.red.shade700,
+                padding: const EdgeInsets.symmetric(horizontal: 8),
+              ),
+            ),
+          if (isLeave && (status == 'Submitted' || status == 'Approved'))
+            TextButton(
+              onPressed: _working ? null : () => _setPaid(id, !paid),
+              child: Text(paid ? 'Mark unpaid' : 'Mark as paid', style: const TextStyle(fontSize: 12.5)),
+            ),
+        ])),
+      ],
     );
   }
 
   Widget _dateSection(String date, List<Map<String, dynamic>> items) {
-  final ids = _idsOf(items.where((i) => '${i['status']}' == 'Submitted').toList());
+    final ids = _idsOf(items.where((i) => '${i['status']}' == 'Submitted').toList());
     final allSelected = ids.isNotEmpty && ids.every(_selectedIds.contains);
+    final someSelected = ids.any(_selectedIds.contains);
     final selected = ids.where(_selectedIds.contains).toList();
+    final rows = items.map(_staffRow).whereType<DataRow>().toList();
 
-    return Card(
-      elevation: 0,
-      margin: const EdgeInsets.only(bottom: 18),
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18), side: BorderSide(color: Colors.grey.shade200)),
-      child: ExpansionTile(
-        initiallyExpanded: true,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
-        tilePadding: const EdgeInsets.symmetric(horizontal: 18, vertical: 4),
-        title: Row(children: [
-          Checkbox(
-            value: allSelected,
-            tristate: true,
-            onChanged: (value) => setState(() {
-              if (value == true) {
-                _selectedIds.addAll(ids);
-              } else {
-                _selectedIds.removeAll(ids);
-              }
-            }),
-          ),
-          Expanded(child: Text(date, style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 17))),
-          Text('${items.length} record(s)', style: TextStyle(color: Colors.grey.shade600, fontSize: 12)),
-        ]),
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 18),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          Padding(
-            padding: const EdgeInsets.fromLTRB(14, 0, 14, 14),
-            child: Column(
-              children: [
-                if (selected.isNotEmpty) ...[
-                  Padding(
-                    padding: const EdgeInsets.only(bottom: 10),
-                    child: Wrap(spacing: 8, runSpacing: 8, children: [
-                      FilledButton.icon(
-                        onPressed: _working ? null : () => _reviewSelected(selected, 'Approved'),
-                        icon: const Icon(Icons.check, size: 16),
-                        label: Text('Approve ${selected.length}', style: const TextStyle(fontSize: 12.5)),
-                        style: FilledButton.styleFrom(backgroundColor: Colors.green.shade700),
-                      ),
-                      FilledButton.icon(
-                        onPressed: _working
-                            ? null
-                            : () async {
-                                final note = await _promptForReason(context);
-                                if (note != null && note.trim().isNotEmpty) {
-                                  await _reviewSelected(selected, 'Rejected', note: note.trim());
-                                }
-                              },
-                        icon: const Icon(Icons.close, size: 16),
-                        label: Text('Reject ${selected.length}', style: const TextStyle(fontSize: 12.5)),
-                        style: FilledButton.styleFrom(backgroundColor: Colors.red.shade700),
-                      ),
-                    ]),
-                  ),
-                ],
-                ...items.map(_staffCard),
-              ],
-            ),
+          AppDataTableCard(
+            title: date,
+            subtitle: '${items.length} record(s) · ${ids.length} waiting for review',
+            icon: Icons.event_note_rounded,
+            emptyMessage: 'No records for this date.',
+            trailing: Row(mainAxisSize: MainAxisSize.min, children: [
+              Text('Select all', style: TextStyle(fontSize: 12, color: Colors.grey.shade700)),
+              Checkbox(
+                value: allSelected ? true : (someSelected ? null : false),
+                tristate: true,
+                onChanged: ids.isEmpty
+                    ? null
+                    : (_) => setState(() {
+                          if (allSelected) {
+                            _selectedIds.removeAll(ids);
+                          } else {
+                            _selectedIds.addAll(ids);
+                          }
+                        }),
+              ),
+            ]),
+            columns: _columns,
+            rows: rows,
           ),
+          if (selected.isNotEmpty)
+            Padding(
+              padding: const EdgeInsets.only(top: 10),
+              child: Wrap(spacing: 8, runSpacing: 8, children: [
+                FilledButton.icon(
+                  onPressed: _working ? null : () => _reviewSelected(selected, 'Approved'),
+                  icon: const Icon(Icons.check, size: 16),
+                  label: Text('Approve ${selected.length}', style: const TextStyle(fontSize: 12.5)),
+                  style: FilledButton.styleFrom(backgroundColor: Colors.green.shade700),
+                ),
+                FilledButton.icon(
+                  onPressed: _working
+                      ? null
+                      : () async {
+                          final note = await _promptForReason(context);
+                          if (note != null && note.trim().isNotEmpty) {
+                            await _reviewSelected(selected, 'Rejected', note: note.trim());
+                          }
+                        },
+                  icon: const Icon(Icons.close, size: 16),
+                  label: Text('Reject ${selected.length}', style: const TextStyle(fontSize: 12.5)),
+                  style: FilledButton.styleFrom(backgroundColor: Colors.red.shade700),
+                ),
+              ]),
+            ),
         ],
       ),
     );
