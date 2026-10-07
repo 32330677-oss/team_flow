@@ -218,11 +218,16 @@ class _StaffPayrollScreenState extends State<StaffPayrollScreen> {
                   separatorBuilder: (_, __) => const Divider(height: 1),
                   itemBuilder: (_, i) {
                     final item = pendingList[i];
+                    final note = '${item['note'] ?? ''}'.trim();
                     return ListTile(
                       dense: true,
                       contentPadding: EdgeInsets.zero,
                       title: Text('${item['full_name'] ?? 'Staff'}'),
-                      subtitle: Text('${item['record_date'] ?? ''}'),
+                      subtitle: Text(
+                        '${item['record_date'] ?? ''}'
+                        '${item['attendance_status'] != null ? ' · ${item['attendance_status']}' : ''}'
+                        '${note.isNotEmpty ? '\nSupervisor: $note' : ''}',
+                      ),
                       trailing: Text('${item['status'] ?? ''}',
                           style: const TextStyle(color: Colors.orange, fontWeight: FontWeight.w600)),
                     );

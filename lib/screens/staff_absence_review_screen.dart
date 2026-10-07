@@ -189,12 +189,44 @@ class _StaffAbsenceReviewScreenState extends State<StaffAbsenceReviewScreen> {
                               }
                             }),
                             title: Text(date),
-                            subtitle: isPaid
-                                ? Text(
-                                    'Management-paid${a['management_paid_reason'] != null ? ': ${a['management_paid_reason']}' : ''}',
-                                    style: TextStyle(color: Colors.green.shade700, fontSize: 11.5, fontWeight: FontWeight.w600),
-                                  )
-                                : const Text('Unpaid absence', style: TextStyle(fontSize: 11.5, color: Colors.red)),
+                            subtitle: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                isPaid
+                                    ? Text(
+                                        'Management-paid${a['management_paid_reason'] != null ? ': ${a['management_paid_reason']}' : ''}',
+                                        style: TextStyle(color: Colors.green.shade700, fontSize: 11.5, fontWeight: FontWeight.w600),
+                                      )
+                                    : const Text('Unpaid absence', style: TextStyle(fontSize: 11.5, color: Colors.red)),
+                                // Supervisor's reason for the absence, to help decide whether to pay it.
+                                if ('${a['absence_note'] ?? ''}'.trim().isNotEmpty)
+                                  Padding(
+                                    padding: const EdgeInsets.only(top: 4),
+                                    child: Container(
+                                      width: double.infinity,
+                                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
+                                      decoration: BoxDecoration(
+                                        color: Colors.blueGrey.withOpacity(0.08),
+                                        borderRadius: BorderRadius.circular(6),
+                                      ),
+                                      child: Row(
+                                        crossAxisAlignment: CrossAxisAlignment.start,
+                                        children: [
+                                          Icon(Icons.sticky_note_2_outlined, size: 14, color: Colors.blueGrey.shade700),
+                                          const SizedBox(width: 6),
+                                          Expanded(
+                                            child: Text(
+                                              'Supervisor: ${'${a['absence_note']}'.trim()}',
+                                              style: TextStyle(fontSize: 12, color: Colors.blueGrey.shade800),
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                  ),
+                              ],
+                            ),
                             secondary: Container(
                               padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
                               decoration: BoxDecoration(

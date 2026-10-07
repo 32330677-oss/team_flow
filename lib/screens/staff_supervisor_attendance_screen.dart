@@ -40,6 +40,11 @@ class _StaffRow {
 
   String? rejectionNote;
 
+  /// Supervisor's note on an Absent day (why the employee was absent).
+  /// Saved in staff_attendance.remarks; the Admin sees it in review and
+  /// in the pre-payroll absence review.
+  String? note;
+
   /// 'Manual' / 'Biometric' (null when there is no record yet).
   final String? source;
 
@@ -74,6 +79,7 @@ class _StaffRow {
     this.checkOutPending = false,
     this.workflowStatus,
     this.rejectionNote,
+    this.note,
     this.source,
     this.origCheckIn,
     this.origCheckOut,
@@ -425,6 +431,7 @@ class _StaffSupervisorAttendanceScreenState
               (note != null && note.trim().isNotEmpty)
                   ? note
                   : null,
+          note: (raw['remarks']?.toString().trim().isNotEmpty ?? false) ? raw['remarks'].toString() : null,
           source: hasRecord ? raw['source']?.toString() : null,
           origCheckIn: exact(raw['check_in_time']),
           origCheckOut: exact(raw['check_out_time']),
@@ -445,6 +452,7 @@ class _StaffSupervisorAttendanceScreenState
             row.checkOutPending = old.checkOutPending;
             row.lunchStart = old.lunchStart;
             row.lunchEnd = old.lunchEnd;
+            row.note = old.note;
             row.dirty = old.dirty;
             row.checkInEdited = old.checkInEdited;
             row.checkOutEdited = old.checkOutEdited;
@@ -1043,6 +1051,10 @@ for (final r in rows) {
           'staff_id': row.staffId,
           'attendance_status': row.status,
         };
+
+        if (row.status == 'Absent') {
+          map['note'] = row.note?.trim() ?? '';
+        }
 
         if (row.status == 'Present') {
           // #2: an unedited stored time is sent back exactly (seconds kept).
@@ -1970,6 +1982,34 @@ for (final r in rows) {
             if (!locked) ...[
               const SizedBox(height: 8),
               _quickStatusBar(row),
+            ],
+            if (!locked && row.status == 'Absent') ...[
+              const SizedBox(height: 8),
+              TextFormField(
+                // Keyed by staff + date so switching days never shows another day's note.
+                key: ValueKey('absence-note-${row.staffId}-$_dateStr'),
+                initialValue: row.note ?? '',
+                maxLength: 500,
+                minLines: 1,
+                maxLines: 3,
+                textInputAction: TextInputAction.done,
+                decoration: InputDecoration(
+                  isDense: true,
+                  labelText: 'Absence note (optional)',
+                  hintText: 'Why was this employee absent? The admin will see this.',
+                  prefixIcon: const Icon(Icons.sticky_note_2_outlined, size: 18),
+                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+                  counterText: '',
+                ),
+                onChanged: (v) => setState(() {
+                  row.note = v;
+                  row.dirty = true;
+                }),
+              ),
+            ],
+            if (locked && row.status == 'Absent' && (row.note?.isNotEmpty ?? false)) ...[
+              const SizedBox(height: 6),
+              _inlineNote(Icons.sticky_note_2_outlined, 'Absence note: ${row.note}', Colors.grey.shade700),
             ],
             if (!locked && row.status == 'Sick') ...[
               const SizedBox(height: 6),

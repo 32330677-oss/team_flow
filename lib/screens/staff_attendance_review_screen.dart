@@ -333,6 +333,9 @@ class _StaffAttendanceReviewScreenState extends State<StaffAttendanceReviewScree
     final hasAnomaly = item['anomaly_code'] != null;
     final anomalyOpen = hasAnomaly && item['anomaly_ack_at'] == null;
     final rejectionNote = item['admin_rejection_notes'];
+    final absenceNote = attendanceStatus == 'Absent' && '${item['remarks'] ?? ''}'.trim().isNotEmpty
+        ? '${item['remarks']}'.trim()
+        : null;
 
     Widget notes;
     if (hasAnomaly) {
@@ -365,6 +368,33 @@ class _StaffAttendanceReviewScreenState extends State<StaffAttendanceReviewScree
       );
     } else {
       notes = Text('—', style: TextStyle(color: Colors.grey.shade400));
+    }
+
+    // Supervisor's reason for the absence, shown above any other note.
+    if (absenceNote != null) {
+      final supervisorNote = Row(mainAxisSize: MainAxisSize.min, children: [
+        Icon(Icons.sticky_note_2_outlined, size: 16, color: Colors.blueGrey.shade700),
+        const SizedBox(width: 4),
+        ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 240),
+          child: Tooltip(
+            message: 'Supervisor: $absenceNote',
+            child: Text('Supervisor: $absenceNote',
+                // One line when another note shares the cell, so the row keeps its height.
+                maxLines: (hasAnomaly || (rejected && rejectionNote != null)) ? 1 : 2,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(fontSize: 12, color: Colors.blueGrey.shade800)),
+          ),
+        ),
+      ]);
+      notes = (hasAnomaly || (rejected && rejectionNote != null))
+          ? Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [supervisorNote, notes],
+            )
+          : supervisorNote;
     }
 
     return DataRow(
