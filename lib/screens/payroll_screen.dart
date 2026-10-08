@@ -20,6 +20,20 @@ String formatMoney(dynamic value, dynamic currency) {
   return '${NumberFormat('#,##0.00', 'en_US').format(amount)} $cur';
 }
 
+/// Off-cycle = urgent payroll of ONE worker, outside the normal period payroll.
+bool isOffCycleBatch(Map b) => (b['batch_type'] ?? 'Regular').toString() == 'OffCycle';
+
+const Color offCycleColor = Color(0xff8a4b00);
+const Color offCycleBg = Color(0xfffff4e0);
+
+String _isoDate(DateTime d) => DateFormat('yyyy-MM-dd').format(d);
+
+String _dateOnly(dynamic v) {
+  if (v == null) return '';
+  final s = v.toString();
+  return s.contains('T') ? s.split('T')[0] : s;
+}
+
 class PayrollScreen extends StatefulWidget {
   const PayrollScreen({Key? key}) : super(key: key);
 
@@ -143,7 +157,9 @@ class _PayrollScreenState extends State<PayrollScreen> {
       _filteredBatches = _payrollBatches.where((b) {
         final id = b['payroll_batch_id'].toString();
         final by = (b['generated_by'] ?? '').toString().toLowerCase();
-        return id.contains(q) || by.contains(q);
+        final worker = (b['scope_worker_name'] ?? '').toString().toLowerCase();
+        final type = isOffCycleBatch(b) ? 'off-cycle offcycle' : '';
+        return id.contains(q) || by.contains(q) || worker.contains(q) || type.contains(q);
       }).toList();
     });
   }
@@ -331,6 +347,11 @@ class _PayrollScreenState extends State<PayrollScreen> {
           }
           return;
         }
+        if (data['code'] == 'OFFCYCLE_NOT_FINALIZED') {
+          if (mounted) setState(() => _isGenerating = false);
+          await _showOffCycleNotFinalized(data);
+          return;
+        }
         errorMessage = (data['message'] ?? errorMessage).toString();
       }
 
@@ -338,6 +359,65 @@ class _PayrollScreenState extends State<PayrollScreen> {
     } finally {
       if (mounted) setState(() => _isGenerating = false);
     }
+  }
+
+  /// The normal payroll skips days already paid off-cycle, so those off-cycle
+  /// batches must be finalized first. Lets the Admin open them directly.
+  Future<void> _showOffCycleNotFinalized(Map data) async {
+    final List list = (data['offcycle_batches'] as List?) ?? [];
+    final openId = await showDialog<int>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Finalize the off-cycle payroll first'),
+        content: SizedBox(
+          width: 480,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text(
+                'These workers were paid off-cycle inside this period. The normal payroll skips their paid days, '
+                'so their off-cycle batches must be finalized (or voided) before you generate it.',
+              ),
+              const SizedBox(height: 12),
+              ...list.map((b) => ListTile(
+                    dense: true,
+                    contentPadding: EdgeInsets.zero,
+                    leading: const Icon(Icons.person_pin_outlined, color: offCycleColor),
+                    title: Text('${b['worker_name']}'),
+                    subtitle: Text('Batch #${b['payroll_batch_id']} · ${b['start_date']} → ${b['end_date']}'),
+                    trailing: TextButton(
+                      onPressed: () => Navigator.pop(ctx, int.tryParse('${b['payroll_batch_id']}')),
+                      child: const Text('Open'),
+                    ),
+                  )),
+            ],
+          ),
+        ),
+        actions: [TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Close'))],
+      ),
+    );
+    if (openId != null) _openBatchDetails(openId);
+  }
+
+  Future<void> _openOffCycleDialog() async {
+    final result = await showDialog<Map>(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => Dialog(
+        insetPadding: const EdgeInsets.all(16),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
+        child: const _OffCycleDialog(),
+      ),
+    );
+    if (result == null || !mounted) return;
+    final batchId = int.tryParse('${result['batch_id']}');
+    _showSnack(
+      'Off-cycle batch #${result['batch_id']} created for ${result['worker_name']}. Finalize it, then mark it paid.',
+      Colors.green.shade700,
+    );
+    await _fetchPayrollReports();
+    if (batchId != null && mounted) _openBatchDetails(batchId);
   }
 
   Future<void> _selectDailyAttendanceDate() async {
@@ -543,14 +623,18 @@ Future<void> _selectDate(TextEditingController controller, {bool isStartDate = f
       // the per-site hours/rates/pay breakdown. No more duplicated
       // net_salary rows fanned out across sites.
       final List workers = data['workers'] ?? [];
-      _showBatchDetailsSheet(batch, workers);
+      final List offcyclePaid = data['offcycle_paid'] ?? [];
+      final Map offSummary = data['offcycle_summary'] is Map ? data['offcycle_summary'] : {};
+      _showBatchDetailsSheet(batch, workers, offcyclePaid, offSummary);
     } catch (e) {
       if (mounted && Navigator.canPop(context)) Navigator.pop(context);
       _showSnack('Error loading batch details: $e', dangerColor);
     }
   }
 
-  void _showBatchDetailsSheet(Map batch, List workers) {
+  void _showBatchDetailsSheet(Map batch, List workers, [List offcyclePaid = const [], Map offSummary = const {}]) {
+    final bool offCycle = isOffCycleBatch(batch);
+    final currency = batch['currency'];
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
@@ -579,9 +663,16 @@ Future<void> _selectDate(TextEditingController controller, {bool isStartDate = f
         children: [
           Row(
             children: [
-              Text('Batch #${batch['payroll_batch_id'] ?? ''} (v${batch['version_number'] ?? 1})',
-                  style: const TextStyle(fontSize: 17, fontWeight: FontWeight.bold, color: primaryColor)),
+              Flexible(
+                child: Text('Batch #${batch['payroll_batch_id'] ?? ''} (v${batch['version_number'] ?? 1})',
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(fontSize: 17, fontWeight: FontWeight.bold, color: primaryColor)),
+              ),
               const SizedBox(width: 8),
+              if (offCycle) ...[
+                const StatusPill(label: 'Off-cycle', color: offCycleColor, icon: Icons.person_pin_outlined),
+                const SizedBox(width: 6),
+              ],
               if ((batch['is_finalized'] == 1 || batch['is_finalized'] == true))
                 Container(
                   padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
@@ -600,6 +691,14 @@ Future<void> _selectDate(TextEditingController controller, {bool isStartDate = f
             'Period: ${_formatDate(batch['start_date'])} → ${_formatDate(batch['end_date'])}',
             style: TextStyle(color: Colors.grey.shade600, fontSize: 13),
           ),
+          if (offCycle)
+            Padding(
+              padding: const EdgeInsets.only(top: 2),
+              child: Text(
+                'Paid separately for ${batch['scope_worker_name'] ?? 'one worker'} · Reason: ${batch['offcycle_reason'] ?? '-'}',
+                style: const TextStyle(color: offCycleColor, fontSize: 12.5, fontWeight: FontWeight.w600),
+              ),
+            ),
         ],
       ),
     ),
@@ -620,17 +719,35 @@ Future<void> _selectDate(TextEditingController controller, {bool isStartDate = f
             ),
             const Divider(height: 1),
             Expanded(
-              child: workers.isEmpty
+              child: workers.isEmpty && offcyclePaid.isEmpty
                   ? const Center(child: Text('No workers found in this batch.'))
                   : ListView.builder(
                       controller: scrollController,
                       padding: const EdgeInsets.all(16),
-                      itemCount: workers.length,
+                      // workers, then (when any) the "paid off-cycle" section header + one card each
+                      itemCount: workers.length + (offcyclePaid.isEmpty ? 0 : 1 + offcyclePaid.length),
                       itemBuilder: (context, index) {
-                        final w = Map<String, dynamic>.from(workers[index]);
-                        return _WorkerPayrollCard(
-                          worker: w,
-                          onPreview: () => _openPayslipPreview(batch, w),
+                        if (index < workers.length) {
+                          final w = Map<String, dynamic>.from(workers[index]);
+                          return _WorkerPayrollCard(
+                            worker: w,
+                            onPreview: () => _openPayslipPreview(batch, w),
+                            onOpenBatch: (id) {
+                              Navigator.pop(context);
+                              _openBatchDetails(id);
+                            },
+                          );
+                        }
+                        final i = index - workers.length;
+                        if (i == 0) return _OffCycleSectionHeader(count: offcyclePaid.length);
+                        final o = Map<String, dynamic>.from(offcyclePaid[i - 1]);
+                        return _OffCyclePaidCard(
+                          entry: o,
+                          currency: currency,
+                          onOpen: () {
+                            Navigator.pop(context);
+                            _openBatchDetails(int.parse('${o['payroll_batch_id']}'));
+                          },
                         );
                       },
                     ),
@@ -649,8 +766,17 @@ Future<void> _selectDate(TextEditingController controller, {bool isStartDate = f
                       children: [
                         Text('Total Workers: ${batch['total_workers'] ?? workers.length}',
                             style: const TextStyle(fontWeight: FontWeight.w600)),
-                        Text('Total Amount: ${formatMoney(batch['total_amount'], batch['currency'])}',
+                        Text(
+                            offcyclePaid.isEmpty
+                                ? 'Total Amount: ${formatMoney(batch['total_amount'], currency)}'
+                                : 'To pay in this batch: ${formatMoney(batch['total_amount'], currency)}',
                             style: const TextStyle(fontWeight: FontWeight.bold, color: primaryColor, fontSize: 16)),
+                        if (offcyclePaid.isNotEmpty) ...[
+                          Text('Already paid off-cycle: ${formatMoney(offSummary['total'], currency)}',
+                              style: const TextStyle(color: offCycleColor, fontWeight: FontWeight.w600, fontSize: 12.5)),
+                          Text('Period total: ${formatMoney(offSummary['period_total'], currency)}',
+                              style: TextStyle(color: Colors.grey.shade700, fontSize: 12.5)),
+                        ],
                       ],
                     ),
                   ),
@@ -892,7 +1018,8 @@ Future<void> _exportBatchPdf(Map batch) async {
                     message: 'Generated: created, can be regenerated or voided while not finalized.\n'
                         'Finalized: approved; attendance in the period is locked. Can only be corrected with "Correct (supersede)".\n'
                         'Paid: final. Never regenerated or reopened.\n'
-                        'Superseded / Voided: kept for audit only (shown with "Show history").',
+                        'Superseded / Voided: kept for audit only (shown with "Show history").\n'
+                        'Off-cycle: urgent payroll of one worker. Locks only that worker\'s days; the next payroll skips them.',
                   ),
                   const SizedBox(width: 4),
                   FilterChip(
@@ -939,6 +1066,7 @@ Future<void> _exportBatchPdf(Map batch) async {
                           itemBuilder: (context, index) {
                             final batch = _filteredBatches[index];
                             final isPaid = (batch['status'] ?? 'Pending') == 'Paid';
+                            final offCycle = isOffCycleBatch(batch);
                             return Card(
                               margin: const EdgeInsets.only(bottom: 10),
                               elevation: 1,
@@ -946,8 +1074,9 @@ Future<void> _exportBatchPdf(Map batch) async {
                               child: ListTile(
                                 contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
                                 leading: CircleAvatar(
-                                  backgroundColor: (isPaid ? Colors.green : accentColor).withOpacity(0.15),
-                                  child: Icon(Icons.receipt_long, color: isPaid ? Colors.green : primaryColor),
+                                  backgroundColor: (isPaid ? Colors.green : (offCycle ? offCycleColor : accentColor)).withOpacity(0.15),
+                                  child: Icon(offCycle ? Icons.person_pin_outlined : Icons.receipt_long,
+                                      color: isPaid ? Colors.green : (offCycle ? offCycleColor : primaryColor)),
                                 ),
                                 title: Row(
                                   children: [
@@ -966,9 +1095,13 @@ Future<void> _exportBatchPdf(Map batch) async {
                                   ],
                                 ),
                                subtitle: Text(
-  'v${batch['version_number'] ?? 1} • Period: ${_formatDate(batch['start_date'])} → ${_formatDate(batch['end_date'])}\n'
-  'Workers: ${batch['total_workers']} • Total: ${formatMoney(batch['total_amount'], batch['currency'])} • By: ${batch['generated_by'] ?? 'Admin'}'
-  '${(batch['is_finalized'] == 1 || batch['is_finalized'] == true) ? '' : ' • Not Finalized'}',
+  offCycle
+      ? 'Off-cycle • ${batch['scope_worker_name'] ?? 'Worker'} • v${batch['version_number'] ?? 1} • ${_formatDate(batch['start_date'])} → ${_formatDate(batch['end_date'])}\n'
+        'Total: ${formatMoney(batch['total_amount'], batch['currency'])} • By: ${batch['generated_by'] ?? 'Admin'}'
+        '${(batch['is_finalized'] == 1 || batch['is_finalized'] == true) ? '' : ' • Not Finalized'}'
+      : 'v${batch['version_number'] ?? 1} • Period: ${_formatDate(batch['start_date'])} → ${_formatDate(batch['end_date'])}\n'
+        'Workers: ${batch['total_workers']} • Total: ${formatMoney(batch['total_amount'], batch['currency'])} • By: ${batch['generated_by'] ?? 'Admin'}'
+        '${(batch['is_finalized'] == 1 || batch['is_finalized'] == true) ? '' : ' • Not Finalized'}',
 ),
                                 isThreeLine: true,
                                 trailing: _statusChip(batch['status']?.toString() ?? 'Pending'),
@@ -1087,6 +1220,27 @@ Future<void> _exportBatchPdf(Map batch) async {
             ),
           ),
           const SizedBox(height: 10),
+          SizedBox(
+            width: double.infinity,
+            child: OutlinedButton.icon(
+              onPressed: _isGenerating ? null : _openOffCycleDialog,
+              icon: const Icon(Icons.person_pin_outlined, color: offCycleColor),
+              label: const Text('Pay one worker now (off-cycle)', style: TextStyle(color: offCycleColor)),
+              style: OutlinedButton.styleFrom(
+                side: BorderSide(color: offCycleColor.withOpacity(0.5)),
+                padding: const EdgeInsets.symmetric(vertical: 12),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+              ),
+            ),
+          ),
+          Padding(
+            padding: const EdgeInsets.only(top: 4, left: 2),
+            child: Text(
+              'For an urgent payment before the period payroll. The next payroll skips the days paid here.',
+              style: TextStyle(fontSize: 11.5, color: Colors.grey.shade600),
+            ),
+          ),
+          const SizedBox(height: 10),
           Row(
             children: [
               Expanded(
@@ -1119,8 +1273,9 @@ Future<void> _exportBatchPdf(Map batch) async {
 class _WorkerPayrollCard extends StatelessWidget {
   final Map worker;
   final VoidCallback onPreview;
+  final void Function(int batchId)? onOpenBatch;
 
-  const _WorkerPayrollCard({required this.worker, required this.onPreview});
+  const _WorkerPayrollCard({required this.worker, required this.onPreview, this.onOpenBatch});
 
   @override
   Widget build(BuildContext context) {
@@ -1177,6 +1332,32 @@ class _WorkerPayrollCard extends StatelessWidget {
                 ),
               ],
             ),
+            // Part of this worker's period was already paid off-cycle.
+            ...((worker['offcycle_batches'] is List) ? (worker['offcycle_batches'] as List) : const []).map((o) => Container(
+                  width: double.infinity,
+                  margin: const EdgeInsets.only(top: 6),
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                  decoration: BoxDecoration(color: offCycleBg, borderRadius: BorderRadius.circular(8)),
+                  child: Row(
+                    children: [
+                      const Icon(Icons.info_outline, size: 16, color: offCycleColor),
+                      const SizedBox(width: 6),
+                      Expanded(
+                        child: Text(
+                          'Already paid ${_dateOnly(o['start_date'])} → ${_dateOnly(o['end_date'])}: '
+                          '${formatMoney(o['amount'], o['currency'])} (off-cycle #${o['payroll_batch_id']}, '
+                          '${o['status'] == 'Paid' ? 'paid' : 'not paid yet'}). This batch pays the other days only.',
+                          style: const TextStyle(fontSize: 12, color: offCycleColor),
+                        ),
+                      ),
+                      if (onOpenBatch != null)
+                        TextButton(
+                          onPressed: () => onOpenBatch!(int.parse('${o['payroll_batch_id']}')),
+                          child: const Text('Open'),
+                        ),
+                    ],
+                  ),
+                )),
             const Divider(),
             if (isMixed)
               Row(
@@ -1293,7 +1474,8 @@ class _PayslipDialogState extends State<_PayslipDialog> {
                         Text(w['worker_name'] ?? 'Worker #${w['worker_id']}',
                             style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Color(0xff1a2a6c))),
                         const SizedBox(height: 2),
-                        Text('Batch #${b['payroll_batch_id']} • Payslip', style: TextStyle(color: Colors.grey.shade600, fontSize: 12)),
+                        Text(isOffCycleBatch(b) ? 'Off-cycle batch #${b['payroll_batch_id']} • Payslip' : 'Batch #${b['payroll_batch_id']} • Payslip',
+                            style: TextStyle(color: Colors.grey.shade600, fontSize: 12)),
                       ],
                     ),
                   ),
@@ -1444,4 +1626,637 @@ String _ratesText(List sites, String field) {
     if (seen.isEmpty || seen.last != label) seen.add(label);
   }
   return seen.join(' → ');
+}
+
+// ============================================================================
+// Off-cycle payroll (urgent payroll of one worker)
+// ============================================================================
+
+/// Header of the "Paid off-cycle in this period" section in a batch's details.
+class _OffCycleSectionHeader extends StatelessWidget {
+  final int count;
+  const _OffCycleSectionHeader({required this.count});
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(top: 14, bottom: 8),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const Icon(Icons.person_pin_outlined, color: offCycleColor, size: 20),
+              const SizedBox(width: 6),
+              Text('Paid off-cycle in this period ($count)',
+                  style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15, color: offCycleColor)),
+            ],
+          ),
+          const SizedBox(height: 2),
+          Text(
+            'These payments were made separately. They are not part of this batch total and their days are not paid again here.',
+            style: TextStyle(fontSize: 12, color: Colors.grey.shade700),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// One off-cycle payment shown inside a normal batch.
+class _OffCyclePaidCard extends StatelessWidget {
+  final Map entry;
+  final dynamic currency;
+  final VoidCallback onOpen;
+  const _OffCyclePaidCard({required this.entry, required this.currency, required this.onOpen});
+
+  @override
+  Widget build(BuildContext context) {
+    final o = entry;
+    final isPaid = o['status'] == 'Paid';
+    final finalized = o['is_finalized'] == true || o['is_finalized'] == 1;
+    final inThis = o['in_this_batch'] == true;
+    return Card(
+      margin: const EdgeInsets.only(bottom: 10),
+      elevation: 0,
+      color: offCycleBg,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(12),
+        side: BorderSide(color: offCycleColor.withOpacity(0.25)),
+      ),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(12),
+        onTap: onOpen,
+        child: Padding(
+          padding: const EdgeInsets.all(14),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Expanded(
+                    child: Text('${o['worker_name'] ?? 'Worker'}',
+                        style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15, color: Color(0xff1a2a6c))),
+                  ),
+                  StatusPill(
+                    label: isPaid ? 'Paid' : (finalized ? 'Finalized, not paid' : 'Not finalized'),
+                    color: isPaid ? Colors.green.shade700 : (finalized ? Colors.indigo : Colors.orange.shade800),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 6),
+              Text(
+                'Off-cycle #${o['payroll_batch_id']} · ${_dateOnly(o['start_date'])} → ${_dateOnly(o['end_date'])}'
+                '${(o['sites'] ?? '').toString().isNotEmpty ? ' · ${o['sites']}' : ''}',
+                style: TextStyle(fontSize: 12.5, color: Colors.grey.shade800),
+              ),
+              if ((o['reason'] ?? '').toString().isNotEmpty)
+                Padding(
+                  padding: const EdgeInsets.only(top: 2),
+                  child: Text('Reason: ${o['reason']}', style: TextStyle(fontSize: 12, color: Colors.grey.shade700)),
+                ),
+              const SizedBox(height: 8),
+              Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      inThis ? 'Remaining days are in this batch' : 'Whole period paid off-cycle',
+                      style: const TextStyle(fontSize: 12, color: offCycleColor, fontWeight: FontWeight.w600),
+                    ),
+                  ),
+                  Text(formatMoney(o['amount'], o['currency'] ?? currency),
+                      style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15, color: offCycleColor)),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Dialog: choose the period and the worker, preview the exact amount
+/// (server dry run, nothing saved), give a reason, create the batch.
+/// Pops with {batch_id, worker_name} on success.
+class _OffCycleDialog extends StatefulWidget {
+  const _OffCycleDialog();
+
+  @override
+  State<_OffCycleDialog> createState() => _OffCycleDialogState();
+}
+
+class _OffCycleDialogState extends State<_OffCycleDialog> {
+  final TextEditingController _search = TextEditingController();
+  final TextEditingController _reason = TextEditingController();
+
+  DateTime? _start;
+  DateTime _end = DateTime.now();
+
+  bool _loadingWorkers = false;
+  String? _workersError;
+  List<Map<String, dynamic>> _workers = [];
+  int? _regularBatchInPeriod;
+
+  Map<String, dynamic>? _selected;
+
+  bool _loadingPreview = false;
+  Map<String, dynamic>? _preview;     // successful dry run
+  Map<String, dynamic>? _previewError; // server error body (message / code / pending_attendance)
+
+  bool _creating = false;
+  String? _reasonError;
+
+  @override
+  void dispose() {
+    _search.dispose();
+    _reason.dispose();
+    super.dispose();
+  }
+
+  String? _errorMessage(Object e, String fallback) {
+    if (e is DioException && e.response?.data is Map) {
+      return ((e.response!.data as Map)['message'] ?? fallback).toString();
+    }
+    return fallback;
+  }
+
+  Future<void> _pickDate({required bool start}) async {
+    final today = DateTime.now();
+    final initial = start ? (_start ?? _end.subtract(const Duration(days: 6))) : _end;
+    final picked = await showDatePicker(
+      context: context,
+      initialDate: initial.isAfter(today) ? today : initial,
+      firstDate: DateTime(2025),
+      lastDate: today, // an off-cycle payroll never ends in the future
+      helpText: start ? 'First day to pay' : 'Last day to pay',
+    );
+    if (picked == null || !mounted) return;
+    setState(() {
+      if (start) {
+        _start = picked;
+        if (_end.isBefore(picked)) _end = picked;
+      } else {
+        _end = picked;
+        if (_start != null && _start!.isAfter(picked)) _start = picked;
+      }
+      _selected = null;
+      _preview = null;
+      _previewError = null;
+    });
+    _loadWorkers();
+  }
+
+  Future<void> _loadWorkers() async {
+    if (_start == null) return;
+    setState(() {
+      _loadingWorkers = true;
+      _workersError = null;
+    });
+    try {
+      final r = await ApiConfig.dio.get('/admin/payroll/offcycle/candidates', queryParameters: {
+        'start_date': _isoDate(_start!),
+        'end_date': _isoDate(_end),
+        if (_search.text.trim().isNotEmpty) 'q': _search.text.trim(),
+      });
+      final List data = (r.data is Map && r.data['data'] is List) ? r.data['data'] : [];
+      if (!mounted) return;
+      setState(() {
+        _workers = data.map((e) => Map<String, dynamic>.from(e as Map)).toList();
+        _regularBatchInPeriod = int.tryParse('${r.data['regular_batch_in_period']}');
+        _loadingWorkers = false;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _loadingWorkers = false;
+        _workersError = _errorMessage(e, 'Could not load workers for this period.');
+      });
+    }
+  }
+
+  Future<void> _loadPreview() async {
+    final w = _selected;
+    if (w == null || _start == null) return;
+    setState(() {
+      _loadingPreview = true;
+      _preview = null;
+      _previewError = null;
+    });
+    try {
+      final r = await ApiConfig.dio.post('/admin/payroll/generate-offcycle', data: {
+        'worker_id': w['worker_id'],
+        'start_date': _isoDate(_start!),
+        'end_date': _isoDate(_end),
+        'dry_run': true,
+      });
+      if (!mounted) return;
+      setState(() {
+        _preview = Map<String, dynamic>.from(r.data as Map);
+        _loadingPreview = false;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _loadingPreview = false;
+        _previewError = (e is DioException && e.response?.data is Map)
+            ? Map<String, dynamic>.from(e.response!.data as Map)
+            : {'message': 'Could not calculate the payroll. Check your connection and try again.'};
+      });
+    }
+  }
+
+  Future<void> _create() async {
+    final w = _selected;
+    if (w == null || _preview == null || _start == null) return;
+    if (_reason.text.trim().length < 5) {
+      setState(() => _reasonError = 'Write why this worker is paid now (at least 5 characters)');
+      return;
+    }
+    setState(() {
+      _creating = true;
+      _reasonError = null;
+    });
+    try {
+      final r = await ApiConfig.dio.post('/admin/payroll/generate-offcycle', data: {
+        'worker_id': w['worker_id'],
+        'start_date': _isoDate(_start!),
+        'end_date': _isoDate(_end),
+        'reason': _reason.text.trim(),
+      });
+      if (!mounted) return;
+      Navigator.pop(context, {'batch_id': r.data['batch_id'], 'worker_name': w['full_name']});
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _creating = false;
+        // Something changed since the preview (e.g. a record was rejected): show why.
+        _preview = null;
+        _previewError = (e is DioException && e.response?.data is Map)
+            ? Map<String, dynamic>.from(e.response!.data as Map)
+            : {'message': 'The off-cycle batch was not created. Try again.'};
+      });
+    }
+  }
+
+  // ---------------------------------------------------------------- UI parts
+
+  Widget _sectionTitle(String number, String text) {
+    return Padding(
+      padding: const EdgeInsets.only(top: 14, bottom: 8),
+      child: Row(
+        children: [
+          CircleAvatar(
+            radius: 11,
+            backgroundColor: offCycleColor,
+            child: Text(number, style: const TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.bold)),
+          ),
+          const SizedBox(width: 8),
+          Text(text, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14.5, color: Color(0xff1a2a6c))),
+        ],
+      ),
+    );
+  }
+
+  Widget _dateField(String label, DateTime? value, VoidCallback onTap) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(10),
+      child: InputDecorator(
+        decoration: InputDecoration(
+          labelText: label,
+          border: const OutlineInputBorder(),
+          isDense: true,
+          suffixIcon: const Icon(Icons.calendar_today, size: 18),
+        ),
+        child: Text(value == null ? 'Choose' : _isoDate(value),
+            style: TextStyle(color: value == null ? Colors.grey.shade500 : null)),
+      ),
+    );
+  }
+
+  Widget _workerTile(Map<String, dynamic> w) {
+    final approved = (w['approved'] as num?)?.toInt() ?? 0;
+    final pending = (w['pending'] as num?)?.toInt() ?? 0;
+    final alreadyOff = w['offcycle_batch_id'] != null;
+    final selected = _selected != null && _selected!['worker_id'] == w['worker_id'];
+    return Container(
+      margin: const EdgeInsets.only(bottom: 6),
+      decoration: BoxDecoration(
+        color: selected ? offCycleBg : Colors.white,
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: selected ? offCycleColor : Colors.grey.shade200, width: selected ? 1.4 : 1),
+      ),
+      child: ListTile(
+        dense: true,
+        onTap: () {
+          setState(() => _selected = w);
+          _loadPreview();
+        },
+        leading: Icon(selected ? Icons.radio_button_checked : Icons.radio_button_unchecked,
+            color: selected ? offCycleColor : Colors.grey),
+        title: Text('${w['full_name']}', style: const TextStyle(fontWeight: FontWeight.w600)),
+        subtitle: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('${w['worker_unique_id'] ?? ''}${(w['sites'] ?? '').toString().isNotEmpty ? ' · ${w['sites']}' : ''}'),
+            const SizedBox(height: 4),
+            Wrap(
+              spacing: 4,
+              runSpacing: 4,
+              children: [
+                if (alreadyOff)
+                  StatusPill(label: 'Paid off-cycle #${w['offcycle_batch_id']}', color: offCycleColor)
+                else ...[
+                  StatusPill(label: '$approved approved', color: Colors.green.shade700),
+                  if (pending > 0) StatusPill(label: '$pending waiting for approval', color: Colors.orange.shade800),
+                ],
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _previewPanel() {
+    if (_selected == null) {
+      return Text('Choose a worker above to see the amount.', style: TextStyle(color: Colors.grey.shade600));
+    }
+    if (_loadingPreview) {
+      return const Padding(
+        padding: EdgeInsets.symmetric(vertical: 18),
+        child: Center(child: CircularProgressIndicator()),
+      );
+    }
+    final err = _previewError;
+    if (err != null) {
+      final List pending = (err['pending_attendance'] as List?) ?? const [];
+      final isPending = err['code'] == 'OFFCYCLE_PENDING_ATTENDANCE';
+      final color = isPending ? Colors.orange.shade800 : Colors.red.shade700;
+      return Container(
+        width: double.infinity,
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(color: color.withOpacity(0.08), borderRadius: BorderRadius.circular(10)),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Icon(isPending ? Icons.hourglass_top : Icons.error_outline, color: color, size: 18),
+                const SizedBox(width: 6),
+                Expanded(
+                  child: Text(isPending ? 'Approve this worker\'s attendance first' : 'This payroll cannot be created',
+                      style: TextStyle(fontWeight: FontWeight.bold, color: color)),
+                ),
+              ],
+            ),
+            const SizedBox(height: 6),
+            Text('${err['message'] ?? ''}', style: const TextStyle(fontSize: 12.5)),
+            if (pending.isNotEmpty) ...[
+              const SizedBox(height: 8),
+              ...pending.take(15).map((row) => Padding(
+                    padding: const EdgeInsets.only(bottom: 3),
+                    child: Row(
+                      children: [
+                        Expanded(
+                          child: Text('${row['record_date']} · ${row['site_name']} (${row['shift_type'] ?? 'Day'})',
+                              style: const TextStyle(fontSize: 12.5)),
+                        ),
+                        StatusPill(label: '${row['status']}', color: WorkflowColors.of(row['status']?.toString())),
+                      ],
+                    ),
+                  )),
+              if (pending.length > 15)
+                Text('…and ${pending.length - 15} more', style: TextStyle(fontSize: 12, color: Colors.grey.shade600)),
+              const SizedBox(height: 4),
+              Text('Approve them in Attendance review (search the worker\'s name), then tap "Check again".',
+                  style: TextStyle(fontSize: 12, color: Colors.grey.shade700)),
+            ],
+            Align(
+              alignment: Alignment.centerRight,
+              child: TextButton.icon(
+                onPressed: _loadPreview,
+                icon: const Icon(Icons.refresh, size: 18),
+                label: const Text('Check again'),
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+    final p = _preview;
+    if (p == null) return const SizedBox.shrink();
+    final List lines = (p['lines'] as List?) ?? const [];
+    final List noRecord = (p['days_without_record'] as List?) ?? const [];
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: offCycleColor.withOpacity(0.35)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Expanded(
+                child: Text('${p['worker']?['full_name'] ?? ''}',
+                    style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15)),
+              ),
+              Text(formatMoney(p['net_salary'], p['currency']),
+                  style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18, color: Color(0xff1a2a6c))),
+            ],
+          ),
+          Text('${p['approved_records']} approved day(s) · ${p['start_date']} → ${p['end_date']}',
+              style: TextStyle(fontSize: 12.5, color: Colors.grey.shade700)),
+          const Divider(height: 18),
+          ...lines.map((l) {
+            final daily = l['pay_type'] == 'Daily';
+            final ot = (num.tryParse('${l['overtime_hours']}') ?? 0) > 0;
+            final work = daily
+                ? '${(num.tryParse('${l['days_worked']}') ?? 0).toStringAsFixed(2)} days × ${formatMoney(l['daily_rate'], p['currency'])}'
+                : '${l['regular_hours']} h × ${formatMoney(l['hourly_rate'], p['currency'])}';
+            return Padding(
+              padding: const EdgeInsets.only(bottom: 8),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text('${l['site_name']}', style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13)),
+                        Text('${l['from']} → ${l['to']} · $work'
+                            '${ot ? ' · OT ${l['overtime_hours']} h' : ''}',
+                            style: TextStyle(fontSize: 12, color: Colors.grey.shade700)),
+                      ],
+                    ),
+                  ),
+                  Text(formatMoney((num.tryParse('${l['base_salary']}') ?? 0) + (num.tryParse('${l['overtime_pay']}') ?? 0), p['currency']),
+                      style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13)),
+                ],
+              ),
+            );
+          }),
+          if (noRecord.isNotEmpty)
+            Container(
+              width: double.infinity,
+              margin: const EdgeInsets.only(top: 4),
+              padding: const EdgeInsets.all(10),
+              decoration: BoxDecoration(color: Colors.amber.shade50, borderRadius: BorderRadius.circular(8)),
+              child: Text(
+                'No attendance recorded on ${noRecord.length} day(s): ${noRecord.take(10).join(', ')}${noRecord.length > 10 ? ' …' : ''}. '
+                'Those days are not paid, and after you finalize this batch they cannot be recorded for this worker any more.',
+                style: TextStyle(fontSize: 12, color: Colors.brown.shade700),
+              ),
+            ),
+          const SizedBox(height: 8),
+          Text(
+            'After you finalize it, this worker\'s attendance from ${p['start_date']} to ${p['end_date']} is locked. '
+            'Other workers are not affected. The next payroll for this period skips these days and shows this payment.',
+            style: TextStyle(fontSize: 12, color: Colors.grey.shade700),
+          ),
+        ],
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final canCreate = _preview != null && !_creating && !_loadingPreview;
+    return ConstrainedBox(
+      constraints: const BoxConstraints(maxWidth: 580, maxHeight: 820),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(20, 16, 8, 0),
+            child: Row(
+              children: [
+                const Icon(Icons.person_pin_outlined, color: offCycleColor),
+                const SizedBox(width: 8),
+                const Expanded(
+                  child: Text('Pay one worker now (off-cycle)',
+                      style: TextStyle(fontSize: 17, fontWeight: FontWeight.bold, color: Color(0xff1a2a6c))),
+                ),
+                IconButton(
+                  icon: const Icon(Icons.close),
+                  tooltip: 'Close',
+                  onPressed: _creating ? null : () => Navigator.pop(context),
+                ),
+              ],
+            ),
+          ),
+          Flexible(
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.fromLTRB(20, 4, 20, 8),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Pays one worker\'s approved attendance for the days you choose, before the normal payroll. '
+                    'Nothing is saved until you press "Create off-cycle batch".',
+                    style: TextStyle(fontSize: 12.5, color: Colors.grey.shade700),
+                  ),
+                  _sectionTitle('1', 'Days to pay'),
+                  Row(
+                    children: [
+                      Expanded(child: _dateField('From', _start, () => _pickDate(start: true))),
+                      const SizedBox(width: 10),
+                      Expanded(child: _dateField('To', _end, () => _pickDate(start: false))),
+                    ],
+                  ),
+                  if (_regularBatchInPeriod != null)
+                    Padding(
+                      padding: const EdgeInsets.only(top: 6),
+                      child: Text(
+                        'Payroll batch #$_regularBatchInPeriod already covers part of these days. Workers paid there cannot be paid off-cycle for the same days.',
+                        style: TextStyle(fontSize: 12, color: Colors.red.shade700),
+                      ),
+                    ),
+                  _sectionTitle('2', 'Worker'),
+                  if (_start == null)
+                    Text('Choose the first day to pay to see the workers with attendance in that period.',
+                        style: TextStyle(color: Colors.grey.shade600, fontSize: 12.5))
+                  else ...[
+                    TextField(
+                      controller: _search,
+                      textInputAction: TextInputAction.search,
+                      onSubmitted: (_) => _loadWorkers(),
+                      decoration: InputDecoration(
+                        hintText: 'Search by name or worker ID',
+                        isDense: true,
+                        prefixIcon: const Icon(Icons.search, size: 20),
+                        suffixIcon: IconButton(icon: const Icon(Icons.arrow_forward, size: 20), onPressed: _loadWorkers),
+                        border: const OutlineInputBorder(),
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    if (_loadingWorkers)
+                      const Padding(
+                        padding: EdgeInsets.symmetric(vertical: 16),
+                        child: Center(child: CircularProgressIndicator()),
+                      )
+                    else if (_workersError != null)
+                      Text(_workersError!, style: TextStyle(color: Colors.red.shade700))
+                    else if (_workers.isEmpty)
+                      Text('No worker has attendance in this period${_search.text.trim().isEmpty ? '' : ' matching the search'}.',
+                          style: TextStyle(color: Colors.grey.shade600, fontSize: 12.5))
+                    else
+                      ConstrainedBox(
+                        constraints: const BoxConstraints(maxHeight: 240),
+                        child: ListView(
+                          shrinkWrap: true,
+                          children: _workers.map(_workerTile).toList(),
+                        ),
+                      ),
+                  ],
+                  _sectionTitle('3', 'Amount'),
+                  _previewPanel(),
+                  _sectionTitle('4', 'Reason'),
+                  TextField(
+                    controller: _reason,
+                    maxLines: 2,
+                    enabled: !_creating,
+                    onChanged: (_) {
+                      if (_reasonError != null) setState(() => _reasonError = null);
+                    },
+                    decoration: InputDecoration(
+                      hintText: 'e.g. Worker travelling home, requested his pay',
+                      errorText: _reasonError,
+                      border: const OutlineInputBorder(),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(20, 8, 20, 16),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.end,
+              children: [
+                TextButton(
+                  onPressed: _creating ? null : () => Navigator.pop(context),
+                  child: const Text('Cancel'),
+                ),
+                const SizedBox(width: 8),
+                ElevatedButton.icon(
+                  onPressed: canCreate ? _create : null,
+                  icon: _creating
+                      ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                      : const Icon(Icons.check, color: Colors.white, size: 18),
+                  label: Text(_creating ? 'Creating…' : 'Create off-cycle batch', style: const TextStyle(color: Colors.white)),
+                  style: ElevatedButton.styleFrom(backgroundColor: offCycleColor),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
 }
