@@ -6,6 +6,7 @@ import '../widgets/custom_app_bar.dart';
 import 'staff_absence_review_screen.dart';
 import 'payroll_export_service.dart';
 import '../widgets/monthly_report_card.dart';
+import '../widgets/preliminary_report_card.dart'; // ← جديد
 class AppColors {
   static const Color primary = Color(0xFF1A2A6C);
   static const Color danger = Colors.red;
@@ -829,6 +830,8 @@ void _showBatchDetailsSheet(Map batch, List staff) {
                 pdfEndpoint: '/staff-payroll/monthly-report.pdf',
                 filePrefix: 'staff_hours_payroll',
               ),
+              const SizedBox(height: 16),
+              const PreliminaryReportCard(), // ← جديد: كشف أولي غير رسمي قبل الـ approve
               const SizedBox(height: 20),
               Row(children: [
   const Text('Payroll History', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: AppColors.primary)),
