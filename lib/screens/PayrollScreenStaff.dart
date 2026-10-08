@@ -89,15 +89,33 @@ class _StaffPayrollScreenState extends State<StaffPayrollScreen> {
     super.dispose();
   }
 
+  bool _includeHistory = false;
+
   Future<void> _loadBatches() async {
     setState(() => _isLoadingBatches = true);
     try {
-      final response = await ApiConfig.dio.get('/staff-payroll/report');
+      final response = await ApiConfig.dio.get(
+        '/staff-payroll/report',
+        queryParameters: {if (_includeHistory) 'include_history': '1'},
+      );
+      final List all = (response.data is Map ? response.data['data'] : null) as List? ?? [];
+
+      // Hide Superseded / Voided unless "Show history" is on
+      // (also protects against a backend that still returns every version).
+      final visible = _includeHistory
+          ? all
+          : all.where((b) {
+              final s = (b['status'] ?? '').toString();
+              return s != 'Superseded' && s != 'Voided';
+            }).toList();
+
+      if (!mounted) return;
       setState(() {
-        _batches = response.data['data'] ?? [];
+        _batches = visible;
         _isLoadingBatches = false;
       });
     } catch (e) {
+      if (!mounted) return;
       setState(() => _isLoadingBatches = false);
       _showSnack('Failed to load payroll batches', AppColors.danger);
     }
@@ -812,7 +830,19 @@ void _showBatchDetailsSheet(Map batch, List staff) {
                 filePrefix: 'staff_hours_payroll',
               ),
               const SizedBox(height: 20),
-              const Text('Payroll History', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: AppColors.primary)),
+              Row(children: [
+  const Text('Payroll History', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: AppColors.primary)),
+  const Spacer(),
+  FilterChip(
+    visualDensity: VisualDensity.compact,
+    label: const Text('Show history'),
+    selected: _includeHistory,
+    onSelected: (v) {
+      setState(() => _includeHistory = v);
+      _loadBatches();
+    },
+  ),
+]),
               const SizedBox(height: 10),
               _isLoadingBatches
                   ? const Padding(padding: EdgeInsets.symmetric(vertical: 40), child: Center(child: CircularProgressIndicator()))
