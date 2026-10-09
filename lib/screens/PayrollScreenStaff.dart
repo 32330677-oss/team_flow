@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'payroll_adjustments_screen.dart';
 import 'package:dio/dio.dart';
 import 'package:intl/intl.dart';
 import '../constants.dart';
@@ -615,6 +616,19 @@ void _showBatchDetailsSheet(Map batch, List staff) {
                                     ],
                                   ),
                                   Text('ID: ${s['staff_unique_id'] ?? ''} • Position: ${s['position'] ?? '-'}', style: TextStyle(fontSize: 12, color: Colors.grey.shade600)),
+                                  // Retro pay: adjustments for earlier paid months (already in the net above).
+                                  for (final a in (s['adjustments'] is List ? s['adjustments'] as List : const []))
+                                    Container(
+                                      width: double.infinity,
+                                      margin: const EdgeInsets.only(top: 6),
+                                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                                      decoration: BoxDecoration(color: const Color(0xffeef3ff), borderRadius: BorderRadius.circular(8)),
+                                      child: Text(
+                                        'Adjustment ${a['origin_date'] != null ? 'for ${a['origin_date']}' : '(manual)'}: '
+                                        '${(num.tryParse('${a['amount']}') ?? 0) > 0 ? '+' : ''}${a['amount']} ${a['currency'] ?? ''} — ${a['reason'] ?? ''}',
+                                        style: const TextStyle(fontSize: 12, color: Color(0xff1a2a6c)),
+                                      ),
+                                    ),
                                   const SizedBox(height: 6),
                                   Wrap(spacing: 14, runSpacing: 4, children: [
                                     Text('Base salary: ${s['prorated_base_salary'] ?? s['monthly_salary_snapshot']}', style: const TextStyle(fontSize: 12)),
@@ -716,7 +730,19 @@ void _showBatchDetailsSheet(Map batch, List staff) {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: Colors.grey[100],
-      appBar: const CustomAppBar(title: 'Staff Payroll'),
+      appBar: CustomAppBar(
+        title: 'Staff Payroll',
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.price_change_outlined),
+            tooltip: 'Payroll adjustments',
+            onPressed: () => Navigator.push(
+              context,
+              MaterialPageRoute(builder: (_) => const PayrollAdjustmentsScreen(initialType: 'Staff')),
+            ),
+          ),
+        ],
+      ),
       body: RefreshIndicator(
         onRefresh: _loadBatches,
         child: SingleChildScrollView(

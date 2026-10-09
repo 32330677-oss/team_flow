@@ -1,5 +1,6 @@
 // payroll_screen.dart
 import 'package:flutter/material.dart';
+import 'payroll_adjustments_screen.dart';
 import 'package:team_flow/constants.dart';
 import 'package:dio/dio.dart';
 import 'package:intl/intl.dart';
@@ -985,6 +986,16 @@ Future<void> _exportBatchPdf(Map batch) async {
       backgroundColor: const Color(0xfff4f6fb),
       appBar: CustomAppBar(
         title: ('Payroll Management'),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.price_change_outlined),
+            tooltip: 'Payroll adjustments',
+            onPressed: () => Navigator.push(
+              context,
+              MaterialPageRoute(builder: (_) => const PayrollAdjustmentsScreen(initialType: 'Worker')),
+            ),
+          ),
+        ],
       ),
       body: RefreshIndicator(
         onRefresh: () async {
@@ -1358,6 +1369,8 @@ class _WorkerPayrollCard extends StatelessWidget {
                     ],
                   ),
                 )),
+            // Retro pay: adjustments for earlier paid periods, already inside Net Pay.
+            ..._adjustmentLines(worker),
             const Divider(),
             if (isMixed)
               Row(
@@ -1398,6 +1411,32 @@ class _WorkerPayrollCard extends StatelessWidget {
         ),
       ),
     );
+  }
+
+  static List<Widget> _adjustmentLines(Map worker) {
+    final list = (worker['adjustments'] is List) ? (worker['adjustments'] as List) : const [];
+    return list.map<Widget>((a) {
+      final amount = num.tryParse('${a['amount']}') ?? 0;
+      final origin = a['origin_date'] != null
+          ? 'for ${a['origin_date']}${a['origin_batch_id'] != null ? ' (paid batch #${a['origin_batch_id']})' : ''}'
+          : '(manual)';
+      return Container(
+        width: double.infinity,
+        margin: const EdgeInsets.only(top: 6),
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+        decoration: BoxDecoration(color: const Color(0xffeef3ff), borderRadius: BorderRadius.circular(8)),
+        child: Row(children: [
+          Icon(amount >= 0 ? Icons.add_circle_outline : Icons.remove_circle_outline, size: 16, color: const Color(0xff1a2a6c)),
+          const SizedBox(width: 6),
+          Expanded(
+            child: Text(
+              'Adjustment $origin: ${amount > 0 ? '+' : ''}${formatMoney(a['amount'], a['currency'])} — ${a['reason'] ?? ''}',
+              style: const TextStyle(fontSize: 12, color: Color(0xff1a2a6c)),
+            ),
+          ),
+        ]),
+      );
+    }).toList();
   }
 
   Widget _miniStat(String label, String value, Color color, {bool bold = false}) {
@@ -1568,6 +1607,7 @@ class _PayslipDialogState extends State<_PayslipDialog> {
                 );
               }),
 
+              ..._WorkerPayrollCard._adjustmentLines(w),
               const Divider(height: 20),
               Container(
                 padding: const EdgeInsets.all(12),

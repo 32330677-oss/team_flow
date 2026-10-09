@@ -1,4 +1,5 @@
 import 'package:dio/dio.dart';
+import '../widgets/payroll_followup_dialog.dart';
 import 'package:flutter/material.dart';
 import 'package:team_flow/constants.dart';
 import '../widgets/custom_app_bar.dart';
@@ -377,7 +378,10 @@ class _AdminAttendanceScreenState extends State<AdminAttendanceScreen> {
             'lunch_end_time': lunchToCtrl.text.trim(),
         });
         final msg = r.data is Map ? (r.data['message'] ?? 'Correction saved').toString() : 'Correction saved';
-        _showMessage(msg, true);
+        // Retro pay: a paid period gets an automatic adjustment; a finalized /
+        // open batch gets a hint. Shown in a dialog; otherwise the usual snack.
+        final shown = mounted ? await showPayrollFollowUp(context, r.data) : false;
+        if (!shown) _showMessage(msg, true);
         await _fetchData();
       } on DioException catch (e) {
         _showMessage(_errorMessage(e, 'Failed to save the correction.'), false);

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:dio/dio.dart';
 import '../constants.dart';
 import '../widgets/custom_app_bar.dart';
+import 'staff_approved_records_screen.dart';
 import '../widgets/help_tip.dart';
 import '../widgets/app_data_table.dart' show AppDataTableCard;
 
@@ -65,6 +66,11 @@ class _StaffAttendanceReviewScreenState extends State<StaffAttendanceReviewScree
       setState(() => _loading = false);
       _showMessage('Failed to load staff attendance records.', false);
     }
+  }
+
+  Future<void> _openApprovedRecords() async {
+    await Navigator.push(context, MaterialPageRoute(builder: (_) => const StaffApprovedRecordsScreen()));
+    if (mounted) _fetchData();
   }
 
   String _errorMessage(DioException e, String fallback) {
@@ -562,6 +568,19 @@ class _StaffAttendanceReviewScreenState extends State<StaffAttendanceReviewScree
       appBar: CustomAppBar(
         title: 'Staff Attendance Review',
         actions: [
+          // Approved records leave this list; they are corrected from here.
+          if (MediaQuery.of(context).size.width >= 600)
+            TextButton.icon(
+              onPressed: _openApprovedRecords,
+              icon: const Icon(Icons.fact_check_outlined, color: Colors.white),
+              label: const Text('Approved records', style: TextStyle(color: Colors.white)),
+            )
+          else
+            IconButton(
+              onPressed: _openApprovedRecords,
+              icon: const Icon(Icons.fact_check_outlined),
+              tooltip: 'Approved records',
+            ),
           IconButton(onPressed: _fetchData, icon: const Icon(Icons.refresh), tooltip: 'Refresh'),
         ],
       ),
