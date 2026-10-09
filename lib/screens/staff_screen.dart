@@ -6,6 +6,8 @@ import '../widgets/app_data_table.dart';
 import 'staff_lifecycle_screen.dart';
 import 'staff_supervisor_assignment_screen.dart';
 import 'staff_overtime_screen.dart';
+import 'staff_delete_flow.dart';
+import 'recycle_bin_screen.dart';
 
 class StaffScreen extends StatefulWidget {
   const StaffScreen({Key? key}) : super(key: key);
@@ -41,6 +43,22 @@ class _StaffScreenState extends State<StaffScreen> {
     _bulkAssignDateController.dispose();
     _bulkAssignNotesController.dispose();
     super.dispose();
+  }
+
+  Future<void> _openDeleteFlow(dynamic stf) async {
+    final deleted = await showStaffDeleteFlow(
+      context,
+      Map<String, dynamic>.from(stf as Map),
+    );
+    if (deleted) _loadStaff();
+  }
+
+  Future<void> _openRecycleBin() async {
+    await Navigator.push(
+      context,
+      MaterialPageRoute(builder: (_) => const RecycleBinScreen()),
+    );
+    _loadStaff(); // a restore brings people back
   }
 
   Future<void> _loadStaff() async {
@@ -530,6 +548,11 @@ class _StaffScreenState extends State<StaffScreen> {
             tooltip: 'Bulk Assign Supervisor',
             onPressed: _openBulkAssignSupervisorSheet,
           ),
+          IconButton(
+            icon: const Icon(Icons.delete_sweep_outlined),
+            tooltip: 'Recycle Bin',
+            onPressed: _openRecycleBin,
+          ),
         ],
       ),
       body: _isLoading
@@ -830,6 +853,9 @@ class _StaffScreenState extends State<StaffScreen> {
                                                   _openOvertimeScreen(
                                                     stf,
                                                   );
+                                                } else if (value ==
+                                                    'delete') {
+                                                  _openDeleteFlow(stf);
                                                 }
                                               },
                                               itemBuilder:
@@ -922,6 +948,24 @@ class _StaffScreenState extends State<StaffScreen> {
                                                       ),
                                                       Text(
                                                         'Monthly Extra time Ledger',
+                                                      ),
+                                                    ],
+                                                  ),
+                                                ),
+                                                const PopupMenuDivider(),
+                                                const PopupMenuItem(
+                                                  value: 'delete',
+                                                  child: Row(
+                                                    children: [
+                                                      Icon(
+                                                        Icons.delete_outline,
+                                                        size: 18,
+                                                        color: Color(0xFFC62828),
+                                                      ),
+                                                      SizedBox(width: 8),
+                                                      Text(
+                                                        'Delete…',
+                                                        style: TextStyle(color: Color(0xFFC62828)),
                                                       ),
                                                     ],
                                                   ),

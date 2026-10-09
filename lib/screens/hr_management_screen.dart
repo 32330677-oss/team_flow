@@ -3,6 +3,7 @@ import 'workers_screen.dart'; // شاشة العمال الحالية لديك
 import 'supervisor_management_screen.dart'; // شاشة المشرفين
 import 'staff_screen.dart'; // شاشة الموظفين الإداريين الجديدة
 import '../widgets/custom_app_bar.dart';
+import 'recycle_bin_screen.dart';
 
 class HRManagementScreen extends StatelessWidget {
   const HRManagementScreen({Key? key}) : super(key: key);
@@ -63,6 +64,22 @@ class HRManagementScreen extends StatelessWidget {
                 Navigator.push(
                   context,
                   MaterialPageRoute(builder: (context) => const StaffScreen()),
+                );
+              },
+            ),
+            const SizedBox(height: 20),
+
+            // 4. Recycle Bin (deleted people, 30-day undo)
+            _buildCategoryCard(
+              context,
+              title: 'Recycle Bin',
+              subtitle: 'Restore people deleted in the last 30 days',
+              icon: Icons.delete_sweep_outlined,
+              gradientColors: [const Color(0xff434343), const Color(0xff6b6b6b)],
+              onTap: () {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (context) => const RecycleBinScreen()),
                 );
               },
             ),
