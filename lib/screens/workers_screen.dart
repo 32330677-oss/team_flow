@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../widgets/admin_shell_scope.dart';
 import 'package:dio/dio.dart';
 import 'package:image_picker/image_picker.dart';
 import 'dart:io';
@@ -1400,7 +1401,8 @@ const SizedBox(height: 20),
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: Colors.grey[100],
-      drawer: const AppDrawer(),
+      // The Admin shell already shows the sidebar.
+      drawer: AdminShellScope.maybeOf(context) == null ? const AppDrawer() : null,
      appBar: CustomAppBar(
   title: 'Workers Management',
   actions: [

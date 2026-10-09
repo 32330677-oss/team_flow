@@ -16,6 +16,8 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:team_flow/constants.dart';
 
+import '../widgets/admin_shell_scope.dart';
+
 import 'admin_attendance_screen.dart';
 import 'biometric_import_screen.dart';
 import 'biometric_processing_screen.dart';
@@ -645,6 +647,14 @@ class _AnalyticsDashboardScreenState extends State<AnalyticsDashboardScreen>
   // ---------------------------------------------------------------- shell
   @override
   Widget build(BuildContext context) {
+    // Inside the Admin shell the shared sidebar is drawn by the shell.
+    final shell = AdminShellScope.maybeOf(context);
+    if (shell != null) {
+      return Scaffold(
+        backgroundColor: OpsColors.page,
+        body: _buildMain(showMenu: !shell.persistentSidebar),
+      );
+    }
     return LayoutBuilder(builder: (context, constraints) {
       final wide = constraints.maxWidth >= 1000;
       final content = _buildMain(showMenu: !wide);
@@ -788,7 +798,14 @@ class _AnalyticsDashboardScreenState extends State<AnalyticsDashboardScreen>
               if (showMenu)
                 IconButton(
                   icon: const Icon(Icons.menu_rounded, color: OpsColors.text),
-                  onPressed: () => Scaffold.of(ctx).openDrawer(),
+                  onPressed: () {
+                    final shell = AdminShellScope.maybeOf(ctx);
+                    if (shell != null) {
+                      shell.openMenu();
+                    } else {
+                      Scaffold.of(ctx).openDrawer();
+                    }
+                  },
                 ),
               Column(
                 crossAxisAlignment: CrossAxisAlignment.start,

@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:team_flow/constants.dart';
-import '../screens/analytics_dashboard_screen.dart';
+import 'admin_shell.dart';
 import '../screens/workers_screen.dart';
 import '../screens/admin_attendance_screen.dart';
 import '../screens/payroll_screen.dart';
@@ -58,7 +58,7 @@ void _confirmLogout() {
         Navigator.pop(ctx);
         Navigator.pushAndRemoveUntil(
           ctx,
-          MaterialPageRoute(builder: (_) => const AnalyticsDashboardScreen()),
+          MaterialPageRoute(builder: (_) => const AdminShell()),
           (route) => false,
         );
       }),
