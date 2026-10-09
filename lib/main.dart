@@ -86,7 +86,8 @@ class MyApp extends StatelessWidget {
       builder: (context, child) {
         return Directionality(
           textDirection: TextDirection.ltr,
-          child: child!,
+          // Admin sidebar around the app navigator (shown only for Admin pages).
+          child: AdminChrome(child: child!),
         );
       },
 

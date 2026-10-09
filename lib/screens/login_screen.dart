@@ -30,6 +30,7 @@ class _LoginScreenState extends State<LoginScreen>
   @override
   void initState() {
     super.initState();
+    AdminChromeState.setEnabled(false); // no Admin sidebar on the login screen
     _animController = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 700),

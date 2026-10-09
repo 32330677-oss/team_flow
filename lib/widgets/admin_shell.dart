@@ -4,9 +4,14 @@
 //   * Wide screens (>= 1000 px): the sidebar is always visible on the left.
 //   * Narrow screens: the sidebar opens as a drawer from the menu button in
 //     each page's top bar.
-// All Admin pages (and the pages they open) live in a nested Navigator next to
-// the sidebar, so the sidebar stays while moving between and inside pages.
-// Dialogs still open over the whole window. Logout uses the root navigator.
+//
+// How it works: [AdminChrome] wraps the app's ONE navigator (MaterialApp
+// `builder`), so every page, dialog and bottom sheet uses the same navigator
+// as before. (An earlier version used a second, nested navigator: loading
+// dialogs opened on the root navigator were then closed with
+// Navigator.pop(context) on the nested one, and stayed on screen forever.)
+// The sidebar is shown only after an Admin reaches the Admin home
+// ([AdminShell]); the login screen and the supervisor apps never show it.
 
 import 'package:flutter/material.dart';
 import 'package:team_flow/constants.dart';
@@ -53,6 +58,22 @@ final List<_ShellItem> _shellItems = [
   _ShellItem(Icons.link_rounded, 'Device ID Mapping', () => const DeviceIdMappingScreen()),
 ];
 
+/// Whether the Admin sidebar is shown, and which item is selected.
+class AdminChromeState {
+  static final ValueNotifier<bool> enabled = ValueNotifier<bool>(false);
+  static final ValueNotifier<int> selected = ValueNotifier<int>(0);
+
+  /// Called after the frame (never during a build).
+  static void setEnabled(bool value) {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (enabled.value != value) enabled.value = value;
+      if (!value) selected.value = 0;
+    });
+  }
+}
+
+/// Admin home (first page after an Admin logs in): turns the sidebar on and
+/// shows Live Operations.
 class AdminShell extends StatefulWidget {
   const AdminShell({super.key});
 
@@ -61,43 +82,71 @@ class AdminShell extends StatefulWidget {
 }
 
 class _AdminShellState extends State<AdminShell> {
-  final GlobalKey<NavigatorState> _navKey = GlobalKey<NavigatorState>();
-  final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
-  int _selected = 0;
+  @override
+  void initState() {
+    super.initState();
+    AdminChromeState.selected.value = 0;
+    AdminChromeState.setEnabled(true);
+  }
 
-  Route<void> _instantRoute(Widget page) => PageRouteBuilder<void>(
-        pageBuilder: (_, __, ___) => page,
-        transitionDuration: Duration.zero,
-        reverseTransitionDuration: Duration.zero,
-      );
+  @override
+  Widget build(BuildContext context) => const AnalyticsDashboardScreen();
+}
+
+/// Wraps the app navigator (MaterialApp.builder). Shows nothing extra until
+/// [AdminChromeState.enabled] is true.
+class AdminChrome extends StatefulWidget {
+  final Widget child;
+  const AdminChrome({super.key, required this.child});
+
+  @override
+  State<AdminChrome> createState() => _AdminChromeState();
+}
+
+class _AdminChromeState extends State<AdminChrome> {
+  final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
+
+  NavigatorState? get _nav => ApiConfig.navigatorKey.currentState;
+
+  void _closeDrawer() {
+    final s = _scaffoldKey.currentState;
+    if (s != null && s.isDrawerOpen) s.closeDrawer();
+  }
 
   void _select(int index) {
-    final scaffold = _scaffoldKey.currentState;
-    if (scaffold != null && scaffold.isDrawerOpen) scaffold.closeDrawer();
-    setState(() => _selected = index);
-    _navKey.currentState?.pushAndRemoveUntil(_instantRoute(_shellItems[index].build()), (route) => false);
+    _closeDrawer();
+    AdminChromeState.selected.value = index;
+    _nav?.pushAndRemoveUntil(
+      PageRouteBuilder<void>(
+        pageBuilder: (_, __, ___) => _shellItems[index].build(),
+        transitionDuration: Duration.zero,
+        reverseTransitionDuration: Duration.zero,
+      ),
+      (route) => false,
+    );
   }
 
   void _openChangePassword() {
-    final scaffold = _scaffoldKey.currentState;
-    if (scaffold != null && scaffold.isDrawerOpen) scaffold.closeDrawer();
-    _navKey.currentState?.push(MaterialPageRoute(builder: (_) => const ChangePasswordScreen()));
+    _closeDrawer();
+    _nav?.push(MaterialPageRoute(builder: (_) => const ChangePasswordScreen()));
   }
 
   void _confirmLogout() {
-    final scaffold = _scaffoldKey.currentState;
-    if (scaffold != null && scaffold.isDrawerOpen) scaffold.closeDrawer();
+    _closeDrawer();
+    final ctx = ApiConfig.navigatorKey.currentContext;
+    if (ctx == null) return;
     showDialog(
-      context: context,
-      builder: (ctx) => AlertDialog(
+      context: ctx,
+      builder: (dCtx) => AlertDialog(
         title: const Text('Log Out'),
         content: const Text('Are you sure you want to log out?'),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
+          TextButton(onPressed: () => Navigator.pop(dCtx), child: const Text('Cancel')),
           ElevatedButton(
             style: ElevatedButton.styleFrom(backgroundColor: const Color(0xffb21f1f), foregroundColor: Colors.white),
             onPressed: () {
-              Navigator.pop(ctx);
+              Navigator.pop(dCtx);
+              AdminChromeState.setEnabled(false);
               ApiConfig.logout();
             },
             child: const Text('Log Out'),
@@ -107,37 +156,42 @@ class _AdminShellState extends State<AdminShell> {
     );
   }
 
-  Widget _content(bool wide) {
-    return AdminShellScope(
-      persistentSidebar: wide,
-      openMenu: () => _scaffoldKey.currentState?.openDrawer(),
-      child: NavigatorPopHandler(
-        onPop: () => _navKey.currentState?.maybePop(),
-        child: Navigator(
-          key: _navKey,
-          onGenerateRoute: (_) => _instantRoute(_shellItems[_selected].build()),
-        ),
-      ),
-    );
-  }
-
   @override
   Widget build(BuildContext context) {
-    return LayoutBuilder(builder: (context, constraints) {
-      final wide = constraints.maxWidth >= 1000;
-      final sidebar = AdminSidebar(
-        selected: _selected,
-        onSelect: _select,
-        onChangePassword: _openChangePassword,
-        onLogout: _confirmLogout,
-      );
-      return Scaffold(
-        key: _scaffoldKey,
-        backgroundColor: const Color(0xFFF4F6FB),
-        drawer: wide ? null : Drawer(backgroundColor: _kNavy, width: 260, child: sidebar),
-        body: wide ? Row(children: [sidebar, Expanded(child: _content(true))]) : _content(false),
-      );
-    });
+    return ValueListenableBuilder<bool>(
+      valueListenable: AdminChromeState.enabled,
+      builder: (context, enabled, _) => LayoutBuilder(builder: (context, constraints) {
+        final wide = constraints.maxWidth >= 1000;
+        // Same widget tree in every state: only the sidebar / drawer appear.
+        // (The app navigator also keeps its GlobalKey, so it is never rebuilt.)
+        final sidebar = ValueListenableBuilder<int>(
+          valueListenable: AdminChromeState.selected,
+          builder: (_, sel, __) => AdminSidebar(
+            selected: sel,
+            onSelect: _select,
+            onChangePassword: _openChangePassword,
+            onLogout: _confirmLogout,
+          ),
+        );
+        return Scaffold(
+          key: _scaffoldKey,
+          drawer: enabled && !wide ? Drawer(backgroundColor: _kNavy, width: 260, child: sidebar) : null,
+          drawerEnableOpenDragGesture: false,
+          body: Row(children: [
+            if (enabled && wide) sidebar,
+            Expanded(
+              child: enabled
+                  ? AdminShellScope(
+                      persistentSidebar: wide,
+                      openMenu: () => _scaffoldKey.currentState?.openDrawer(),
+                      child: widget.child,
+                    )
+                  : widget.child,
+            ),
+          ]),
+        );
+      }),
+    );
   }
 }
 
