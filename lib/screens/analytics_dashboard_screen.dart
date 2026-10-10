@@ -19,6 +19,7 @@ import 'package:team_flow/constants.dart';
 import '../widgets/admin_shell_scope.dart';
 
 import 'admin_attendance_screen.dart';
+import 'daily_site_report_screen.dart';
 import 'biometric_import_screen.dart';
 import 'biometric_processing_screen.dart';
 import 'contract_sites_screen.dart';
@@ -1349,6 +1350,8 @@ class _Sidebar extends StatelessWidget {
     _NavItem(Icons.engineering_rounded, 'Workers', () => const WorkersScreen()),
     _NavItem(Icons.fact_check_rounded, 'Attendance Review',
         () => const AdminAttendanceScreen()),
+    _NavItem(Icons.summarize_rounded, 'Daily Site Report',
+        () => const DailySiteReportScreen()),
     _NavItem(Icons.payments_rounded, 'Payroll', () => const PayrollScreen()),
     _NavItem(Icons.business_rounded, 'Projects',
         () => const ProjectManagementScreen()),
