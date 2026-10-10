@@ -61,11 +61,17 @@ class _WorkerAssignmentScreenState extends State<WorkerAssignmentScreen> {
     required String dateHelp,
     required DateTime initialDate,
     required DateTime firstDate,
+    DateTime? lastDate,
     String confirmLabel = 'Confirm',
     Color? confirmColor,
     Widget? extra,
   }) async {
-    DateTime picked = initialDate;
+    final DateTime maxDate = lastDate ?? DateTime.now().add(const Duration(days: 365));
+    // showDatePicker asserts firstDate <= initialDate <= lastDate: keep it inside.
+    final DateTime minDate = firstDate.isAfter(maxDate) ? maxDate : firstDate;
+    DateTime picked = initialDate.isBefore(minDate)
+        ? minDate
+        : (initialDate.isAfter(maxDate) ? maxDate : initialDate);
     final reasonCtrl = TextEditingController();
     String? error;
     final result = await showDialog<Map<String, String>>(
@@ -93,8 +99,8 @@ class _WorkerAssignmentScreenState extends State<WorkerAssignmentScreen> {
                     final d = await showDatePicker(
                       context: ctx,
                       initialDate: picked,
-                      firstDate: firstDate,
-                      lastDate: DateTime.now().add(const Duration(days: 365)),
+                      firstDate: minDate,
+                      lastDate: maxDate,
                     );
                     if (d != null) setD(() => picked = d);
                   },
@@ -141,7 +147,7 @@ class _WorkerAssignmentScreenState extends State<WorkerAssignmentScreen> {
       (x) => x['assignment_id'].toString() == assignmentId.toString(),
       orElse: () => <String, dynamic>{},
     );
-    final start = DateTime.tryParse(a['assigned_date']?.toString() ?? '') ?? DateTime(2020);
+    final start = DateTime.tryParse((a['start_date'] ?? a['assigned_date'])?.toString() ?? '') ?? DateTime(2020);
     final today = DateTime.now();
     final res = await _dateReasonDialog(
       title: 'End assignment — ${a['worker_name'] ?? 'Worker'}',
@@ -209,7 +215,7 @@ class _WorkerAssignmentScreenState extends State<WorkerAssignmentScreen> {
     );
     if (pickedTarget == null) return;
 
-    final start = DateTime.tryParse(assignment['assigned_date']?.toString() ?? '') ?? DateTime(2020);
+    final start = DateTime.tryParse((assignment['start_date'] ?? assignment['assigned_date'])?.toString() ?? '') ?? DateTime(2020);
     final today = DateTime.now();
     final res = await _dateReasonDialog(
       title: 'Direct transfer — $workerName',
@@ -246,6 +252,64 @@ class _WorkerAssignmentScreenState extends State<WorkerAssignmentScreen> {
       }
     } catch (e) {
       _showSnackBar(_apiError(e, 'Failed to transfer worker'), AppColors.danger);
+    }
+  }
+
+  /// Change the FIRST day of an assignment (Admin). Earlier: covers attendance
+  /// recorded before the current start. Later: only when no attendance falls on
+  /// the removed days. The backend checks hire date, worker status, overlaps
+  /// and locked (finalized / paid) payroll, and audits the change.
+  Future<void> _changeStartDate(Map<String, dynamic> assignment) async {
+    final assignmentId = int.tryParse(assignment['assignment_id']?.toString() ?? '');
+    if (assignmentId == null) return;
+    final workerName = assignment['worker_name'] ?? 'Worker';
+    final startText = (assignment['start_date'] ?? assignment['assigned_date'])?.toString() ?? '';
+    final start = DateTime.tryParse(startText);
+    final lastDay = DateTime.tryParse(assignment['last_day']?.toString() ?? '');
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+    final maxDate = (lastDay != null && lastDay.isBefore(today)) ? lastDay : today;
+
+    final res = await _dateReasonDialog(
+      title: 'Change start date — $workerName',
+      dateLabel: 'New first day at this site',
+      dateHelp: 'Earlier: covers attendance recorded before the current start. '
+          'Later: only if the worker has no attendance on the removed days. '
+          'Not allowed inside a finalized or paid payroll period.',
+      initialDate: start ?? today,
+      firstDate: DateTime(2020),
+      lastDate: maxDate,
+      confirmLabel: 'Change start date',
+      extra: Container(
+        padding: const EdgeInsets.all(10),
+        decoration: BoxDecoration(color: Colors.indigo.shade50, borderRadius: BorderRadius.circular(10)),
+        child: Text(
+          '${assignment['site_name'] ?? ''} (${assignment['shift_type'] ?? 'Day'})\n'
+          'Current first day: ${startText.isEmpty ? '-' : startText}',
+          style: const TextStyle(fontWeight: FontWeight.w600),
+        ),
+      ),
+    );
+    if (res == null) return;
+    if (res['date'] == startText) {
+      _showSnackBar('The assignment already starts on $startText.', Colors.orange);
+      return;
+    }
+    try {
+      final response = await ApiConfig.dio.post('/assignments/$assignmentId/start-date',
+          data: {'new_start_date': res['date'], 'reason': res['reason']});
+      await _loadData();
+      if (!mounted) return;
+      final data = response.data is Map ? response.data['data'] as Map? : null;
+      final regenerate = (data?['payroll_batches_to_regenerate'] as List?) ?? const [];
+      final message = (response.data is Map ? response.data['message'] : null)?.toString() ??
+          'Start date changed to ${res['date']}.';
+      _showSnackBar(message, regenerate.isEmpty ? Colors.green.shade700 : Colors.orange.shade800,
+          duration: Duration(seconds: regenerate.isEmpty ? 4 : 8));
+    } catch (e) {
+      if (!mounted) return;
+      _showSnackBar(_apiError(e, 'Failed to change the start date'), AppColors.danger,
+          duration: const Duration(seconds: 6));
     }
   }
 
@@ -475,6 +539,11 @@ Widget build(BuildContext context) {
                                           onPressed: () => _showHistory(assignment),
                                         ),
                                         IconButton(
+                                          icon: const Icon(Icons.edit_calendar_rounded, color: Colors.indigo, size: 20),
+                                          tooltip: 'Change start date',
+                                          onPressed: () => _changeStartDate(Map<String, dynamic>.from(assignment as Map)),
+                                        ),
+                                        IconButton(
                                           icon: const Icon(
                                             Icons.swap_horiz,
                                             color: Colors.blue,
@@ -694,6 +763,11 @@ Widget build(BuildContext context) {
                                         icon: const Icon(Icons.history_rounded, color: Colors.blueGrey, size: 20),
                                         tooltip: 'Assignment history',
                                         onPressed: () => _showHistory(assignment),
+                                      ),
+                                      IconButton(
+                                        icon: const Icon(Icons.edit_calendar_rounded, color: Colors.indigo, size: 20),
+                                        tooltip: 'Change start date',
+                                        onPressed: () => _changeStartDate(Map<String, dynamic>.from(assignment as Map)),
                                       ),
                                       IconButton(
                                         icon: const Icon(
