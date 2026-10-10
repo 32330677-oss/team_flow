@@ -295,19 +295,51 @@ class _WorkerAssignmentScreenState extends State<WorkerAssignmentScreen> {
       _showSnackBar('The assignment already starts on $startText.', Colors.orange);
       return;
     }
+    await _submitStartDate(assignmentId, res['date']!, res['reason']!);
+  }
+
+  Future<void> _submitStartDate(int assignmentId, String date, String reason, {bool moveHireDate = false}) async {
     try {
-      final response = await ApiConfig.dio.post('/assignments/$assignmentId/start-date',
-          data: {'new_start_date': res['date'], 'reason': res['reason']});
+      final response = await ApiConfig.dio.post('/assignments/$assignmentId/start-date', data: {
+        'new_start_date': date,
+        'reason': reason,
+        if (moveHireDate) 'also_move_hire_date': true,
+      });
       await _loadData();
       if (!mounted) return;
       final data = response.data is Map ? response.data['data'] as Map? : null;
       final regenerate = (data?['payroll_batches_to_regenerate'] as List?) ?? const [];
       final message = (response.data is Map ? response.data['message'] : null)?.toString() ??
-          'Start date changed to ${res['date']}.';
+          'Start date changed to $date.';
       _showSnackBar(message, regenerate.isEmpty ? Colors.green.shade700 : Colors.orange.shade800,
-          duration: Duration(seconds: regenerate.isEmpty ? 4 : 8));
+          duration: Duration(seconds: regenerate.isEmpty ? 5 : 8));
     } catch (e) {
       if (!mounted) return;
+      final body = (e is DioException && e.response?.data is Map) ? e.response!.data as Map : null;
+      if (!moveHireDate && body?['code'] == 'BEFORE_HIRE_DATE') {
+        final hire = body?['hire_date']?.toString() ?? '';
+        final ok = await showDialog<bool>(
+          context: context,
+          builder: (ctx) => AlertDialog(
+            title: const Text('Before the hire date'),
+            content: Text(
+              'The worker\'s hire date is $hire, but the new start is $date.\n\n'
+              'If the worker really started on $date, the hire date and his first pay rate '
+              'will also be moved to $date. This is recorded in the audit trail.',
+            ),
+            actions: [
+              TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
+              ElevatedButton(
+                style: ElevatedButton.styleFrom(backgroundColor: AppColors.primary),
+                onPressed: () => Navigator.pop(ctx, true),
+                child: Text('Move hire date to $date', style: const TextStyle(color: Colors.white)),
+              ),
+            ],
+          ),
+        );
+        if (ok == true) await _submitStartDate(assignmentId, date, reason, moveHireDate: true);
+        return;
+      }
       _showSnackBar(_apiError(e, 'Failed to change the start date'), AppColors.danger,
           duration: const Duration(seconds: 6));
     }
