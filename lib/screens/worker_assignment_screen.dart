@@ -313,6 +313,24 @@ class _WorkerAssignmentScreenState extends State<WorkerAssignmentScreen> {
     }
   }
 
+  /// Any worker's assignment history, including workers whose assignment
+  /// already ended (they are not in the current distribution list).
+  Future<void> _pickWorkerHistory() async {
+    if (_workers.isEmpty) {
+      _showSnackBar('No workers loaded.', Colors.orange);
+      return;
+    }
+    final picked = await SearchablePickerSheet.show<dynamic>(
+      context,
+      title: 'Assignment history of…',
+      items: _workers,
+      labelBuilder: (w) => w['full_name']?.toString() ?? '',
+      subtitleBuilder: (w) => 'ID: ${w['worker_unique_id'] ?? ''}',
+    );
+    if (picked == null || !mounted) return;
+    await _showHistory({'worker_id': picked['worker_id'], 'worker_name': picked['full_name']});
+  }
+
   /// Read-only assignment history for one worker (closed + current periods).
   Future<void> _showHistory(Map<String, dynamic> assignment) async {
     final workerId = assignment['worker_id'];
@@ -335,8 +353,25 @@ class _WorkerAssignmentScreenState extends State<WorkerAssignmentScreen> {
                     itemBuilder: (_, i) {
                       final h = rows[i];
                       final end = (h['last_day'] ?? h['unassigned_date'])?.toString();
+                      final cancelled = h['cancelled'] == 1 || h['cancelled'] == true || h['cancelled'] == '1';
                       return ListTile(
                         dense: true,
+                        // Ended assignments can be corrected too (they are not in the
+                        // current list). Cancelled ones have no day to correct.
+                        trailing: cancelled
+                            ? const Text('Cancelled', style: TextStyle(fontSize: 12, color: Colors.grey))
+                            : IconButton(
+                                icon: const Icon(Icons.edit_calendar_rounded, color: Colors.indigo, size: 20),
+                                tooltip: 'Change start date',
+                                onPressed: () {
+                                  Navigator.pop(ctx);
+                                  _changeStartDate({
+                                    ...Map<String, dynamic>.from(h as Map),
+                                    'worker_id': workerId,
+                                    'worker_name': assignment['worker_name'],
+                                  });
+                                },
+                              ),
                         leading: Icon(end == null ? Icons.play_circle : Icons.history,
                             color: end == null ? Colors.green : Colors.grey),
                         title: Text('${h['site_name'] ?? 'Site ${h['site_id']}'} · ${h['shift_type'] ?? 'Day'}'),
@@ -418,8 +453,15 @@ Widget build(BuildContext context) {
 
   return Scaffold(
     backgroundColor: Colors.grey[100],
-    appBar: const CustomAppBar(
+    appBar: CustomAppBar(
       title: 'Workers & Sites Distribution',
+      actions: [
+        IconButton(
+          icon: const Icon(Icons.manage_history_rounded),
+          tooltip: 'Worker assignment history (also ended assignments)',
+          onPressed: _pickWorkerHistory,
+        ),
+      ],
     ),
     body: _isLoading
         ? const Center(child: CircularProgressIndicator())
