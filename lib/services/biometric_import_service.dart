@@ -16,10 +16,16 @@ class ImportBatch {
   final String? importedAt;
   final String? createdAt;
 
+  /// The original uploaded file kept in storage (null for files imported
+  /// before file storage existed, or dropped into the Connector by hand).
+  final int? fileId;
+  final String? fileName;
+
   const ImportBatch({
     required this.id, required this.sourceFile, required this.status,
     required this.total, required this.inserted, required this.duplicates,
     required this.errors, this.importedAt, this.createdAt,
+    this.fileId, this.fileName,
   });
 
   factory ImportBatch.fromJson(Map<String, dynamic> j) => ImportBatch(
@@ -32,6 +38,31 @@ class ImportBatch {
         errors: _i(j['error_rows']),
         importedAt: _s(j['imported_at']),
         createdAt: _s(j['created_at']),
+        fileId: j['file_id'] == null ? null : _i(j['file_id']),
+        fileName: _s(j['file_name']),
+      );
+}
+
+/// An uploaded file that did not become an import batch
+/// (rejected by the Connector, or not processed yet).
+class NotImportedFile {
+  final int id;
+  final String name;
+  final int sizeBytes;
+  final String? uploadedAt;
+  final String status;
+  final String? details;
+  const NotImportedFile({
+    required this.id, required this.name, required this.sizeBytes,
+    this.uploadedAt, required this.status, this.details,
+  });
+  factory NotImportedFile.fromJson(Map<String, dynamic> j) => NotImportedFile(
+        id: _i(j['id']),
+        name: j['original_name']?.toString() ?? '',
+        sizeBytes: _i(j['size_bytes']),
+        uploadedAt: _s(j['uploaded_at']),
+        status: j['result_status']?.toString() ?? '',
+        details: _s(j['result_details']),
       );
 }
 
@@ -52,14 +83,16 @@ class ConnectorStatus {
 
 class ImportRunResult {
   final String? savedAs;
+  final String? fileStatus;
   final int exitCode;
   final bool timedOut;
   final List<String> output;
   const ImportRunResult({
-    this.savedAs, required this.exitCode, required this.timedOut, required this.output,
+    this.savedAs, this.fileStatus, required this.exitCode, required this.timedOut, required this.output,
   });
   factory ImportRunResult.fromJson(Map<String, dynamic> j) => ImportRunResult(
         savedAs: _s(j['saved_as']),
+        fileStatus: _s(j['file_status']),
         exitCode: _i(j['exit_code']),
         timedOut: j['timed_out'] == true,
         output: ((j['output'] as List?) ?? []).map((e) => '$e').toList(),
@@ -70,7 +103,12 @@ class ImportBatchDetail {
   final ImportBatch batch;
   final Map<String, int> processing;
   final List<Map<String, dynamic>> errors;
-  const ImportBatchDetail({required this.batch, required this.processing, required this.errors});
+  final int? fileId;
+  final String? fileName;
+  const ImportBatchDetail({
+    required this.batch, required this.processing, required this.errors,
+    this.fileId, this.fileName,
+  });
 }
 
 class BiometricImportService {
@@ -88,14 +126,18 @@ class BiometricImportService {
     return const BiometricApiException('Unexpected error. Please try again.');
   }
 
-  Future<({List<ImportBatch> batches, ConnectorStatus connector})> getBatches({int limit = 30}) async {
+  Future<({List<ImportBatch> batches, List<NotImportedFile> notImported, ConnectorStatus connector})> getBatches(
+      {int limit = 30}) async {
     try {
       final r = await ApiConfig.dio.get('/biometric/import-batches', queryParameters: {'limit': limit});
       final list = (r.data['data'] as List? ?? [])
           .map((e) => ImportBatch.fromJson(Map<String, dynamic>.from(e as Map)))
           .toList();
+      final notImported = (r.data['not_imported'] as List? ?? [])
+          .map((e) => NotImportedFile.fromJson(Map<String, dynamic>.from(e as Map)))
+          .toList();
       final connector = ConnectorStatus.fromJson(Map<String, dynamic>.from(r.data['connector'] as Map));
-      return (batches: list, connector: connector);
+      return (batches: list, notImported: notImported, connector: connector);
     } catch (e) {
       throw _map(e);
     }
@@ -106,7 +148,10 @@ class BiometricImportService {
       final r = await ApiConfig.dio.get('/biometric/import-batches/$id');
       final d = Map<String, dynamic>.from(r.data['data'] as Map);
       final proc = Map<String, dynamic>.from(d['processing'] as Map? ?? {});
+      final file = d['file'] is Map ? Map<String, dynamic>.from(d['file'] as Map) : null;
       return ImportBatchDetail(
+        fileId: file == null ? null : _i(file['id']),
+        fileName: file == null ? null : _s(file['original_name']),
         batch: ImportBatch.fromJson(Map<String, dynamic>.from(d['batch'] as Map)),
         processing: {for (final e in proc.entries) e.key: _i(e.value)},
         errors: (d['errors'] as List? ?? [])
@@ -130,6 +175,32 @@ class BiometricImportService {
         ),
       );
       return ImportRunResult.fromJson(Map<String, dynamic>.from(r.data['data'] as Map));
+    } catch (e) {
+      throw _map(e);
+    }
+  }
+
+  /// The original uploaded file, exactly as it was uploaded.
+  Future<List<int>> downloadFile(int fileId) async {
+    try {
+      final r = await ApiConfig.dio.get<List<int>>(
+        '/biometric/import-files/$fileId/download',
+        options: Options(responseType: ResponseType.bytes),
+      );
+      return r.data ?? const <int>[];
+    } on DioException catch (e) {
+      // The error body arrives as bytes too; turn it back into a message.
+      final data = e.response?.data;
+      if (data is List<int>) {
+        try {
+          final text = String.fromCharCodes(data);
+          final m = RegExp(r'"message"\s*:\s*"([^"]*)"').firstMatch(text);
+          if (m != null) throw BiometricApiException(m.group(1)!, statusCode: e.response?.statusCode);
+        } on BiometricApiException {
+          rethrow;
+        } catch (_) {}
+      }
+      throw _map(e);
     } catch (e) {
       throw _map(e);
     }

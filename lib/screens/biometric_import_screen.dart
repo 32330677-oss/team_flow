@@ -5,6 +5,7 @@ import '../services/biometric_processing_service.dart' show BiometricApiExceptio
 import '../widgets/app_data_table.dart';
 import '../widgets/custom_app_bar.dart';
 import 'biometric_processing_screen.dart';
+import 'payroll_export_service.dart';
 import '../services/biometric_processing_service.dart' show BiometricProcessingService;
 
 class BiometricImportScreen extends StatefulWidget {
@@ -18,6 +19,7 @@ class _BiometricImportScreenState extends State<BiometricImportScreen> {
   final _service = BiometricImportService();
 
   List<ImportBatch> _batches = [];
+  List<NotImportedFile> _notImported = [];
   ConnectorStatus? _connector;
   ImportRunResult? _lastRun;
   bool _loading = true;
@@ -37,6 +39,7 @@ class _BiometricImportScreenState extends State<BiometricImportScreen> {
       if (!mounted) return;
       setState(() {
         _batches = r.batches;
+        _notImported = r.notImported;
         _connector = r.connector;
         _loadError = null;
         _loading = false;
@@ -84,8 +87,24 @@ class _BiometricImportScreenState extends State<BiometricImportScreen> {
       final r = await _service.uploadAndImport(bytes, file.name);
       if (!mounted) return;
       setState(() => _lastRun = r);
-      _snack(r.exitCode == 0 ? 'Import run finished. Check the history below.' : 'Connector reported a problem (exit ${r.exitCode}).',
-          r.exitCode == 0 ? Colors.green.shade700 : Colors.orange.shade800);
+      switch (r.fileStatus) {
+        case 'Imported':
+          _snack('File imported. Run Biometric Processing to create attendance.', Colors.green.shade700);
+          break;
+        case 'AlreadyImported':
+          _snack('This file was already imported before. No new punches were added.', Colors.orange.shade800);
+          break;
+        case 'Failed':
+          _snack('The file was rejected. See "Files not imported" below.', Colors.red);
+          break;
+        case 'Pending':
+          _snack('The file is saved but could not be imported yet. Use "Run pending files" to try again.',
+              Colors.orange.shade800);
+          break;
+        default:
+          _snack(r.exitCode == 0 ? 'Import run finished. Check the history below.' : 'Connector reported a problem (exit ${r.exitCode}).',
+              r.exitCode == 0 ? Colors.green.shade700 : Colors.orange.shade800);
+      }
       await _load(spinner: false);
     } on BiometricApiException catch (e) {
       _snack(e.message, e.statusCode == 409 ? Colors.orange.shade800 : Colors.red);
@@ -107,6 +126,63 @@ class _BiometricImportScreenState extends State<BiometricImportScreen> {
       _snack(e.message, e.statusCode == 409 ? Colors.orange.shade800 : Colors.red);
     } finally {
       if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  Future<void> _downloadFile(int fileId, String name) async {
+    try {
+      final bytes = await _service.downloadFile(fileId);
+      await PayrollExportService.exportBytes(bytes, name.isEmpty ? 'biometric-file-$fileId.txt' : name);
+    } on BiometricApiException catch (e) {
+      _snack(e.message, Colors.red);
+    } catch (_) {
+      _snack('Could not save the file.', Colors.red);
+    }
+  }
+
+  void _showNotImported(NotImportedFile f) {
+    showDialog<void>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text(f.name),
+        content: SizedBox(
+          width: 460,
+          child: SingleChildScrollView(
+            child: Column(crossAxisAlignment: CrossAxisAlignment.start, mainAxisSize: MainAxisSize.min, children: [
+              Text('Status: ${_notImportedLabel(f.status)}'),
+              Text('Uploaded: ${_cut(f.uploadedAt)}  •  ${(f.sizeBytes / 1024).toStringAsFixed(1)} KB'),
+              const Divider(height: 22),
+              const Text('Reason', style: TextStyle(fontWeight: FontWeight.w600)),
+              const SizedBox(height: 4),
+              SelectableText(f.details ?? '-', style: const TextStyle(fontFamily: 'monospace', fontSize: 11.5)),
+            ]),
+          ),
+        ),
+        actions: [
+          TextButton.icon(
+            onPressed: () {
+              Navigator.pop(ctx);
+              _downloadFile(f.id, f.name);
+            },
+            icon: const Icon(Icons.download_rounded, size: 18),
+            label: const Text('Download file'),
+          ),
+          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Close')),
+        ],
+      ),
+    );
+  }
+
+  String _notImportedLabel(String s) {
+    switch (s) {
+      case 'Failed':
+        return 'Rejected';
+      case 'Pending':
+        return 'Waiting';
+      case 'NotProcessed':
+        return 'Not processed';
+      default:
+        return s;
     }
   }
 
@@ -179,6 +255,15 @@ class _BiometricImportScreenState extends State<BiometricImportScreen> {
             ),
           ),
           actions: [
+            if (d.fileId != null)
+              TextButton.icon(
+                onPressed: () {
+                  Navigator.pop(ctx);
+                  _downloadFile(d.fileId!, d.fileName ?? d.batch.sourceFile);
+                },
+                icon: const Icon(Icons.download_rounded, size: 18),
+                label: const Text('Download file'),
+              ),
             // C-14: an interrupted upload leaves the batch Pending and its
             // punches are never processed. Closing it is audited.
             if (d.batch.status == 'Pending')
@@ -270,6 +355,7 @@ class _BiometricImportScreenState extends State<BiometricImportScreen> {
                       DataColumn(label: Text('  Duplicates')),
                       DataColumn(label: Text('  Errors')),
                       DataColumn(label: Text('  Imported At')),
+                      DataColumn(label: Text('  File')),
                     ],
                     rows: _batches.map((b) {
                       Widget pad(Widget w) =>
@@ -285,10 +371,59 @@ class _BiometricImportScreenState extends State<BiometricImportScreen> {
                           DataCell(pad(Text('${b.duplicates}'))),
                           DataCell(pad(Text('${b.errors}'))),
                           DataCell(pad(Text(_cut(b.importedAt ?? b.createdAt)))),
+                          DataCell(b.fileId == null
+                              ? pad(const Text('-', style: TextStyle(color: AppColors.textSecondary)))
+                              : IconButton(
+                                  tooltip: 'Download original file',
+                                  icon: const Icon(Icons.download_rounded, size: 20),
+                                  onPressed: () => _downloadFile(b.fileId!, b.fileName ?? b.sourceFile),
+                                )),
                         ],
                       );
                     }).toList(),
                   ),
+                  if (_notImported.isNotEmpty) ...[
+                    const SizedBox(height: 14),
+                    AppDataTableCard(
+                      title: 'Files not imported',
+                      subtitle: '${_notImported.length} uploaded file(s) did not create a batch • tap a row for the reason',
+                      icon: Icons.report_gmailerrorred_rounded,
+                      accentColor: AppColors.danger,
+                      emptyMessage: 'None.',
+                      columns: const [
+                        DataColumn(label: Text('  File')),
+                        DataColumn(label: Text('  Status')),
+                        DataColumn(label: Text('  Uploaded At')),
+                        DataColumn(label: Text('  Reason')),
+                        DataColumn(label: Text('  Download')),
+                      ],
+                      rows: _notImported.map((f) {
+                        Widget pad(Widget w) =>
+                            Padding(padding: const EdgeInsets.symmetric(horizontal: 8), child: w);
+                        return DataRow(
+                          onSelectChanged: (_) => _showNotImported(f),
+                          cells: [
+                            DataCell(pad(SizedBox(width: 200, child: Text(f.name, overflow: TextOverflow.ellipsis)))),
+                            DataCell(pad(StatusBadge(
+                              label: _notImportedLabel(f.status),
+                              color: f.status == 'Pending' ? Colors.orange.shade800 : AppColors.danger,
+                            ))),
+                            DataCell(pad(Text(_cut(f.uploadedAt)))),
+                            DataCell(pad(SizedBox(
+                              width: 260,
+                              child: Text((f.details ?? '-').replaceAll('\n', ' '),
+                                  maxLines: 1, overflow: TextOverflow.ellipsis),
+                            ))),
+                            DataCell(IconButton(
+                              tooltip: 'Download original file',
+                              icon: const Icon(Icons.download_rounded, size: 20),
+                              onPressed: () => _downloadFile(f.id, f.name),
+                            )),
+                          ],
+                        );
+                      }).toList(),
+                    ),
+                  ],
                 ],
               ),
             ),
@@ -316,8 +451,8 @@ class _BiometricImportScreenState extends State<BiometricImportScreen> {
         const SizedBox(height: 8),
         if (!enabled)
           const Text(
-            'The backend cannot reach the Connector folder. Set BIOMETRIC_CONNECTOR_DIR in the backend .env '
-            '(backend and Connector must be on the same machine).',
+            'The Connector is not installed on the server yet, so files cannot be imported. '
+            'Server setting: BIOMETRIC_CONNECTOR_DIR.',
             style: TextStyle(fontSize: 12, color: AppColors.textSecondary),
           )
         else
