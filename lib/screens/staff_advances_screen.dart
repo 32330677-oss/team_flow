@@ -29,6 +29,18 @@ String _money(dynamic v) {
 
 num _num(dynamic v) => (v is num) ? v : (num.tryParse('$v') ?? 0);
 
+// A controller must outlive the widget that uses it: a dialog keeps drawing its
+// text fields during the closing animation, and a removed row is still on screen
+// until the next frame. Dispose a little later instead of immediately.
+void _disposeLater(Iterable<TextEditingController> controllers) {
+  final list = controllers.toList();
+  Future.delayed(const Duration(milliseconds: 600), () {
+    for (final c in list) {
+      c.dispose();
+    }
+  });
+}
+
 String _errorMessage(Object e, String fallback) {
   if (e is DioException) {
     final data = e.response?.data;
@@ -664,9 +676,7 @@ class _NewStaffAdvanceScreenState extends State<NewStaffAdvanceScreen> {
                 onSelectionChanged: (s) => setState(() {
                   _partial = s.first;
                   if (!_partial && _rows.length > 1) {
-                    for (final r in _rows.skip(1)) {
-                      r.amount.dispose();
-                    }
+                    _disposeLater(_rows.skip(1).map((r) => r.amount));
                     _rows.removeRange(1, _rows.length);
                   }
                 }),
@@ -677,6 +687,7 @@ class _NewStaffAdvanceScreenState extends State<NewStaffAdvanceScreen> {
               else ...[
                 for (var i = 0; i < _rows.length; i++)
                   Padding(
+                    key: ObjectKey(_rows[i]),
                     padding: const EdgeInsets.only(bottom: 10),
                     child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
                       Expanded(flex: 3, child: _monthPicker(_rows[i], label: 'Month ${i + 1}')),
@@ -696,7 +707,7 @@ class _NewStaffAdvanceScreenState extends State<NewStaffAdvanceScreen> {
                         onPressed: _rows.length <= 1
                             ? null
                             : () => setState(() {
-                                  _rows[i].amount.dispose();
+                                  _disposeLater([_rows[i].amount]);
                                   _rows.removeAt(i);
                                 }),
                       ),
@@ -814,7 +825,7 @@ class _StaffAdvanceDetailsScreenState extends State<StaffAdvanceDetailsScreen> {
         ],
       ),
     );
-    c.dispose();
+    _disposeLater([c]);
     return res;
   }
 
@@ -899,8 +910,7 @@ class _StaffAdvanceDetailsScreenState extends State<StaffAdvanceDetailsScreen> {
     );
     final value = num.tryParse(amount.text.trim()) ?? 0;
     final note = reason.text.trim();
-    amount.dispose();
-    reason.dispose();
+    _disposeLater([amount, reason]);
     if (ok != true || value <= 0) return;
     setState(() => _busy = true);
     try {
@@ -1022,6 +1032,11 @@ class _StaffAdvanceDetailsScreenState extends State<StaffAdvanceDetailsScreen> {
                 await _downloadPdf(context, '/staff-advances/${a['advance_id']}/voucher.pdf', '${a['voucher_no']}.pdf');
                 _load();
               },
+            ),
+            OutlinedButton.icon(
+              icon: const Icon(Icons.summarize_outlined),
+              label: const Text('Statement'),
+              onPressed: () => _downloadPdf(context, '/staff-advances/${a['advance_id']}/statement.pdf', '${a['voucher_no']}_statement.pdf'),
             ),
             OutlinedButton.icon(
               icon: Icon(a['has_signed_receipt'] == true ? Icons.verified_outlined : Icons.upload_file),
@@ -1178,6 +1193,7 @@ class _RescheduleScreenState extends State<_RescheduleScreen> {
         const SizedBox(height: 12),
         for (var i = 0; i < _rows.length; i++)
           Padding(
+            key: ObjectKey(_rows[i]),
             padding: const EdgeInsets.only(bottom: 10),
             child: Row(children: [
               Expanded(
@@ -1212,7 +1228,7 @@ class _RescheduleScreenState extends State<_RescheduleScreen> {
                 onPressed: _rows.length <= 1
                     ? null
                     : () => setState(() {
-                          _rows[i].amount.dispose();
+                          _disposeLater([_rows[i].amount]);
                           _rows.removeAt(i);
                         }),
               ),
