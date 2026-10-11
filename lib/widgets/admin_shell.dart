@@ -88,7 +88,12 @@ class _AdminShellState extends State<AdminShell> {
   void initState() {
     super.initState();
     AdminChromeState.selected.value = 0;
-    AdminChromeState.setEnabled(true);
+    // Only when this page is really the one on screen: an Admin home built
+    // UNDER another page (e.g. under the login page) never turns the sidebar on.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      if (ModalRoute.of(context)?.isCurrent ?? true) AdminChromeState.setEnabled(true);
+    });
   }
 
   @override
@@ -240,6 +245,8 @@ class AdminSidebar extends StatelessWidget {
                 ],
               ),
             ),
+            Divider(height: 1, thickness: 1, color: Colors.white.withValues(alpha: 0.12)),
+            const SizedBox(height: 6),
             _tile(Icons.lock_reset_rounded, 'Change Password', onChangePassword),
             _tile(Icons.logout_rounded, 'Log Out', onLogout),
             const SizedBox(height: 8),
@@ -251,7 +258,7 @@ class AdminSidebar extends StatelessWidget {
 
   Widget _tile(IconData icon, String label, VoidCallback? onTap, {bool selected = false}) {
     return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 2),
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 1),
       child: Material(
         color: selected ? Colors.white.withValues(alpha: 0.12) : Colors.transparent,
         borderRadius: BorderRadius.circular(10),
@@ -259,7 +266,7 @@ class AdminSidebar extends StatelessWidget {
           borderRadius: BorderRadius.circular(10),
           onTap: onTap,
           child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 11),
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
             child: Row(children: [
               Icon(icon, size: 20, color: selected ? _kAccent : Colors.white70),
               const SizedBox(width: 12),

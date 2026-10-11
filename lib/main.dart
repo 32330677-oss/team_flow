@@ -108,9 +108,39 @@ class MyApp extends StatelessWidget {
       routes: {
         '/login': (context) => const LoginScreen(),
       },
-      // استخدام FutureBuilder لعرض شاشة انتظار بيضاء صغيرة أثناء فحص الذاكرة
-      home: FutureBuilder<Widget>(
-        future: _checkLoginStatus(),
+      // Web: the browser URL (e.g. "/#/login" after a refresh) must not decide
+      // the first page. Without this, a refresh on /#/login built the home page
+      // (Admin, still logged in) UNDER a login page, and the Admin sidebar was
+      // shown next to the login form. The app always starts at home, which
+      // checks the stored login and opens the right page.
+      onGenerateInitialRoutes: (_) => [
+        MaterialPageRoute<void>(
+          settings: const RouteSettings(name: '/'),
+          builder: (context) => _HomeGate(check: _checkLoginStatus),
+        ),
+      ],
+      home: _HomeGate(check: _checkLoginStatus),
+    );
+  }
+}
+
+/// First page: checks the stored login ONCE, then shows the right home page.
+class _HomeGate extends StatefulWidget {
+  final Future<Widget> Function() check;
+  const _HomeGate({required this.check});
+
+  @override
+  State<_HomeGate> createState() => _HomeGateState();
+}
+
+class _HomeGateState extends State<_HomeGate> {
+  late final Future<Widget> _future = widget.check();
+
+  @override
+  Widget build(BuildContext context) {
+    // استخدام FutureBuilder لعرض شاشة انتظار بيضاء صغيرة أثناء فحص الذاكرة
+    return FutureBuilder<Widget>(
+        future: _future,
         builder: (context, snapshot) {
           if (snapshot.connectionState == ConnectionState.waiting) {
             return const Scaffold(
@@ -121,7 +151,6 @@ class MyApp extends StatelessWidget {
           }
           return snapshot.data ?? const LoginScreen();
         },
-      ),
     );
   }
 }
