@@ -8,6 +8,7 @@ import 'staff_absence_review_screen.dart';
 import 'payroll_export_service.dart';
 import '../widgets/monthly_report_card.dart';
 import '../widgets/preliminary_report_card.dart'; // ← جديد
+import 'staff_advances_screen.dart';
 class AppColors {
   static const Color primary = Color(0xFF1A2A6C);
   static const Color danger = Colors.red;
@@ -23,6 +24,8 @@ class StaffPayrollScreen extends StatefulWidget {
 }
 
 class _StaffPayrollScreenState extends State<StaffPayrollScreen> {
+  // Payroll batches and salary advances are kept apart (separate filter).
+  bool _showAdvances = false;
   bool _isGenerating = false;
   bool _isLoadingBatches = true;
   List<dynamic> _batches = [];
@@ -322,6 +325,19 @@ class _StaffPayrollScreenState extends State<StaffPayrollScreen> {
         response = await generate(acknowledgePending: true);
       }
       _showSnack(response.data['message'] ?? 'Payroll batch generated', Colors.green.shade700);
+      final advanceWarnings = (response.data is Map ? response.data['advance_warnings'] as List? : null) ?? const [];
+      if (advanceWarnings.isNotEmpty && mounted) {
+        await showDialog(
+          context: context,
+          builder: (ctx) => AlertDialog(
+            title: const Text('Salary advances to review'),
+            content: SingleChildScrollView(
+              child: Text(advanceWarnings.map((w) => '• ${w['message']}').join('\n\n')),
+            ),
+            actions: [TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('OK'))],
+          ),
+        );
+      }
       if (_monthlyMode) {
         _applyMonth(_selectedMonth);
       } else {
@@ -629,6 +645,20 @@ void _showBatchDetailsSheet(Map batch, List staff) {
                                         style: const TextStyle(fontSize: 12, color: Color(0xff1a2a6c)),
                                       ),
                                     ),
+                                  // Salary advances deducted in this batch (already subtracted from the net above).
+                                  for (final a in (s['advances'] is List ? s['advances'] as List : const []))
+                                    Container(
+                                      width: double.infinity,
+                                      margin: const EdgeInsets.only(top: 6),
+                                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                                      decoration: BoxDecoration(color: const Color(0xfffff1f0), borderRadius: BorderRadius.circular(8)),
+                                      child: Text(
+                                        'Advance ${a['voucher_no']}: −${(num.tryParse('${a['amount']}') ?? 0).toStringAsFixed(2)} USD'
+                                        ' · balance after this batch ${(num.tryParse('${a['remaining_after']}') ?? 0).toStringAsFixed(2)}'
+                                        '${a['status'] == 'Deducted' ? ' · deducted' : ''}',
+                                        style: TextStyle(fontSize: 12, color: Colors.red.shade800, fontWeight: FontWeight.w600),
+                                      ),
+                                    ),
                                   const SizedBox(height: 6),
                                   Wrap(spacing: 14, runSpacing: 4, children: [
                                     Text('Base salary: ${s['prorated_base_salary'] ?? s['monthly_salary_snapshot']}', style: const TextStyle(fontSize: 12)),
@@ -743,7 +773,26 @@ void _showBatchDetailsSheet(Map batch, List staff) {
           ),
         ],
       ),
-      body: RefreshIndicator(
+      body: Column(
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
+            child: SizedBox(
+              width: double.infinity,
+              child: SegmentedButton<bool>(
+                segments: const [
+                  ButtonSegment(value: false, icon: Icon(Icons.payments_outlined), label: Text('Payroll batches')),
+                  ButtonSegment(value: true, icon: Icon(Icons.account_balance_wallet_outlined), label: Text('Advances')),
+                ],
+                selected: {_showAdvances},
+                onSelectionChanged: (v) => setState(() => _showAdvances = v.first),
+              ),
+            ),
+          ),
+          Expanded(
+            child: _showAdvances
+                ? const StaffAdvancesPanel()
+                : RefreshIndicator(
         onRefresh: _loadBatches,
         child: SingleChildScrollView(
           physics: const AlwaysScrollableScrollPhysics(),
@@ -932,6 +981,9 @@ void _showBatchDetailsSheet(Map batch, List staff) {
             ],
           ),
         ),
+      ),
+          ),
+        ],
       ),
     );
   }

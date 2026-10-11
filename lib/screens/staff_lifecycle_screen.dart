@@ -175,6 +175,19 @@ String selectedStatus = _currentStatus == 'Terminated'
       _loadAll();
     } on DioException catch (e) {
       final msg = e.response?.data is Map ? (e.response?.data['message'] ?? 'Failed to update status') : 'Failed to update status';
+      // Staff advances: an open advance balance blocks Inactive / Terminated.
+      if (e.response?.data is Map && e.response?.data['code'] == 'ADVANCE_OUTSTANDING' && mounted) {
+        await showDialog(
+          context: context,
+          builder: (ctx) => AlertDialog(
+            icon: Icon(Icons.account_balance_wallet_outlined, color: Colors.orange.shade800, size: 36),
+            title: const Text('Open salary advance'),
+            content: Text(msg.toString()),
+            actions: [TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('OK'))],
+          ),
+        );
+        return;
+      }
       _showSnack(msg, Colors.red);
     }
   }
