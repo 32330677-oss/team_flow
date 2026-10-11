@@ -155,9 +155,18 @@ class _LoginScreenState extends State<LoginScreen>
       setState(() => _isLoading = false);
       final String errorMsg =
           (result?['message'] ?? "Incorrect email or password").toString();
-      _showSnack(errorMsg, Colors.red);
-      _passwordController.clear();
-      _passwordFocus.requestFocus();
+      final String? code = result?['code']?.toString();
+      _showSnack(
+        errorMsg,
+        code == 'INVALID_CREDENTIALS' || code == 'ACCOUNT_DISABLED'
+            ? Colors.red
+            : Colors.orange.shade800,
+      );
+      // Only a wrong password needs to be typed again.
+      if (code == 'INVALID_CREDENTIALS') {
+        _passwordController.clear();
+        _passwordFocus.requestFocus();
+      }
     }
   }
 

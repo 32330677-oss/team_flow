@@ -71,11 +71,83 @@ class AuthService {
       print('Login failed. HTTP status: $statusCode');
       print('Login response: $responseData');
 
-      return null;
+      return _loginError(error);
     } catch (error) {
       print('Login error: $error');
-      return null;
+      return _errorResult(
+        'UNKNOWN',
+        'Something went wrong. Please try again.',
+      );
     }
+  }
+
+  /// Turns a failed login request into a clear message for the login screen.
+  /// The screen reads `message`; `code` tells it what kind of failure it was.
+  Map<String, dynamic> _loginError(DioException error) {
+    final response = error.response;
+
+    // No answer from the server at all.
+    if (response == null) {
+      switch (error.type) {
+        case DioExceptionType.connectionTimeout:
+        case DioExceptionType.receiveTimeout:
+        case DioExceptionType.sendTimeout:
+          return _errorResult(
+            'TIMEOUT',
+            'The server is taking too long to respond. Please try again in a moment.',
+          );
+        default:
+          return _errorResult(
+            'NO_CONNECTION',
+            'Cannot reach the server. Check your internet connection and try again.',
+          );
+      }
+    }
+
+    final status = response.statusCode ?? 0;
+    String? serverMessage;
+    final data = response.data;
+    if (data is Map && data['message'] != null) {
+      final text = data['message'].toString().trim();
+      if (text.isNotEmpty) serverMessage = text;
+    }
+
+    if (status == 401) {
+      return _errorResult(
+        'INVALID_CREDENTIALS',
+        'Incorrect email or password.',
+      );
+    }
+    if (status == 403) {
+      return _errorResult(
+        'ACCOUNT_DISABLED',
+        serverMessage ?? 'This account is deactivated. Please contact the administrator.',
+      );
+    }
+    if (status == 429) {
+      return _errorResult(
+        'TOO_MANY_ATTEMPTS',
+        serverMessage ?? 'Too many failed login attempts. Please wait 15 minutes and try again.',
+      );
+    }
+    if (status >= 500) {
+      return _errorResult(
+        'SERVER_ERROR',
+        'The server is temporarily unavailable. Please try again in a few minutes.',
+      );
+    }
+    return _errorResult(
+      'REQUEST_FAILED',
+      serverMessage ?? 'Login failed. Please try again.',
+    );
+  }
+
+  Map<String, dynamic> _errorResult(String code, String message) {
+    return <String, dynamic>{
+      'status': 'error',
+      'code': code,
+      'message': message,
+    };
   }
 
   /// قراءة التوكن المحفوظ عند فتح التطبيق.
