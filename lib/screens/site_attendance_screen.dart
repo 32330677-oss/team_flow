@@ -960,7 +960,7 @@ class _SiteAttendanceScreenState extends State<SiteAttendanceScreen> {
                               'transfer_reason': reason.text.trim(),
                             });
                             if (sheet.mounted) Navigator.pop(sheet);
-                            _toast('Transfer request sent to the Admin. Track it and its Word document under Menu → Worker Transfer Request → My Requests.');
+                            _toast('Transfer request sent to the Admin. Track it and its PDF document under Menu → Worker Transfer Request → My Requests.');
                           } on DioException catch (e) {
                             setS(() => sending = false);
                             _toast(_msg(e, 'Failed to send the request.'), color: Colors.red.shade700);

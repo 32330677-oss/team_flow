@@ -48,7 +48,7 @@ class _PendingTransfersScreenState extends State<PendingTransfersScreen> {
       if (bytes == null || bytes.isEmpty) throw Exception('Empty document');
       await PayrollExportService.exportBytes(
         bytes,
-        'Transfer_Request_$requestId.docx',
+        'Transfer_Request_$requestId.pdf',
       );
     } on DioException catch (e) {
       final msg = e.response?.data is Map
@@ -378,9 +378,9 @@ class _PendingTransfersScreenState extends State<PendingTransfersScreen> {
                                         req['request_id'],
                                       ),
                                       icon: const Icon(
-                                        Icons.description_outlined,
+                                        Icons.picture_as_pdf_outlined,
                                       ),
-                                      label: const Text('Word Doc'),
+                                      label: const Text('PDF'),
                                     ),
                                   ),
                                   const SizedBox(width: 10),

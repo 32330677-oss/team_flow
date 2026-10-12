@@ -34,7 +34,7 @@ String? _selectedTargetShiftType;
   final TextEditingController _reasonController = TextEditingController();
 
   // "My Requests": every request this supervisor sent, with its status and
-  // the Word document (Pending copy, or the electronically stamped decision).
+  // the PDF document (Pending copy, or the electronically stamped decision).
   late final TabController _tabController = TabController(length: 2, vsync: this);
   List<dynamic> _myRequests = [];
   bool _isLoadingMine = false;
@@ -136,7 +136,7 @@ Future<void> _downloadTransferDocument(int requestId, {String? status}) async {
     final bytes = response.data;
     if (bytes == null || bytes.isEmpty) throw Exception('Empty document');
     await PayrollExportService.exportBytes(
-        bytes, 'Transfer_Request_${requestId}_${status ?? 'Pending'}.docx');
+        bytes, 'Transfer_Request_${requestId}_${status ?? 'Pending'}.pdf');
   } on DioException catch (e) {
     final msg = e.response?.data is Map
         ? (e.response?.data['message'] ?? 'Failed to download document')
@@ -363,7 +363,7 @@ if (_selectedWorker == null ||
         builder: (_) => AlertDialog(
           title: const Text('Transfer Request Created'),
           content: Text('Request ID: #$requestId\n\n'
-              'The request and its Word document stay under "My Requests". '
+              'The request and its PDF document stay under "My Requests". '
               'Once the Admin decides, the document is re-issued with an electronic '
               'APPROVED / REJECTED stamp.'),
           actions: [
@@ -769,9 +769,9 @@ const SizedBox(height: 20),
                 onPressed: busy ? null : () => _downloadTransferDocument(id, status: status),
                 icon: busy
                     ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2))
-                    : Icon(Icons.description_outlined, color: primaryColor),
+                    : Icon(Icons.picture_as_pdf_outlined, color: primaryColor),
                 label: Text(
-                  decided ? 'Download stamped document' : 'Download Word document',
+                  decided ? 'Download stamped PDF' : 'Download PDF',
                   style: const TextStyle(color: primaryColor, fontWeight: FontWeight.w600),
                 ),
               ),
