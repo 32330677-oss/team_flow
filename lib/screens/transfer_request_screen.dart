@@ -11,7 +11,8 @@ class TransferRequestScreen extends StatefulWidget {
   State<TransferRequestScreen> createState() => _TransferRequestScreenState();
 }
 
-class _TransferRequestScreenState extends State<TransferRequestScreen> {
+class _TransferRequestScreenState extends State<TransferRequestScreen>
+    with SingleTickerProviderStateMixin {
   static const Color primaryColor = Color(0xff1a2a6c);
 
   bool _isLoading = true;
@@ -32,10 +33,35 @@ String? _selectedTargetShiftType;
   // C-11: a reason is mandatory for every transfer request.
   final TextEditingController _reasonController = TextEditingController();
 
+  // "My Requests": every request this supervisor sent, with its status and
+  // the Word document (Pending copy, or the electronically stamped decision).
+  late final TabController _tabController = TabController(length: 2, vsync: this);
+  List<dynamic> _myRequests = [];
+  bool _isLoadingMine = false;
+  String _statusFilter = 'All';
+  int? _downloadingId;
+
   @override
   void dispose() {
+    _tabController.dispose();
     _reasonController.dispose();
     super.dispose();
+  }
+
+  Future<void> _loadMyRequests() async {
+    setState(() => _isLoadingMine = true);
+    try {
+      final response = await ApiConfig.dio.get('/transfers/mine');
+      if (!mounted) return;
+      setState(() {
+        _myRequests = _parseListResponse(response.data);
+        _isLoadingMine = false;
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() => _isLoadingMine = false);
+      _showSnack('Failed to load your transfer requests', Colors.red);
+    }
   }
 
   String get _effectiveDateStr =>
@@ -55,6 +81,7 @@ String? _selectedTargetShiftType;
   void initState() {
     super.initState();
     _loadInitialData();
+    _loadMyRequests();
   }
 
   // دالة مساعدة لاستخراج القائمة بغض النظر عن هيكل الـ JSON القادم
@@ -99,7 +126,8 @@ Future<void> _loadInitialData() async {
       _showSnack('Failed to load sites data', Colors.red);
     }
   }
-Future<void> _downloadTransferDocument(int requestId) async {
+Future<void> _downloadTransferDocument(int requestId, {String? status}) async {
+  setState(() => _downloadingId = requestId);
   try {
     final response = await ApiConfig.dio.get<List<int>>(
       '/transfers/$requestId/document',
@@ -107,7 +135,8 @@ Future<void> _downloadTransferDocument(int requestId) async {
     );
     final bytes = response.data;
     if (bytes == null || bytes.isEmpty) throw Exception('Empty document');
-    await PayrollExportService.exportBytes(bytes, 'Transfer_Request_$requestId.docx');
+    await PayrollExportService.exportBytes(
+        bytes, 'Transfer_Request_${requestId}_${status ?? 'Pending'}.docx');
   } on DioException catch (e) {
     final msg = e.response?.data is Map
         ? (e.response?.data['message'] ?? 'Failed to download document')
@@ -115,6 +144,8 @@ Future<void> _downloadTransferDocument(int requestId) async {
     _showSnack(msg, Colors.red);
   } catch (_) {
     _showSnack('Failed to download document', Colors.red);
+  } finally {
+    if (mounted) setState(() => _downloadingId = null);
   }
 }
   // 2. جلب العمال التابعين للموقع الحالي الذي يختاره المشرف
@@ -331,7 +362,10 @@ if (_selectedWorker == null ||
         context: context,
         builder: (_) => AlertDialog(
           title: const Text('Transfer Request Created'),
-          content: Text('Request ID: #$requestId'),
+          content: Text('Request ID: #$requestId\n\n'
+              'The request and its Word document stay under "My Requests". '
+              'Once the Admin decides, the document is re-issued with an electronic '
+              'APPROVED / REJECTED stamp.'),
           actions: [
             TextButton(
               onPressed: () => Navigator.pop(context),
@@ -340,7 +374,7 @@ if (_selectedWorker == null ||
             FilledButton.icon(
               onPressed: () {
                 Navigator.pop(context);
-                _downloadTransferDocument(requestId);
+                _downloadTransferDocument(requestId, status: 'Pending');
               },
               icon: const Icon(Icons.download),
               label: const Text('Download Transfer Document'),
@@ -350,7 +384,11 @@ if (_selectedWorker == null ||
       );
     }
 
+_reasonController.clear();
+_tabController.animateTo(1);
+_loadMyRequests();
 setState(() {
+  _effectiveDate = DateTime.now();
   _selectedWorker = null;
   _selectedCurrentSite = null;
   _selectedCurrentShiftType = null;
@@ -433,8 +471,34 @@ setState(() {
         ),
         backgroundColor: primaryColor,
         iconTheme: const IconThemeData(color: Colors.white), // 👈 وأضف هذا السطر أيضاً
+        bottom: TabBar(
+          controller: _tabController,
+          labelColor: Colors.white,
+          unselectedLabelColor: Colors.white70,
+          indicatorColor: Colors.amberAccent,
+          tabs: [
+            const Tab(icon: Icon(Icons.add_circle_outline), text: 'New Request'),
+            Tab(
+              icon: const Icon(Icons.folder_open_rounded),
+              text: _pendingCount > 0 ? 'My Requests ($_pendingCount)' : 'My Requests',
+            ),
+          ],
+        ),
       ),
-      body: _isLoading
+      body: TabBarView(
+        controller: _tabController,
+        children: [
+          _buildNewRequestTab(),
+          _buildMyRequestsTab(),
+        ],
+      ),
+    );
+  }
+
+  int get _pendingCount => _myRequests.where((r) => r['status'] == 'Pending').length;
+
+  Widget _buildNewRequestTab() {
+    return _isLoading
           ? const Center(child: CircularProgressIndicator())
           : SingleChildScrollView(
               padding: const EdgeInsets.all(20),
@@ -508,7 +572,213 @@ const SizedBox(height: 20),
                   ),
                 ],
               ),
+            );
+  }
+
+  // ------------------------------------------------------------ My Requests
+
+  static const _statusColors = {
+    'Pending': Color(0xff8a6d00),
+    'Approved': Color(0xff1b7f3b),
+    'Rejected': Color(0xffb3261e),
+  };
+
+  String _fmtDateTime(dynamic v) {
+    if (v == null) return '';
+    final d = DateTime.tryParse(v.toString());
+    if (d == null) return v.toString();
+    final l = d.toLocal();
+    String two(int n) => n.toString().padLeft(2, '0');
+    return '${l.year}-${two(l.month)}-${two(l.day)} ${two(l.hour)}:${two(l.minute)}';
+  }
+
+  Widget _buildMyRequestsTab() {
+    final filtered = _statusFilter == 'All'
+        ? _myRequests
+        : _myRequests.where((r) => r['status'] == _statusFilter).toList();
+
+    return Column(
+      children: [
+        SingleChildScrollView(
+          scrollDirection: Axis.horizontal,
+          padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
+          child: Row(
+            children: ['All', 'Pending', 'Approved', 'Rejected'].map((f) {
+              final count = f == 'All' ? _myRequests.length : _myRequests.where((r) => r['status'] == f).length;
+              return Padding(
+                padding: const EdgeInsets.only(right: 8),
+                child: ChoiceChip(
+                  label: Text('$f ($count)'),
+                  selected: _statusFilter == f,
+                  selectedColor: primaryColor.withOpacity(0.15),
+                  onSelected: (_) => setState(() => _statusFilter = f),
+                ),
+              );
+            }).toList(),
+          ),
+        ),
+        Expanded(
+          child: RefreshIndicator(
+            onRefresh: _loadMyRequests,
+            child: _isLoadingMine && _myRequests.isEmpty
+                ? const Center(child: CircularProgressIndicator())
+                : filtered.isEmpty
+                    ? ListView(children: [
+                        const SizedBox(height: 80),
+                        Icon(Icons.inbox_outlined, size: 56, color: Colors.grey.shade400),
+                        const SizedBox(height: 12),
+                        Center(
+                          child: Text('No transfer requests yet',
+                              style: TextStyle(color: Colors.grey.shade600)),
+                        ),
+                      ])
+                    : ListView.separated(
+                        padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
+                        itemCount: filtered.length,
+                        separatorBuilder: (_, __) => const SizedBox(height: 12),
+                        itemBuilder: (_, i) => _buildRequestCard(filtered[i]),
+                      ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildRequestCard(dynamic r) {
+    final status = (r['status'] ?? 'Pending').toString();
+    final color = _statusColors[status] ?? Colors.grey;
+    final id = r['request_id'] is int ? r['request_id'] as int : int.tryParse('${r['request_id']}') ?? 0;
+    final decided = status != 'Pending';
+    final busy = _downloadingId == id;
+
+    return Container(
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: color.withOpacity(0.35)),
+        boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.04), blurRadius: 6, offset: const Offset(0, 2))],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(14, 12, 14, 6),
+            child: Row(
+              children: [
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(r['worker_name'] ?? '',
+                          style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15)),
+                      Text('Request #$id · ${r['worker_unique_id'] ?? ''}',
+                          style: TextStyle(fontSize: 12, color: Colors.grey.shade600)),
+                    ],
+                  ),
+                ),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                  decoration: BoxDecoration(
+                    color: color.withOpacity(0.1),
+                    borderRadius: BorderRadius.circular(20),
+                    border: Border.all(color: color),
+                  ),
+                  child: Text(status.toUpperCase(),
+                      style: TextStyle(color: color, fontWeight: FontWeight.bold, fontSize: 11)),
+                ),
+              ],
             ),
+          ),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 14),
+            child: Row(
+              children: [
+                const Icon(Icons.location_on_outlined, size: 16, color: Colors.grey),
+                const SizedBox(width: 4),
+                Flexible(
+                  child: Text('${r['current_site_name']} (${r['current_shift_type']})',
+                      overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 13)),
+                ),
+                const Padding(
+                  padding: EdgeInsets.symmetric(horizontal: 6),
+                  child: Icon(Icons.arrow_forward_rounded, size: 16, color: Colors.grey),
+                ),
+                Flexible(
+                  child: Text('${r['target_site_name']} (${r['target_shift_type']})',
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600)),
+                ),
+              ],
+            ),
+          ),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(14, 6, 14, 0),
+            child: Text(
+              'Effective: ${r['effective_date'] ?? '-'} · Sent: ${_fmtDateTime(r['created_at'])}',
+              style: TextStyle(fontSize: 12, color: Colors.grey.shade700),
+            ),
+          ),
+          if ((r['request_reason'] ?? '').toString().isNotEmpty)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(14, 4, 14, 0),
+              child: Text('Reason: ${r['request_reason']}',
+                  maxLines: 2, overflow: TextOverflow.ellipsis,
+                  style: TextStyle(fontSize: 12, color: Colors.grey.shade700)),
+            ),
+          if (decided)
+            Container(
+              margin: const EdgeInsets.fromLTRB(14, 10, 14, 0),
+              padding: const EdgeInsets.all(10),
+              decoration: BoxDecoration(
+                color: color.withOpacity(0.06),
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(color: color.withOpacity(0.5), width: 1.5),
+              ),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Icon(status == 'Approved' ? Icons.verified_rounded : Icons.cancel_rounded, color: color),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text('${status == 'Approved' ? 'Approved' : 'Rejected'} by ${r['reviewed_by_name'] ?? 'Admin'}',
+                            style: TextStyle(color: color, fontWeight: FontWeight.bold, fontSize: 13)),
+                        Text(_fmtDateTime(r['reviewed_at']),
+                            style: TextStyle(fontSize: 11, color: Colors.grey.shade700)),
+                        if ((r['admin_notes'] ?? '').toString().trim().isNotEmpty)
+                          Padding(
+                            padding: const EdgeInsets.only(top: 4),
+                            child: Text(
+                              '${status == 'Rejected' ? 'Reason' : 'Note'}: ${r['admin_notes']}',
+                              style: const TextStyle(fontSize: 12),
+                            ),
+                          ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(8, 4, 8, 4),
+            child: Align(
+              alignment: Alignment.centerRight,
+              child: TextButton.icon(
+                onPressed: busy ? null : () => _downloadTransferDocument(id, status: status),
+                icon: busy
+                    ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2))
+                    : Icon(Icons.description_outlined, color: primaryColor),
+                label: Text(
+                  decided ? 'Download stamped document' : 'Download Word document',
+                  style: const TextStyle(color: primaryColor, fontWeight: FontWeight.w600),
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
     );
   }
 }
