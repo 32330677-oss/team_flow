@@ -394,6 +394,62 @@ class _AdminAttendanceScreenState extends State<AdminAttendanceScreen> {
     lunchToCtrl.dispose();
   }
 
+  /// Admin delete of a record entered on the wrong site/shift. The backend
+  /// refuses it inside a payroll batch, for biometric records and for records
+  /// with correction history; its message is shown as is.
+  Future<void> _showDeleteDialog(Map<String, dynamic> item) async {
+    final id = item['attendance_id'];
+    final reasonCtrl = TextEditingController();
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setLocal) => AlertDialog(
+          title: Text('Delete attendance — ${item['full_name'] ?? ''}'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text('Record date: ${item['record_date']} · ${item['site_name']} (${item['shift_type'] ?? 'Day'})',
+                  style: const TextStyle(fontWeight: FontWeight.w600)),
+              const SizedBox(height: 8),
+              const Text(
+                'Use this only for a record entered on the wrong site or shift. '
+                'After deleting, fix the worker assignment, then enter the day again on the right shift. '
+                'This cannot be undone (the record is kept in the audit log).',
+                style: TextStyle(fontSize: 12.5),
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: reasonCtrl,
+                maxLines: 2,
+                onChanged: (_) => setLocal(() {}),
+                decoration: const InputDecoration(labelText: 'Reason (required)', border: OutlineInputBorder()),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
+            FilledButton(
+              style: FilledButton.styleFrom(backgroundColor: Colors.red.shade700),
+              onPressed: reasonCtrl.text.trim().length < 5 ? null : () => Navigator.pop(ctx, true),
+              child: const Text('Delete'),
+            ),
+          ],
+        ),
+      ),
+    );
+    if (ok == true) {
+      try {
+        final r = await ApiConfig.dio.post('/attendance/$id/admin-delete', data: {'reason': reasonCtrl.text.trim()});
+        _showMessage(r.data is Map ? (r.data['message'] ?? 'Record deleted').toString() : 'Record deleted', true);
+        await _fetchData();
+      } on DioException catch (e) {
+        _showMessage(_errorMessage(e, 'Failed to delete the record.'), false);
+      }
+    }
+    reasonCtrl.dispose();
+  }
+
   Future<String?> _promptForReason(BuildContext context) async {
     final controller = TextEditingController();
     return showDialog<String>(
@@ -1001,6 +1057,13 @@ Future<void> _showManagementLeaveDialog(
   icon: const Icon(Icons.edit_note_rounded, size: 20, color: Colors.indigo),
   onPressed: () => _showCorrectionDialog(item),
 ),
+     if (item['source'] != 'Biometric')
+       IconButton(
+         tooltip: 'Delete record (wrong site/shift)',
+         visualDensity: VisualDensity.compact,
+         icon: Icon(Icons.delete_outline_rounded, size: 20, color: Colors.red.shade700),
+         onPressed: _working ? null : () => _showDeleteDialog(item),
+       ),
      IconButton(
   tooltip: 'Management leave',
   visualDensity: VisualDensity.compact,
