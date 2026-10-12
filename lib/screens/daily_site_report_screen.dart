@@ -1,8 +1,12 @@
 // lib/screens/daily_site_report_screen.dart
 //
-// Daily Site Manpower Report (Admin): the PDF sent to the sub-contractor.
+// Daily Site Report (Admin): the PDF sent to the sub-contractor.
 // Choose the date, the sites (all / some / one), the shift, who it is for and
 // who it is issued by; the live preview shows the counts before generating.
+// Step 5 holds the notes per site (weather, work done, plan for tomorrow,
+// HSE, issues). They are optional, saved as a draft on this device per date,
+// and printed only when filled. The PDF carries head counts only: no names,
+// check-in times, hours or rates.
 // Every generated report gets a number (DSR-YYYYMMDD-####) and can be
 // re-printed later exactly as it was issued.
 //
@@ -14,6 +18,7 @@ import 'dart:convert';
 import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import '../constants.dart';
 import '../widgets/custom_app_bar.dart';
@@ -29,6 +34,98 @@ const Color _kMuted = Color(0xff6e6d72);
 const Color _kLine = Color(0xffe2e1e3);
 const Color _kBg = Color(0xfff6f6f7);
 const Color _kDanger = Color(0xffb3261e);
+
+// Same keys as the backend (services/dailySiteReportPdfLayout.js).
+const Map<String, String> _kWeather = {
+  'sunny': 'Sunny',
+  'cloudy': 'Cloudy',
+  'rain': 'Rain',
+  'wind': 'Strong wind',
+  'dust': 'Dust',
+  'hot': 'Extreme heat',
+  'cold': 'Cold',
+  'storm': 'Storm',
+};
+const Map<String, IconData> _kWeatherIcon = {
+  'sunny': Icons.wb_sunny_rounded,
+  'cloudy': Icons.cloud_rounded,
+  'rain': Icons.water_drop_rounded,
+  'wind': Icons.air_rounded,
+  'dust': Icons.blur_on_rounded,
+  'hot': Icons.thermostat_rounded,
+  'cold': Icons.ac_unit_rounded,
+  'storm': Icons.thunderstorm_rounded,
+};
+const Map<String, String> _kImpact = {'none': 'No impact', 'slowed': 'Work slowed', 'stopped': 'Work stopped'};
+const Map<String, String> _kHse = {
+  'no_incident': 'No incident',
+  'near_miss': 'Near miss',
+  'first_aid': 'First aid',
+  'lost_time': 'Lost time',
+};
+
+/// Notes typed for one site. Empty fields are not sent and not printed.
+class _SiteNotes {
+  String weather = '';
+  String impact = '';
+  String hse = '';
+  final workDone = TextEditingController();
+  final workPlanned = TextEditingController();
+  final toolbox = TextEditingController();
+  final hseDetails = TextEditingController();
+  final issues = TextEditingController();
+
+  List<TextEditingController> get _texts => [workDone, workPlanned, toolbox, hseDetails, issues];
+
+  bool get isEmpty => weather.isEmpty && impact.isEmpty && hse.isEmpty && _texts.every((c) => c.text.trim().isEmpty);
+
+  bool get hasWork => workDone.text.trim().isNotEmpty || workPlanned.text.trim().isNotEmpty;
+  bool get hasHse => hse.isNotEmpty || toolbox.text.trim().isNotEmpty || hseDetails.text.trim().isNotEmpty;
+
+  Map<String, String> toJson() {
+    final m = <String, String>{
+      'weather': weather,
+      'weather_impact': impact,
+      'hse_status': hse,
+      'work_done': workDone.text.trim(),
+      'work_planned': workPlanned.text.trim(),
+      'toolbox_talk': toolbox.text.trim(),
+      'hse_details': hseDetails.text.trim(),
+      'issues': issues.text.trim(),
+    };
+    m.removeWhere((_, v) => v.isEmpty);
+    return m;
+  }
+
+  void fromJson(Map m, {bool textsOnly = false}) {
+    String v(String k) => (m[k] ?? '').toString();
+    if (!textsOnly) {
+      weather = _kWeather.containsKey(v('weather')) ? v('weather') : '';
+      impact = _kImpact.containsKey(v('weather_impact')) ? v('weather_impact') : '';
+      hse = _kHse.containsKey(v('hse_status')) ? v('hse_status') : '';
+      hseDetails.text = v('hse_details');
+    }
+    workDone.text = v('work_done');
+    workPlanned.text = v('work_planned');
+    toolbox.text = v('toolbox_talk');
+    issues.text = v('issues');
+  }
+
+  void clear() {
+    weather = '';
+    impact = '';
+    hse = '';
+    for (final c in _texts) {
+      c.clear();
+    }
+  }
+
+  void dispose() {
+    for (final c in _texts) {
+      c.dispose();
+    }
+  }
+}
 
 class DailySiteReportScreen extends StatefulWidget {
   const DailySiteReportScreen({super.key});
@@ -54,7 +151,12 @@ class _DailySiteReportScreenState extends State<DailySiteReportScreen> {
   final _recipientCtrl = TextEditingController();
   bool _recipientTouched = false;
   bool _includeStaff = true;
-  bool _showAbsentNames = true;
+
+  // Step 5: notes per site (draft kept on this device, per report date).
+  final Map<int, _SiteNotes> _notes = {};
+  Map<String, dynamic> _lastNotes = {};
+  Timer? _draftTimer;
+  static const _draftPrefix = 'dsr_notes_';
 
   Map<String, dynamic>? _preview;
   bool _previewLoading = false;
@@ -74,9 +176,73 @@ class _DailySiteReportScreenState extends State<DailySiteReportScreen> {
   @override
   void dispose() {
     _debounce?.cancel();
+    if (_draftTimer?.isActive ?? false) {
+      _draftTimer!.cancel();
+      _saveDraft();
+    }
     _recipientCtrl.dispose();
+    for (final n in _notes.values) {
+      n.dispose();
+    }
     super.dispose();
   }
+
+  // ------------------------------------------------------------ site notes
+  _SiteNotes _notesFor(int siteId) => _notes.putIfAbsent(siteId, () => _SiteNotes());
+
+  String get _draftKey => '$_draftPrefix${_apiFmt.format(_date)}';
+
+  void _notesChanged() {
+    setState(() {});
+    _draftTimer?.cancel();
+    _draftTimer = Timer(const Duration(milliseconds: 600), _saveDraft);
+  }
+
+  Future<void> _saveDraft() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final data = <String, dynamic>{
+        for (final e in _notes.entries)
+          if (!e.value.isEmpty) e.key.toString(): e.value.toJson(),
+      };
+      if (data.isEmpty) {
+        await prefs.remove(_draftKey);
+      } else {
+        await prefs.setString(_draftKey, jsonEncode(data));
+      }
+    } catch (_) {/* a draft is a convenience only */}
+  }
+
+  /// Loads the draft of the selected date (replaces what is on screen) and
+  /// drops drafts older than two weeks.
+  Future<void> _loadDraft() async {
+    for (final n in _notes.values) {
+      n.clear();
+    }
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final cutoff = _apiFmt.format(_today.subtract(const Duration(days: 14)));
+      for (final k in prefs.getKeys().where((k) => k.startsWith(_draftPrefix)).toList()) {
+        if (k.substring(_draftPrefix.length).compareTo(cutoff) < 0) await prefs.remove(k);
+      }
+      final raw = prefs.getString(_draftKey);
+      if (raw != null) {
+        final d = jsonDecode(raw);
+        if (d is Map) {
+          d.forEach((k, v) {
+            final id = int.tryParse(k.toString());
+            if (id != null && v is Map) _notesFor(id).fromJson(v);
+          });
+        }
+      }
+    } catch (_) {/* ignore a broken draft */}
+    if (mounted) setState(() {});
+  }
+
+  Map<String, dynamic> _notesBody() => {
+        for (final id in _selected)
+          if (_notes[id] != null && !_notes[id]!.isEmpty) id.toString(): _notes[id]!.toJson(),
+      };
 
   // ------------------------------------------------------------------ data
   String _err(Object e, String fallback) {
@@ -111,6 +277,7 @@ class _DailySiteReportScreenState extends State<DailySiteReportScreen> {
       final res = await ApiConfig.dio.get('/reports/daily-site/options');
       final d = Map<String, dynamic>.from(res.data['data'] as Map);
       _sites = (d['sites'] as List? ?? []).map((e) => Map<String, dynamic>.from(e as Map)).toList();
+      _lastNotes = d['last_notes'] is Map ? Map<String, dynamic>.from(d['last_notes'] as Map) : {};
       _signatories = (d['signatories'] as List? ?? []).map((e) => Map<String, dynamic>.from(e as Map)).toList();
       final t = DateTime.tryParse(d['business_today']?.toString() ?? '');
       if (t != null) {
@@ -126,6 +293,7 @@ class _DailySiteReportScreenState extends State<DailySiteReportScreen> {
       if (mounted) setState(() {});
       _schedulePreview(immediate: true);
       _loadHistory();
+      _loadDraft();
     } catch (e) {
       if (!mounted) return;
       setState(() {
@@ -162,7 +330,7 @@ class _DailySiteReportScreenState extends State<DailySiteReportScreen> {
         'recipient_name': _recipientCtrl.text.trim(),
         if (_signatoryId != null) 'signatory_id': _signatoryId,
         'include_staff': _includeStaff,
-        'show_absent_names': _showAbsentNames,
+        'site_notes': _notesBody(),
       };
 
   void _changed({bool recipient = true}) {
@@ -355,8 +523,13 @@ class _DailySiteReportScreenState extends State<DailySiteReportScreen> {
       ),
     );
     if (picked == null) return;
+    if (_draftTimer?.isActive ?? false) {
+      _draftTimer!.cancel();
+      await _saveDraft(); // keep what was typed for the previous date
+    }
     _date = picked;
     _changed(recipient: false);
+    _loadDraft();
   }
 
   // ------------------------------------------------------------------ UI
@@ -599,16 +772,185 @@ class _DailySiteReportScreenState extends State<DailySiteReportScreen> {
             _includeStaff = v;
             _changed(recipient: false);
           }),
-          const Divider(height: 1, color: _kLine),
-          _switch('Show names of people not on site', 'Absent, sick, on leave or not recorded yet. Off = counts only.', _showAbsentNames,
-              (v) {
-            _showAbsentNames = v;
-            _changed(recipient: false);
-          }),
         ]),
       ),
+
+      // 5. Site notes
+      _notesCard(),
     ]);
   }
+
+  Widget _notesCard() {
+    final chosen = _sites.where((s) => _selected.contains(s['site_id'])).toList();
+    final filled = chosen.where((s) => !(_notes[s['site_id']]?.isEmpty ?? true)).length;
+    return _card(
+      step: '5',
+      title: 'Site notes',
+      hint: chosen.isEmpty
+          ? 'Optional. Choose sites first.'
+          : 'Optional. $filled of ${chosen.length} site(s) filled. Empty notes are not printed.',
+      child: chosen.isEmpty
+          ? const Text('Choose at least one site in step 2.', style: TextStyle(color: _kMuted))
+          : Container(
+              decoration: BoxDecoration(border: Border.all(color: _kLine), borderRadius: BorderRadius.circular(10)),
+              clipBehavior: Clip.antiAlias,
+              child: Column(children: [
+                for (var i = 0; i < chosen.length; i++) ...[
+                  if (i > 0) const Divider(height: 1, color: _kLine),
+                  _siteNotesTile(chosen[i]),
+                ],
+              ]),
+            ),
+    );
+  }
+
+  Widget _siteNotesTile(Map<String, dynamic> site) {
+    final id = site['site_id'] as int;
+    final n = _notesFor(id);
+    final last = _lastNotes[id.toString()] as Map?;
+    final tags = <String>[
+      if (n.weather.isNotEmpty) _kWeather[n.weather]!,
+      if (n.hasWork) 'Work',
+      if (n.hasHse) n.hse.isNotEmpty ? _kHse[n.hse]! : 'HSE',
+      if (n.issues.text.trim().isNotEmpty) 'Issues',
+    ];
+    final incident = n.hse.isNotEmpty && n.hse != 'no_incident';
+
+    return Theme(
+      data: Theme.of(context).copyWith(dividerColor: Colors.transparent),
+      child: ExpansionTile(
+        key: PageStorageKey('dsr-notes-$id'),
+        tilePadding: const EdgeInsets.symmetric(horizontal: 14),
+        childrenPadding: const EdgeInsets.fromLTRB(14, 0, 14, 16),
+        expandedCrossAxisAlignment: CrossAxisAlignment.stretch,
+        backgroundColor: _kGoldPale.withValues(alpha: 0.5),
+        leading: Icon(
+          n.isEmpty ? Icons.edit_note_rounded : Icons.check_circle_rounded,
+          color: n.isEmpty ? _kMuted : (incident ? _kDanger : _kGold),
+        ),
+        title: Text(site['site_name']?.toString() ?? '', style: const TextStyle(fontWeight: FontWeight.w700, color: _kInk)),
+        subtitle: Text(
+          tags.isEmpty ? 'No notes' : tags.join(' · '),
+          style: TextStyle(fontSize: 12, color: incident ? _kDanger : _kMuted),
+        ),
+        children: [
+          if (last != null)
+            Align(
+              alignment: AlignmentDirectional.centerStart,
+              child: TextButton.icon(
+                style: TextButton.styleFrom(foregroundColor: _kGoldDark, padding: EdgeInsets.zero),
+                onPressed: () {
+                  n.fromJson(Map<String, dynamic>.from(last['notes'] as Map? ?? {}), textsOnly: true);
+                  _notesChanged();
+                },
+                icon: const Icon(Icons.content_copy_rounded, size: 16),
+                label: Text('Copy text from ${last['report_no']} (${last['report_date']})', style: const TextStyle(fontSize: 12.5)),
+              ),
+            ),
+          _notesLabel('Weather'),
+          Wrap(spacing: 6, runSpacing: 6, children: [
+            for (final e in _kWeather.entries)
+              ChoiceChip(
+                avatar: Icon(_kWeatherIcon[e.key], size: 16, color: n.weather == e.key ? Colors.white : _kGoldDark),
+                label: Text(e.value),
+                selected: n.weather == e.key,
+                showCheckmark: false,
+                selectedColor: _kCharcoal,
+                labelStyle: TextStyle(color: n.weather == e.key ? Colors.white : _kInk, fontSize: 12.5),
+                side: BorderSide(color: n.weather == e.key ? _kCharcoal : _kLine),
+                onSelected: (v) {
+                  n.weather = v ? e.key : '';
+                  if (!v) n.impact = '';
+                  _notesChanged();
+                },
+              ),
+          ]),
+          if (n.weather.isNotEmpty) ...[
+            const SizedBox(height: 8),
+            SegmentedButton<String>(
+              style: SegmentedButton.styleFrom(selectedBackgroundColor: _kCharcoal, selectedForegroundColor: Colors.white),
+              showSelectedIcon: false,
+              emptySelectionAllowed: true,
+              segments: [for (final e in _kImpact.entries) ButtonSegment(value: e.key, label: Text(e.value))],
+              selected: n.impact.isEmpty ? <String>{} : {n.impact},
+              onSelectionChanged: (v) {
+                n.impact = v.isEmpty ? '' : v.first;
+                _notesChanged();
+              },
+            ),
+          ],
+          _notesLabel('Work'),
+          _notesField(n.workDone, 'Work carried out today', 'e.g. Level 7 slab rebar completed for zones A and B.', lines: 3, max: 1500),
+          const SizedBox(height: 10),
+          _notesField(n.workPlanned, 'Planned for tomorrow', 'e.g. Pour level 7 slab zone A (night shift).', lines: 2, max: 1000),
+          _notesLabel('Health & safety'),
+          Wrap(spacing: 6, runSpacing: 6, children: [
+            for (final e in _kHse.entries)
+              ChoiceChip(
+                label: Text(e.value),
+                selected: n.hse == e.key,
+                showCheckmark: false,
+                selectedColor: e.key == 'no_incident' ? _kCharcoal : _kDanger,
+                labelStyle: TextStyle(color: n.hse == e.key ? Colors.white : _kInk, fontSize: 12.5),
+                side: BorderSide(color: n.hse == e.key ? Colors.transparent : _kLine),
+                onSelected: (v) {
+                  n.hse = v ? e.key : '';
+                  _notesChanged();
+                },
+              ),
+          ]),
+          const SizedBox(height: 10),
+          _notesField(n.toolbox, 'Toolbox talk topic', 'e.g. Working at height', max: 160),
+          if (incident || n.hseDetails.text.isNotEmpty) ...[
+            const SizedBox(height: 10),
+            _notesField(n.hseDetails, 'What happened and what was done', 'Short description, no personal details.', lines: 2, max: 800),
+          ],
+          _notesLabel('Issues, delays & instructions required'),
+          _notesField(n.issues, 'Issues / delays / what you need from the client', 'e.g. Waiting for approval of the MEP sleeves.',
+              lines: 2, max: 1200),
+          if (!n.isEmpty)
+            Align(
+              alignment: AlignmentDirectional.centerEnd,
+              child: TextButton(
+                onPressed: () {
+                  n.clear();
+                  _notesChanged();
+                },
+                child: const Text('Clear notes for this site', style: TextStyle(color: _kMuted, fontSize: 12)),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
+  Widget _notesLabel(String text) => Padding(
+        padding: const EdgeInsets.only(top: 14, bottom: 6),
+        child: Align(
+          alignment: AlignmentDirectional.centerStart,
+          child: Text(text.toUpperCase(),
+              style: const TextStyle(fontSize: 10.5, letterSpacing: 1, color: _kGoldDark, fontWeight: FontWeight.w700)),
+        ),
+      );
+
+  Widget _notesField(TextEditingController c, String label, String hint, {int lines = 1, int max = 500}) => TextField(
+        controller: c,
+        minLines: lines,
+        maxLines: lines == 1 ? 1 : lines + 4,
+        maxLength: max,
+        keyboardType: lines == 1 ? TextInputType.text : TextInputType.multiline,
+        onChanged: (_) => _notesChanged(),
+        decoration: InputDecoration(
+          labelText: label,
+          hintText: hint,
+          hintStyle: const TextStyle(fontSize: 12.5, color: _kMuted),
+          isDense: true,
+          counterText: '',
+          filled: true,
+          fillColor: Colors.white,
+          border: const OutlineInputBorder(),
+        ),
+      );
 
   Widget _switch(String title, String sub, bool value, ValueChanged<bool> onChanged) => SwitchListTile(
         contentPadding: EdgeInsets.zero,
@@ -703,7 +1045,7 @@ class _DailySiteReportScreenState extends State<DailySiteReportScreen> {
             ),
             const SizedBox(height: 8),
             const Text(
-              'Counts use check-ins recorded so far today. Hours, rates and personal details are never included.',
+              'Head counts use check-ins recorded so far today. Names, check-in times, hours and rates are never printed.',
               textAlign: TextAlign.center,
               style: TextStyle(fontSize: 11.5, color: _kMuted),
             ),
