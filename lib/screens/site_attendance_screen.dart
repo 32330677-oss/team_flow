@@ -1521,6 +1521,9 @@ class _SiteAttendanceScreenState extends State<SiteAttendanceScreen> {
               if (wf == 'Draft') StatusPill(label: 'Draft', color: WorkflowColors.of('Draft')),
               if (_isCarryOver(w)) StatusPill(label: 'Started ${_short(w['attendance_record_date'])}', color: Colors.teal, icon: Icons.nights_stay_rounded),
               if (w['attendance_source'] == 'Biometric') StatusPill(label: 'Biometric', color: Colors.cyan.shade800, icon: Icons.fingerprint_rounded),
+              // Corrected by the Admin: read-only for the supervisor (the record is Submitted/Approved).
+              if (w['admin_corrected'] == 1 || w['admin_corrected'] == true || w['admin_corrected'] == '1')
+                StatusPill(label: 'Corrected by Admin', color: Colors.indigo.shade700, icon: Icons.verified_user_rounded),
               if (lunchPill != null) lunchPill,
             ]),
             if (w['attendance_status'] == null || w['attendance_status'] == 'Present') ...[
