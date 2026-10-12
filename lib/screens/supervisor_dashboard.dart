@@ -7,6 +7,7 @@ import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:intl/intl.dart';
 import 'site_attendance_screen.dart';
 import 'change_password_screen.dart';
+import '../assistant/help_entry.dart';
 
 class SupervisorDashboard extends StatefulWidget {
   final int supervisorId;
@@ -74,6 +75,11 @@ class _SupervisorDashboardState extends State<SupervisorDashboard> {
         iconTheme: const IconThemeData(color: Colors.white),
         actions: [
           IconButton(
+            icon: const Icon(Icons.help_center_rounded, color: Colors.white),
+            tooltip: 'Help & Assistant',
+            onPressed: () => HelpEntry.open(contextScreen: 'supervisor_home'),
+          ),
+          IconButton(
             icon: const Icon(Icons.warning_amber_rounded, color: Colors.amberAccent),
             tooltip: 'Rejected Records',
             onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const RejectedRecordsScreen())),
@@ -117,6 +123,14 @@ class _SupervisorDashboardState extends State<SupervisorDashboard> {
                   context,
                   MaterialPageRoute(builder: (_) => const TransferRequestScreen()),
                 );
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.help_center_rounded, color: Color(0xff1a2a6c)),
+              title: const Text('Help & Assistant', style: TextStyle(fontWeight: FontWeight.w600)),
+              onTap: () {
+                Navigator.pop(context);
+                HelpEntry.open(contextScreen: 'supervisor_home');
               },
             ),
             ListTile(

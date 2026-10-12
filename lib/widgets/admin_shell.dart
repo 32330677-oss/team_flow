@@ -18,6 +18,7 @@ import 'package:team_flow/constants.dart';
 
 import '../screens/admin_attendance_screen.dart';
 import '../screens/analytics_dashboard_screen.dart';
+import '../assistant/help_entry.dart';
 import '../screens/biometric_import_screen.dart';
 import '../screens/biometric_processing_screen.dart';
 import '../screens/change_password_screen.dart';
@@ -37,33 +38,55 @@ const Color _kNavy = Color(0xff1a2a6c);
 const Color _kAccent = Color(0xfffdbb2d);
 
 class _ShellItem {
+  /// Stable id, shared with the in-app assistant (backend services/assistantScreens.js).
+  final String id;
   final IconData icon;
   final String label;
   final Widget Function() build;
-  const _ShellItem(this.icon, this.label, this.build);
+  const _ShellItem(this.id, this.icon, this.label, this.build);
 }
 
 final List<_ShellItem> _shellItems = [
-  _ShellItem(Icons.monitor_heart_rounded, 'Live Operations', () => const AnalyticsDashboardScreen()),
-  _ShellItem(Icons.engineering_rounded, 'Workers', () => const WorkersScreen()),
-  _ShellItem(Icons.fact_check_rounded, 'Attendance Review', () => const AdminAttendanceScreen()),
-  _ShellItem(Icons.summarize_rounded, 'Daily Site Report', () => const DailySiteReportScreen()),
-  _ShellItem(Icons.payments_rounded, 'Payroll', () => const PayrollScreen()),
-  _ShellItem(Icons.business_rounded, 'Projects', () => const ProjectManagementScreen()),
-  _ShellItem(Icons.alt_route_rounded, 'Worker Distribution', () => const WorkerAssignmentScreen()),
-  _ShellItem(Icons.people_alt_rounded, 'HR Management', () => const HRManagementScreen()),
-  _ShellItem(Icons.swap_horiz_rounded, 'Transfer Requests', () => const PendingTransfersScreen()),
-  _ShellItem(Icons.badge_rounded, 'Staff Attendance & Payroll', () => const StaffAttendancePayrollHub()),
-  _ShellItem(Icons.manage_accounts_rounded, 'Supervisors Management', () => const SupervisorManagementScreen()),
-  _ShellItem(Icons.fingerprint_rounded, 'Biometric Processing', () => const BiometricProcessingScreen()),
-  _ShellItem(Icons.upload_file_rounded, 'Biometric Import', () => const BiometricImportScreen()),
-  _ShellItem(Icons.link_rounded, 'Device ID Mapping', () => const DeviceIdMappingScreen()),
+  _ShellItem('live_operations', Icons.monitor_heart_rounded, 'Live Operations', () => const AnalyticsDashboardScreen()),
+  _ShellItem('workers', Icons.engineering_rounded, 'Workers', () => const WorkersScreen()),
+  _ShellItem('attendance_review', Icons.fact_check_rounded, 'Attendance Review', () => const AdminAttendanceScreen()),
+  _ShellItem('daily_site_report', Icons.summarize_rounded, 'Daily Site Report', () => const DailySiteReportScreen()),
+  _ShellItem('payroll', Icons.payments_rounded, 'Payroll', () => const PayrollScreen()),
+  _ShellItem('projects', Icons.business_rounded, 'Projects', () => const ProjectManagementScreen()),
+  _ShellItem('worker_distribution', Icons.alt_route_rounded, 'Worker Distribution', () => const WorkerAssignmentScreen()),
+  _ShellItem('hr_management', Icons.people_alt_rounded, 'HR Management', () => const HRManagementScreen()),
+  _ShellItem('transfer_requests', Icons.swap_horiz_rounded, 'Transfer Requests', () => const PendingTransfersScreen()),
+  _ShellItem('staff_attendance_payroll', Icons.badge_rounded, 'Staff Attendance & Payroll', () => const StaffAttendancePayrollHub()),
+  _ShellItem('supervisors_management', Icons.manage_accounts_rounded, 'Supervisors Management', () => const SupervisorManagementScreen()),
+  _ShellItem('biometric_processing', Icons.fingerprint_rounded, 'Biometric Processing', () => const BiometricProcessingScreen()),
+  _ShellItem('biometric_import', Icons.upload_file_rounded, 'Biometric Import', () => const BiometricImportScreen()),
+  _ShellItem('device_id_mapping', Icons.link_rounded, 'Device ID Mapping', () => const DeviceIdMappingScreen()),
 ];
 
 /// Whether the Admin sidebar is shown, and which item is selected.
 class AdminChromeState {
   static final ValueNotifier<bool> enabled = ValueNotifier<bool>(false);
   static final ValueNotifier<int> selected = ValueNotifier<int>(0);
+
+  /// Set by the sidebar while it exists: opens a sidebar page by index.
+  static void Function(int index)? _openIndex;
+
+  /// True when [id] is a sidebar page (see [_shellItems]).
+  static bool hasItem(String id) => _shellItems.any((i) => i.id == id);
+
+  /// Id of the sidebar page currently selected.
+  static String get selectedId {
+    final i = selected.value;
+    return (i >= 0 && i < _shellItems.length) ? _shellItems[i].id : _shellItems.first.id;
+  }
+
+  /// Opens the sidebar page [id] exactly like a tap on the sidebar.
+  static bool openById(String id) {
+    final index = _shellItems.indexWhere((i) => i.id == id);
+    if (index < 0 || _openIndex == null) return false;
+    _openIndex!(index);
+    return true;
+  }
 
   /// Called after the frame (never during a build).
   static void setEnabled(bool value) {
@@ -115,6 +138,18 @@ class _AdminChromeState extends State<AdminChrome> {
 
   NavigatorState? get _nav => ApiConfig.navigatorKey.currentState;
 
+  @override
+  void initState() {
+    super.initState();
+    AdminChromeState._openIndex = _select;
+  }
+
+  @override
+  void dispose() {
+    if (AdminChromeState._openIndex == _select) AdminChromeState._openIndex = null;
+    super.dispose();
+  }
+
   void _closeDrawer() {
     final s = _scaffoldKey.currentState;
     if (s != null && s.isDrawerOpen) s.closeDrawer();
@@ -131,6 +166,11 @@ class _AdminChromeState extends State<AdminChrome> {
       ),
       (route) => false,
     );
+  }
+
+  void _openHelp() {
+    _closeDrawer();
+    HelpEntry.open(contextScreen: AdminChromeState.selectedId);
   }
 
   void _openChangePassword() {
@@ -176,6 +216,7 @@ class _AdminChromeState extends State<AdminChrome> {
           builder: (_, sel, __) => AdminSidebar(
             selected: sel,
             onSelect: _select,
+            onHelp: _openHelp,
             onChangePassword: _openChangePassword,
             onLogout: _confirmLogout,
           ),
@@ -206,6 +247,7 @@ class _AdminChromeState extends State<AdminChrome> {
 class AdminSidebar extends StatelessWidget {
   final int selected;
   final ValueChanged<int> onSelect;
+  final VoidCallback? onHelp;
   final VoidCallback onChangePassword;
   final VoidCallback onLogout;
 
@@ -213,6 +255,7 @@ class AdminSidebar extends StatelessWidget {
     super.key,
     required this.selected,
     required this.onSelect,
+    this.onHelp,
     required this.onChangePassword,
     required this.onLogout,
   });
@@ -247,6 +290,7 @@ class AdminSidebar extends StatelessWidget {
             ),
             Divider(height: 1, thickness: 1, color: Colors.white.withValues(alpha: 0.12)),
             const SizedBox(height: 6),
+            if (onHelp != null) _tile(Icons.help_center_rounded, 'Help & Assistant', onHelp),
             _tile(Icons.lock_reset_rounded, 'Change Password', onChangePassword),
             _tile(Icons.logout_rounded, 'Log Out', onLogout),
             const SizedBox(height: 8),

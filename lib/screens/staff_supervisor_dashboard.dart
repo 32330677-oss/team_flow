@@ -4,6 +4,7 @@ import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'login_screen.dart';
 import 'staff_supervisor_attendance_screen.dart';
 import 'change_password_screen.dart';
+import '../assistant/help_entry.dart';
 
 class StaffSupervisorDashboard extends StatelessWidget {
   final int supervisorId;
@@ -21,6 +22,13 @@ class StaffSupervisorDashboard extends StatelessWidget {
       appBar: AppBar(
         backgroundColor: const Color(0xff1a2a6c),
         title: Text('Welcome, $supervisorName'),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.help_center_rounded, color: Colors.white),
+            tooltip: 'Help & Assistant',
+            onPressed: () => HelpEntry.open(contextScreen: 'staff_supervisor_home'),
+          ),
+        ],
       ),
       drawer: Drawer(
         child: ListView(
@@ -33,6 +41,14 @@ class StaffSupervisorDashboard extends StatelessWidget {
               decoration: const BoxDecoration(
                 color: Color(0xff1a2a6c),
               ),
+            ),
+            ListTile(
+              leading: const Icon(Icons.help_center_rounded, color: Color(0xff1a2a6c)),
+              title: const Text('Help & Assistant'),
+              onTap: () {
+                Navigator.pop(context);
+                HelpEntry.open(contextScreen: 'staff_supervisor_home');
+              },
             ),
             ListTile(
               leading: const Icon(Icons.lock_reset_rounded, color: Color(0xff1a2a6c)),
