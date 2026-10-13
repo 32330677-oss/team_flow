@@ -5,6 +5,7 @@ import 'package:team_flow/constants.dart';
 import '../widgets/custom_app_bar.dart';
 import '../widgets/app_drawer.dart';
 import '../widgets/help_tip.dart';
+import '../widgets/app_data_table.dart' show AppDataTableCard, AppColors;
 class AdminAttendanceScreen extends StatefulWidget {
   const AdminAttendanceScreen({super.key});
 
@@ -877,10 +878,59 @@ Future<void> _showManagementLeaveDialog(
     );
   }
 
-  // Compact per-worker card. Shows an Overtime badge only when overtime_hours > 0.
-  Widget _workerCard(Map<String, dynamic> item) {
+  // ── Worker attendance table (shared AppDataTableCard) ──────────────────
+  static DataColumn _col(String label) => DataColumn(
+        label: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 12),
+          child: Text(label),
+        ),
+      );
+
+  static final List<DataColumn> _workerColumns = [
+    const DataColumn(label: SizedBox(width: 44)),
+    _col('Worker'),
+    _col('Status'),
+    _col('Check in'),
+    _col('Check out'),
+    _col('Hours'),
+    _col('Overtime'),
+    _col('Mgmt leave'),
+    _col('Notes'),
+    _col('Actions'),
+  ];
+
+  DataCell _cell(Widget child) => DataCell(
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 12),
+          child: child,
+        ),
+      );
+
+  Widget _pill(String text, Color color, {IconData? icon}) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+      decoration: BoxDecoration(
+        color: color.withOpacity(.10),
+        borderRadius: BorderRadius.circular(20),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          if (icon != null) ...[
+            Icon(icon, size: 12, color: color),
+            const SizedBox(width: 3),
+          ],
+          Text(text, style: TextStyle(fontSize: 11, fontWeight: FontWeight.w700, color: color)),
+        ],
+      ),
+    );
+  }
+
+  // One table row per attendance record. Same data and same actions the
+  // old per-worker card had — only the presentation changed.
+  DataRow? _workerRow(Map<String, dynamic> item) {
     final id = int.tryParse('${item['attendance_id']}');
-    if (id == null) return const SizedBox.shrink();
+    if (id == null) return null;
 
     final status = '${item['status'] ?? item['attendance_status'] ?? 'Submitted'}';
     final rejected = status == 'Rejected';
@@ -890,195 +940,141 @@ Future<void> _showManagementLeaveDialog(
     final hasOvertime = overtimeHours > 0;
     final managementHours = double.tryParse('${item['management_leave_hours'] ?? 0}') ?? 0;
 
-    return Container(
-      margin: const EdgeInsets.only(bottom: 8),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: selected ? Colors.indigo : Colors.grey.shade200, width: selected ? 1.4 : 1),
-      ),
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
+    // Notes: anomaly (needs review / reviewed) and admin rejection note.
+    final notes = <Widget>[];
+    if (item['anomaly_code'] != null) {
+      final open = item['anomaly_ack_at'] == null;
+      final text = open
+          ? 'Needs review: ${item['anomaly_detail'] ?? item['anomaly_code']}'
+          : 'Reviewed: ${item['anomaly_ack_note'] ?? ''}';
+      notes.add(Tooltip(
+        message: text,
+        child: Row(mainAxisSize: MainAxisSize.min, children: [
+          Icon(Icons.report_problem_rounded, size: 15,
+              color: open ? Colors.orange.shade800 : Colors.grey),
+          const SizedBox(width: 4),
+          Flexible(
+            child: Text(
+              text,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(fontSize: 12, color: Colors.orange.shade900),
+            ),
+          ),
+        ]),
+      ));
+    }
+    if (rejected && item['admin_rejection_notes'] != null) {
+      final text = '${item['admin_rejection_notes']}';
+      notes.add(Tooltip(
+        message: text,
+        child: Text(
+          text,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: TextStyle(color: Colors.red.shade800, fontSize: 12),
+        ),
+      ));
+    }
+
+    return DataRow(
+      key: ValueKey('att-$id'),
+      selected: selected,
+      cells: [
+        DataCell(Center(
+          child: Checkbox(
+            value: selected,
+            visualDensity: VisualDensity.compact,
+            materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+            onChanged: (v) => setState(() => v == true ? _selectedIds.add(id) : _selectedIds.remove(id)),
+          ),
+        )),
+        _cell(ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 200),
+          child: Text(
+            '${item['full_name'] ?? 'Worker'}',
+            style: const TextStyle(fontSize: 13.5, fontWeight: FontWeight.w700),
+            overflow: TextOverflow.ellipsis,
+          ),
+        )),
+        _cell(_statusChip(status)),
+        _cell(Text(_timeOnly(item['check_in_time']))),
+        _cell(Text(_timeOnly(item['check_out_time']))),
+        _cell(Text('${item['total_working_hours'] ?? '--'}h')),
+        _cell(hasOvertime
+            ? _pill('${overtimeHours.toStringAsFixed(2)}h', Colors.deepPurple.shade400, icon: Icons.bolt_rounded)
+            : Text('—', style: TextStyle(color: Colors.grey.shade500))),
+        _cell(managementHours > 0
+            ? _pill('${managementHours.toStringAsFixed(2)}h', Colors.teal.shade700)
+            : Text('—', style: TextStyle(color: Colors.grey.shade500))),
+        _cell(notes.isEmpty
+            ? Text('—', style: TextStyle(color: Colors.grey.shade500))
+            : SizedBox(
+                width: 220,
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: notes,
+                ),
+              )),
+        _cell(Row(
+          mainAxisSize: MainAxisSize.min,
           children: [
-            Row(
-              children: [
-                Checkbox(
-                  value: selected,
-                  visualDensity: VisualDensity.compact,
-                  materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                  onChanged: (v) => setState(() => v == true ? _selectedIds.add(id) : _selectedIds.remove(id)),
-                ),
-                const SizedBox(width: 4),
-                Expanded(
-                  child: Text(
-                    '${item['full_name'] ?? 'Worker'}',
-                    style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w700),
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                ),
-                _statusChip(status),
-              ],
-            ),
-            const SizedBox(height: 6),
-            Row(
-              children: [
-                Icon(Icons.login_rounded, size: 13, color: Colors.grey.shade600),
-                const SizedBox(width: 3),
-                Text(_timeOnly(item['check_in_time']), style: const TextStyle(fontSize: 12.5)),
-                const SizedBox(width: 12),
-                Icon(Icons.logout_rounded, size: 13, color: Colors.grey.shade600),
-                const SizedBox(width: 3),
-                Text(_timeOnly(item['check_out_time']), style: const TextStyle(fontSize: 12.5)),
-                const SizedBox(width: 12),
-                Icon(Icons.timelapse_rounded, size: 13, color: Colors.grey.shade600),
-                const SizedBox(width: 3),
-                Text('${item['total_working_hours'] ?? '--'}h', style: const TextStyle(fontSize: 12.5)),
-              ],
-            ),
-            const SizedBox(height: 6),
-            Wrap(
-              spacing: 6,
-              runSpacing: 4,
-              children: [
-                // Overtime indicator — only rendered when > 0.
-                if (hasOvertime)
-                  Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                    decoration: BoxDecoration(
-                      color: Colors.deepPurple.withOpacity(.10),
-                      borderRadius: BorderRadius.circular(20),
-                    ),
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Icon(Icons.bolt_rounded, size: 12, color: Colors.deepPurple.shade400),
-                        const SizedBox(width: 3),
-                        Text(
-                          'Overtime: ${overtimeHours.toStringAsFixed(2)}h',
-                          style: TextStyle(fontSize: 11, fontWeight: FontWeight.w700, color: Colors.deepPurple.shade400),
-                        ),
-                      ],
-                    ),
-                  )
-                else
-                  Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                    decoration: BoxDecoration(
-                      color: Colors.grey.withOpacity(.10),
-                      borderRadius: BorderRadius.circular(20),
-                    ),
-                    child: Text('No overtime', style: TextStyle(fontSize: 11, color: Colors.grey.shade600)),
-                  ),
-                if (managementHours > 0)
-                  Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                    decoration: BoxDecoration(
-                      color: Colors.teal.withOpacity(.10),
-                      borderRadius: BorderRadius.circular(20),
-                    ),
-                    child: Text(
-                      'Mgmt leave: ${managementHours.toStringAsFixed(2)}h',
-                      style: TextStyle(fontSize: 11, fontWeight: FontWeight.w700, color: Colors.teal.shade700),
-                    ),
-                  ),
-              ],
-            ),
-            if (item['anomaly_code'] != null) ...[
-              const SizedBox(height: 8),
-              Container(
-                width: double.infinity,
-                padding: const EdgeInsets.all(8),
-                decoration: BoxDecoration(
-                  color: item['anomaly_ack_at'] == null ? Colors.orange.shade50 : Colors.grey.shade100,
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: Row(children: [
-                  Icon(Icons.report_problem_rounded, size: 16,
-                      color: item['anomaly_ack_at'] == null ? Colors.orange.shade800 : Colors.grey),
-                  const SizedBox(width: 6),
-                  Expanded(
-                    child: Text(
-                      item['anomaly_ack_at'] == null
-                          ? 'Needs review: ${item['anomaly_detail'] ?? item['anomaly_code']}'
-                          : 'Reviewed: ${item['anomaly_ack_note'] ?? ''}',
-                      style: TextStyle(fontSize: 12, color: Colors.orange.shade900),
-                    ),
-                  ),
-                ]),
-              ),
-            ],
-            if (rejected && item['admin_rejection_notes'] != null) ...[
-              const SizedBox(height: 8),
-              Container(
-                width: double.infinity,
-                padding: const EdgeInsets.all(8),
-                decoration: BoxDecoration(color: Colors.red.shade50, borderRadius: BorderRadius.circular(8)),
-                child: Text(
-                  '${item['admin_rejection_notes']}',
-                  style: TextStyle(color: Colors.red.shade800, fontSize: 12),
+            if (status == 'Submitted')
+              TextButton.icon(
+                onPressed: _working ? null : () => _reviewSelected([id], 'Approved'),
+                icon: const Icon(Icons.check, size: 16),
+                label: const Text('Approve', style: TextStyle(fontSize: 12.5)),
+                style: TextButton.styleFrom(
+                  foregroundColor: Colors.green.shade700,
+                  padding: const EdgeInsets.symmetric(horizontal: 8),
                 ),
               ),
-            ],
-            const SizedBox(height: 8),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.end,
-              children: [
-                if (status == 'Submitted')
-                  TextButton.icon(
-                    onPressed: _working ? null : () => _reviewSelected([id], 'Approved'),
-                    icon: const Icon(Icons.check, size: 16),
-                    label: const Text('Approve', style: TextStyle(fontSize: 12.5)),
-                    style: TextButton.styleFrom(foregroundColor: Colors.green.shade700, padding: const EdgeInsets.symmetric(horizontal: 8)),
-                  ),
-             // B6: biometric records can be rejected like manual ones; the
-             // supervisor corrects and resubmits them.
-             if (status == 'Submitted')
-  TextButton.icon(
-    onPressed: _working
-        ? null
-        : () async {
-            final note = await _promptForReason(context);
-            if (note != null) {
-              await _reviewSelected([id], 'Rejected', note: note);
-            }
-          },
-    icon: const Icon(Icons.close, size: 16),
-    label: const Text('Reject', style: TextStyle(fontSize: 12.5)),
-    style: TextButton.styleFrom(
-      foregroundColor: Colors.red.shade700,
-      padding: const EdgeInsets.symmetric(horizontal: 8),
-    ),
-  ),
-     IconButton(
-  tooltip: 'Correct attendance (Admin)',
-  visualDensity: VisualDensity.compact,
-  icon: const Icon(Icons.edit_note_rounded, size: 20, color: Colors.indigo),
-  onPressed: () => _showCorrectionDialog(item),
-),
-     if (item['source'] != 'Biometric')
-       IconButton(
-         tooltip: 'Delete record (wrong site/shift)',
-         visualDensity: VisualDensity.compact,
-         icon: Icon(Icons.delete_outline_rounded, size: 20, color: Colors.red.shade700),
-         onPressed: _working ? null : () => _showDeleteDialog(item),
-       ),
-     IconButton(
-  tooltip: 'Management leave',
-  visualDensity: VisualDensity.compact,
-  icon: const Icon(Icons.more_time_rounded, size: 19, color: Colors.teal),
-  onPressed: () => _showManagementLeaveDialog(
-    id,
-    currentHours: managementHours,
-    hasCheckIn: item['check_in_time'] != null,
-  ),
-),
-              ],
+            // B6: biometric records can be rejected like manual ones; the
+            // supervisor corrects and resubmits them.
+            if (status == 'Submitted')
+              TextButton.icon(
+                onPressed: _working
+                    ? null
+                    : () async {
+                        final note = await _promptForReason(context);
+                        if (note != null) {
+                          await _reviewSelected([id], 'Rejected', note: note);
+                        }
+                      },
+                icon: const Icon(Icons.close, size: 16),
+                label: const Text('Reject', style: TextStyle(fontSize: 12.5)),
+                style: TextButton.styleFrom(
+                  foregroundColor: Colors.red.shade700,
+                  padding: const EdgeInsets.symmetric(horizontal: 8),
+                ),
+              ),
+            IconButton(
+              tooltip: 'Correct attendance (Admin)',
+              visualDensity: VisualDensity.compact,
+              icon: const Icon(Icons.edit_note_rounded, size: 20, color: Colors.indigo),
+              onPressed: () => _showCorrectionDialog(item),
+            ),
+            if (item['source'] != 'Biometric')
+              IconButton(
+                tooltip: 'Delete record (wrong site/shift)',
+                visualDensity: VisualDensity.compact,
+                icon: Icon(Icons.delete_outline_rounded, size: 20, color: Colors.red.shade700),
+                onPressed: _working ? null : () => _showDeleteDialog(item),
+              ),
+            IconButton(
+              tooltip: 'Management leave',
+              visualDensity: VisualDensity.compact,
+              icon: const Icon(Icons.more_time_rounded, size: 19, color: Colors.teal),
+              onPressed: () => _showManagementLeaveDialog(
+                id,
+                currentHours: managementHours,
+                hasCheckIn: item['check_in_time'] != null,
+              ),
             ),
           ],
-        ),
-      ),
+        )),
+      ],
     );
   }
 
@@ -1153,180 +1149,115 @@ Widget _siteSection(String date, String siteName, List<Map<String, dynamic>> ite
           final shiftIds = _idsOf(shiftItems);
           final shiftSelected =
               shiftIds.isNotEmpty && shiftIds.every(_selectedIds.contains);
+          final shiftSome =
+              !shiftSelected && shiftIds.any(_selectedIds.contains);
 
           final selected = shiftIds
               .where(_selectedIds.contains)
               .toList();
 
           final overtimeCount = shiftItems.where(
-            (i) =>
-                (double.tryParse(
-                      '${i['overtime_hours'] ?? 0}',
-                    ) ??
-                    0) >
-                0,
+            (i) => (double.tryParse('${i['overtime_hours'] ?? 0}') ?? 0) > 0,
           ).length;
 
           final isNight = shiftType == 'Night';
 
-          return Container(
-            margin: const EdgeInsets.only(bottom: 8),
-            padding: const EdgeInsets.all(8),
-            decoration: BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.circular(10),
-              border: Border.all(color: Colors.grey.shade200),
-            ),
+          return Padding(
+            padding: const EdgeInsets.only(bottom: 8),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Row(
-                  children: [
-                    Checkbox(
-                      value: shiftSelected,
-                      tristate: true,
-                      visualDensity: VisualDensity.compact,
-                      onChanged: (value) => setState(() {
-                        if (value == true) {
-                          _selectedIds.addAll(shiftIds);
-                        } else {
-                          _selectedIds.removeAll(shiftIds);
-                        }
-                      }),
-                    ),
-                    Icon(
-                      isNight
-                          ? Icons.nightlight_outlined
-                          : Icons.wb_sunny_outlined,
-                      size: 16,
-                    ),
-                    const SizedBox(width: 5),
-                    Text(
-                      shiftType,
-                      style: const TextStyle(
-                        fontWeight: FontWeight.w700,
-                        fontSize: 12.5,
-                      ),
-                    ),
-                    const SizedBox(width: 6),
-                    Text(
-                      '${shiftItems.length}',
-                      style: TextStyle(
-                        color: Colors.grey.shade600,
-                        fontSize: 11,
-                      ),
-                    ),
-                    const Spacer(),
-                    if (overtimeCount > 0)
-                      Container(
-                        margin: const EdgeInsets.only(right: 6),
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 7,
-                          vertical: 2,
-                        ),
-                        decoration: BoxDecoration(
-                          color: Colors.deepPurple.withOpacity(.10),
-                          borderRadius: BorderRadius.circular(20),
-                        ),
-                        child: Text(
-                          '$overtimeCount OT',
-                          style: TextStyle(
-                            fontSize: 10.5,
-                            fontWeight: FontWeight.w700,
-                            color: Colors.deepPurple.shade400,
-                          ),
-                        ),
-                      ),
-                  ],
-                ),
-
                 if (selected.isNotEmpty) ...[
-                  const SizedBox(height: 6),
-                  Padding(
-                    padding: const EdgeInsets.only(left: 40),
-                    child: Wrap(
-                      spacing: 6,
-                      runSpacing: 6,
-                      children: [
-                        FilledButton.icon(
-                          onPressed: _working
-                              ? null
-                              : () => _reviewSelected(
-                                    selected,
-                                    'Approved',
-                                  ),
-                          icon: const Icon(Icons.check, size: 15),
-                          label: Text(
-                            'Approve ${selected.length}',
-                            style: const TextStyle(fontSize: 12),
-                          ),
-                          style: FilledButton.styleFrom(
-                            backgroundColor: Colors.green.shade700,
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 10,
-                              vertical: 6,
-                            ),
-                          ),
+                  Wrap(
+                    spacing: 6,
+                    runSpacing: 6,
+                    children: [
+                      FilledButton.icon(
+                        onPressed: _working
+                            ? null
+                            : () => _reviewSelected(selected, 'Approved'),
+                        icon: const Icon(Icons.check, size: 15),
+                        label: Text(
+                          'Approve ${selected.length}',
+                          style: const TextStyle(fontSize: 12),
                         ),
-                        FilledButton.icon(
-                          onPressed: _working
-                              ? null
-                              : () async {
-                                  final note =
-                                      await _promptForReason(context);
-                                  if (note != null) {
-                                    await _reviewSelected(
-                                      selected,
-                                      'Rejected',
-                                      note: note,
-                                    );
-                                  }
-                                },
-                          icon: const Icon(Icons.close, size: 15),
-                          label: Text(
-                            'Reject ${selected.length}',
-                            style: const TextStyle(fontSize: 12),
-                          ),
-                          style: FilledButton.styleFrom(
-                            backgroundColor: Colors.red.shade700,
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 10,
-                              vertical: 6,
-                            ),
-                          ),
+                        style: FilledButton.styleFrom(
+                          backgroundColor: Colors.green.shade700,
+                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
                         ),
-                      ],
-                    ),
+                      ),
+                      FilledButton.icon(
+                        onPressed: _working
+                            ? null
+                            : () async {
+                                final note = await _promptForReason(context);
+                                if (note != null) {
+                                  await _reviewSelected(selected, 'Rejected', note: note);
+                                }
+                              },
+                        icon: const Icon(Icons.close, size: 15),
+                        label: Text(
+                          'Reject ${selected.length}',
+                          style: const TextStyle(fontSize: 12),
+                        ),
+                        style: FilledButton.styleFrom(
+                          backgroundColor: Colors.red.shade700,
+                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                        ),
+                      ),
+                    ],
                   ),
+                  const SizedBox(height: 8),
                 ],
-
-                const SizedBox(height: 8),
-
-                LayoutBuilder(
-                  builder: (context, constraints) {
-                    final columns = constraints.maxWidth > 700 ? 2 : 1;
-
-                    if (columns == 1) {
-                      return Column(
-                        children: shiftItems.map(_workerCard).toList(),
-                      );
-                    }
-
-                    final cardWidth = (constraints.maxWidth - 8) / 2;
-
-                    return Wrap(
-                      spacing: 8,
-                      runSpacing: 0,
-                      children: shiftItems
-                          .map(
-                            (item) => SizedBox(
-                              width: cardWidth,
-                              child: _workerCard(item),
+                AppDataTableCard(
+                  title: '$shiftType shift',
+                  subtitle: '${shiftItems.length} record(s)',
+                  icon: isNight ? Icons.nightlight_outlined : Icons.wb_sunny_outlined,
+                  accentColor: AppColors.primary,
+                  padding: const EdgeInsets.all(12),
+                  emptyMessage: 'No records for this shift.',
+                  trailing: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      if (overtimeCount > 0)
+                        Container(
+                          margin: const EdgeInsets.only(right: 6),
+                          padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+                          decoration: BoxDecoration(
+                            color: Colors.deepPurple.withOpacity(.10),
+                            borderRadius: BorderRadius.circular(20),
+                          ),
+                          child: Text(
+                            '$overtimeCount OT',
+                            style: TextStyle(
+                              fontSize: 10.5,
+                              fontWeight: FontWeight.w700,
+                              color: Colors.deepPurple.shade400,
                             ),
-                          )
-                          .toList(),
-                    );
-                  },
+                          ),
+                        ),
+                      Text('Select all', style: TextStyle(fontSize: 12, color: Colors.grey.shade700)),
+                      Checkbox(
+                        value: shiftSelected ? true : (shiftSome ? null : false),
+                        tristate: true,
+                        visualDensity: VisualDensity.compact,
+                        onChanged: shiftIds.isEmpty
+                            ? null
+                            : (_) => setState(() {
+                                  if (shiftSelected) {
+                                    _selectedIds.removeAll(shiftIds);
+                                  } else {
+                                    _selectedIds.addAll(shiftIds);
+                                  }
+                                }),
+                      ),
+                    ],
+                  ),
+                  columns: _workerColumns,
+                  rows: shiftItems
+                      .map(_workerRow)
+                      .whereType<DataRow>()
+                      .toList(),
                 ),
               ],
             ),
