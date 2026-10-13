@@ -128,7 +128,7 @@ class _AdminAttendanceScreenState extends State<AdminAttendanceScreen> {
   }
 
   /// D-09: flagged records need an explicit acknowledgement note to be approved.
-  Future<String?> _askAnomalyAck(List<Map<String, dynamic>> flagged) async {
+  Future<String?> _askAnomalyAck(List<Map<String, dynamic>> flagged, {int? total}) async {
     final ctrl = TextEditingController();
     bool checked = false;
     String? err;
@@ -145,6 +145,15 @@ class _AdminAttendanceScreenState extends State<AdminAttendanceScreen> {
           content: SizedBox(
             width: 500,
             child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
+              if (total != null && total > flagged.length)
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 10),
+                  child: Text(
+                    '${flagged.length} of $total record(s) have abnormal hours. '
+                    'Confirming approves all $total.',
+                    style: const TextStyle(fontWeight: FontWeight.w600),
+                  ),
+                ),
               ...flagged.take(8).map((i) => Padding(
                     padding: const EdgeInsets.only(bottom: 6),
                     child: Text('• ${i['full_name']} — ${i['record_date']}: ${i['anomaly_detail'] ?? i['anomaly_code']}',
@@ -189,15 +198,66 @@ class _AdminAttendanceScreenState extends State<AdminAttendanceScreen> {
     return res;
   }
 
-  Future<void> _reviewSelected(List<int> ids, String status, {String? note}) async {
+  String _statusOf(Map<String, dynamic>? item) =>
+      '${item?['status'] ?? item?['attendance_status'] ?? 'Submitted'}';
+
+  /// Only Submitted records can be approved / rejected.
+  List<int> _submittedOnly(Iterable<int> ids) =>
+      ids.where((id) => _statusOf(_itemById(id)) == 'Submitted').toList();
+
+  /// Approve a whole day (or any selection) in one go. Records with abnormal
+  /// hours (open anomaly) still go through the review dialog in
+  /// _reviewSelected; everything else only needs one confirmation.
+  Future<void> _approveMany(List<int> ids, {required String label}) async {
+    final submitted = _submittedOnly(ids);
+    if (submitted.isEmpty) {
+      _showMessage('Nothing waiting for approval in $label.', false);
+      return;
+    }
+    await _reviewSelected(submitted, 'Approved', confirmLabel: label);
+  }
+
+  Future<void> _rejectMany(List<int> ids) async {
+    final submitted = _submittedOnly(ids);
+    if (submitted.isEmpty) {
+      _showMessage('Nothing waiting for review in the selection.', false);
+      return;
+    }
+    final note = await _promptForReason(context);
+    if (note != null) await _reviewSelected(submitted, 'Rejected', note: note);
+  }
+
+  Future<bool> _confirmApprove(int count, String label) async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Approve records'),
+        content: Text('Approve $count record(s) for $label?\nNo abnormal hours were found.'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
+          FilledButton(
+            style: FilledButton.styleFrom(backgroundColor: Colors.green.shade700),
+            onPressed: () => Navigator.pop(ctx, true),
+            child: Text('Approve $count'),
+          ),
+        ],
+      ),
+    );
+    return ok == true;
+  }
+
+  Future<void> _reviewSelected(List<int> ids, String status, {String? note, String? confirmLabel}) async {
     if (ids.isEmpty || _working) return;
 
     String? ackNote;
     if (status == 'Approved') {
       final flagged = ids.map(_itemById).where(_hasOpenAnomaly).cast<Map<String, dynamic>>().toList();
       if (flagged.isNotEmpty) {
-        ackNote = await _askAnomalyAck(flagged);
+        // Abnormal hours: the admin must review them before approving.
+        ackNote = await _askAnomalyAck(flagged, total: ids.length);
         if (ackNote == null) return;
+      } else if (confirmLabel != null && ids.length > 1) {
+        if (!await _confirmApprove(ids.length, confirmLabel)) return;
       }
     }
 
@@ -1332,6 +1392,8 @@ Widget _siteSection(String date, String siteName, List<Map<String, dynamic>> ite
     final allItemsForDate = sites.values.expand((v) => v).toList();
     final ids = _idsOf(allItemsForDate);
     final allSelected = ids.isNotEmpty && ids.every(_selectedIds.contains);
+    final pendingIds = _submittedOnly(ids);
+    final flaggedCount = pendingIds.map(_itemById).where(_hasOpenAnomaly).length;
 
     return Card(
       elevation: 0,
@@ -1356,6 +1418,32 @@ Widget _siteSection(String date, String siteName, List<Map<String, dynamic>> ite
           Expanded(child: Text(date, style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 17))),
           Text('${allItemsForDate.length} records • ${sites.length} sites', style: TextStyle(color: Colors.grey.shade600, fontSize: 12)),
         ]),
+        subtitle: pendingIds.isEmpty
+            ? null
+            : Padding(
+                padding: const EdgeInsets.only(left: 48, top: 2),
+                child: Align(
+                  alignment: Alignment.centerLeft,
+                  child: Wrap(spacing: 8, runSpacing: 6, crossAxisAlignment: WrapCrossAlignment.center, children: [
+                    FilledButton.icon(
+                      onPressed: _working ? null : () => _approveMany(pendingIds, label: date),
+                      icon: const Icon(Icons.done_all_rounded, size: 16),
+                      label: Text('Approve day (${pendingIds.length})', style: const TextStyle(fontSize: 12.5)),
+                      style: FilledButton.styleFrom(
+                        backgroundColor: Colors.green.shade700,
+                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                      ),
+                    ),
+                    if (flaggedCount > 0)
+                      Row(mainAxisSize: MainAxisSize.min, children: [
+                        Icon(Icons.report_problem_rounded, size: 15, color: Colors.orange.shade800),
+                        const SizedBox(width: 4),
+                        Text('$flaggedCount with abnormal hours',
+                            style: TextStyle(fontSize: 12, color: Colors.orange.shade900, fontWeight: FontWeight.w600)),
+                      ]),
+                  ]),
+                ),
+              ),
         children: [
           Padding(
             padding: const EdgeInsets.fromLTRB(14, 0, 14, 14),
@@ -1367,6 +1455,54 @@ Widget _siteSection(String date, String siteName, List<Map<String, dynamic>> ite
       ),
     );
   }
+
+  /// Shown whenever something is selected (record, shift, site or a whole
+  /// day), so a selection made with the date / site checkbox can be acted on.
+  Widget? _selectionBar() {
+    if (_selectedIds.isEmpty) return null;
+    final ids = _selectedIds.toList();
+    final pending = _submittedOnly(ids).length;
+    return SafeArea(
+      child: Container(
+        padding: const EdgeInsets.fromLTRB(16, 10, 16, 10),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          border: Border(top: BorderSide(color: Colors.grey.shade300)),
+          boxShadow: [BoxShadow(color: Colors.black.withOpacity(.05), blurRadius: 8, offset: const Offset(0, -2))],
+        ),
+        child: Wrap(
+          spacing: 8,
+          runSpacing: 6,
+          crossAxisAlignment: WrapCrossAlignment.center,
+          alignment: WrapAlignment.spaceBetween,
+          children: [
+            Text('${ids.length} selected · $pending waiting',
+                style: const TextStyle(fontWeight: FontWeight.w700)),
+            Wrap(spacing: 8, children: [
+              TextButton(
+                onPressed: () => setState(_selectedIds.clear),
+                child: const Text('Clear'),
+              ),
+              FilledButton.icon(
+                onPressed: pending == 0 ? null : _rejectSelectedBar,
+                icon: const Icon(Icons.close, size: 16),
+                label: Text('Reject $pending'),
+                style: FilledButton.styleFrom(backgroundColor: Colors.red.shade700),
+              ),
+              FilledButton.icon(
+                onPressed: pending == 0 ? null : () => _approveMany(ids, label: 'the selection'),
+                icon: const Icon(Icons.done_all_rounded, size: 16),
+                label: Text('Approve $pending'),
+                style: FilledButton.styleFrom(backgroundColor: Colors.green.shade700),
+              ),
+            ]),
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _rejectSelectedBar() => _rejectMany(_selectedIds.toList());
 
   @override
   Widget build(BuildContext context) {
@@ -1421,7 +1557,7 @@ Widget _siteSection(String date, String siteName, List<Map<String, dynamic>> ite
             ),
       bottomNavigationBar: _working
           ? const LinearProgressIndicator(minHeight: 3)
-          : null,
+          : _selectionBar(),
     );
   }
 }
