@@ -251,6 +251,10 @@ class _SiteAttendanceScreenState extends State<SiteAttendanceScreen> {
       w['attendance_id'] != null && _workflow(w) == 'Draft' &&
       (w['attendance_status'] == null || w['attendance_status'] == 'Present') &&
       _hasIn(w) && _hasOut(w) && !_onBreak(w);
+  // Still checked in: check out (now or later today) and submit in one step.
+  bool _canCheckOutAndSubmit(Map w) =>
+      _canCheckOut(w) && !_dailyGate && _day['is_future'] != true && _prevWeekDrafts.isEmpty &&
+      (w['attendance_status'] == null || w['attendance_status'] == 'Present');
 
   // Readiness for "Submit day" (the backend re-checks everything).
   List<String> get _blockers {
@@ -791,15 +795,20 @@ class _SiteAttendanceScreenState extends State<SiteAttendanceScreen> {
 
   /// Submits only this worker's record (POST /attendance/submit-worker).
   /// The other records of the day stay Draft; "Submit day" still submits them.
-  Future<void> _submitWorker(Map w, {Map<String, dynamic>? lunchDecision}) async {
+  /// With [checkOutTime] (worker still checked in) this is "Check out & submit":
+  /// check-out and submit in one step; only here the check-out may be later
+  /// than now (e.g. it is 14:00 and he leaves at 18:00).
+  Future<void> _submitWorker(Map w, {Map<String, dynamic>? lunchDecision, String? checkOutTime}) async {
     if (lunchDecision == null) {
+      final out = checkOutTime == null ? _hm(w['check_out_time']) : '${_hm(checkOutTime)}${_dayLabel(checkOutTime)}';
       final confirm = await showDialog<bool>(
         context: context,
         builder: (ctx) => AlertDialog(
-          title: const Text('Submit this worker only?'),
+          title: Text(checkOutTime == null ? 'Submit this worker only?' : 'Check out & submit this worker?'),
           content: Text(
-              '${w['full_name']} (${_hm(w['check_in_time'])} – ${_hm(w['check_out_time'])}) will be sent to the Admin now, '
-              'before the rest of the day. You can no longer change his record after submitting; the other workers are not affected.'),
+              '${w['full_name']} (${_hm(w['check_in_time'])} – $out) will be sent to the Admin now, '
+              'before the rest of the day. You can no longer change his record after submitting; the other workers are not affected.'
+              '${checkOutTime != null && (DateTime.tryParse(checkOutTime.replaceFirst(' ', 'T'))?.isAfter(DateTime.now()) ?? false) ? '\n\nThe check-out time is later than now: it is saved as entered.' : ''}'),
           actions: [
             TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
             ElevatedButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Submit worker')),
@@ -812,6 +821,7 @@ class _SiteAttendanceScreenState extends State<SiteAttendanceScreen> {
     try {
       final res = await ApiConfig.dio.post('/attendance/submit-worker', data: {
         'attendance_id': w['attendance_id'],
+        if (checkOutTime != null) 'check_out_time': checkOutTime,
         if (lunchDecision != null) 'lunch_decision': lunchDecision,
       });
       final data = res.data is Map ? res.data as Map : <String, dynamic>{};
@@ -819,7 +829,7 @@ class _SiteAttendanceScreenState extends State<SiteAttendanceScreen> {
         setState(() => _busy = false);
         final missing = (data['missing_workers'] as List? ?? []).whereType<Map>().toList();
         final skips = await _askLunchReasons(missing);
-        if (skips != null && skips.isNotEmpty) await _submitWorker(w, lunchDecision: skips.first);
+        if (skips != null && skips.isNotEmpty) await _submitWorker(w, lunchDecision: skips.first, checkOutTime: checkOutTime);
         return;
       }
       await _load();
@@ -828,6 +838,12 @@ class _SiteAttendanceScreenState extends State<SiteAttendanceScreen> {
       await _load();
       _toast(_msg(e, 'Submission failed.'), color: Colors.red.shade700);
     }
+  }
+
+  Future<void> _checkOutAndSubmit(Map w) async {
+    final t = await _pickTimeSameOrNextDay('Check-out (can be later today) — ${w['full_name']}', base: _parse(w['check_in_time']));
+    if (t == null) return;
+    await _submitWorker(w, checkOutTime: t);
   }
 
   Future<List<Map<String, dynamic>>?> _askLunchReasons(List<Map> missing) async {
@@ -1499,6 +1515,7 @@ class _SiteAttendanceScreenState extends State<SiteAttendanceScreen> {
 
     final menu = <PopupMenuEntry<String>>[
       if (_canEditTimes(w)) const PopupMenuItem(value: 'times', child: Text('Edit check-in / check-out')),
+      if (_canCheckOutAndSubmit(w)) const PopupMenuItem(value: 'out_submit', child: Text('Check out & submit this worker')),
       if (_canSetStatus(w) && w['attendance_id'] != null) const PopupMenuItem(value: 'status', child: Text('Change status')),
       if (_canBreak(w) && !_onBreak(w) && !_canCheckOut(w)) const PopupMenuItem(value: 'break', child: Text('Start break')),
       if (_canEditLunch(w)) const PopupMenuItem(value: 'lunch_edit', child: Text('Edit lunch')),
@@ -1550,6 +1567,9 @@ class _SiteAttendanceScreenState extends State<SiteAttendanceScreen> {
                 switch (v) {
                   case 'times':
                     _editTimes(w);
+                    break;
+                  case 'out_submit':
+                    _checkOutAndSubmit(w);
                     break;
                   case 'status':
                     _setStatus(w);
