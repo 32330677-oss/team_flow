@@ -244,6 +244,13 @@ class _SiteAttendanceScreenState extends State<SiteAttendanceScreen> {
   // times on this date's Draft records; leave records and carry-overs are excluded.
   bool _canBulkEditIn(Map w) => _canEditTimes(w) && !_isLeave(w) && !_isCarryOver(w);
   bool _canBulkEditOut(Map w) => _canBulkEditIn(w) && _hasOut(w);
+  // Submit ONE worker before the rest of the day: as soon as he is checked out
+  // (lunch recorded or not). Same gates as "Submit day" (backend re-checks).
+  bool _canSubmitWorker(Map w) =>
+      !_locked && !_dailyGate && _day['is_future'] != true && _prevWeekDrafts.isEmpty &&
+      w['attendance_id'] != null && _workflow(w) == 'Draft' &&
+      (w['attendance_status'] == null || w['attendance_status'] == 'Present') &&
+      _hasIn(w) && _hasOut(w) && !_onBreak(w);
 
   // Readiness for "Submit day" (the backend re-checks everything).
   List<String> get _blockers {
@@ -777,6 +784,47 @@ class _SiteAttendanceScreenState extends State<SiteAttendanceScreen> {
         await HelpTip.show(context, 'Shifts still open', '${d['message']}\n\n$names');
         return;
       }
+      await _load();
+      _toast(_msg(e, 'Submission failed.'), color: Colors.red.shade700);
+    }
+  }
+
+  /// Submits only this worker's record (POST /attendance/submit-worker).
+  /// The other records of the day stay Draft; "Submit day" still submits them.
+  Future<void> _submitWorker(Map w, {Map<String, dynamic>? lunchDecision}) async {
+    if (lunchDecision == null) {
+      final confirm = await showDialog<bool>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: const Text('Submit this worker only?'),
+          content: Text(
+              '${w['full_name']} (${_hm(w['check_in_time'])} – ${_hm(w['check_out_time'])}) will be sent to the Admin now, '
+              'before the rest of the day. You can no longer change his record after submitting; the other workers are not affected.'),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
+            ElevatedButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Submit worker')),
+          ],
+        ),
+      );
+      if (confirm != true) return;
+    }
+    setState(() => _busy = true);
+    try {
+      final res = await ApiConfig.dio.post('/attendance/submit-worker', data: {
+        'attendance_id': w['attendance_id'],
+        if (lunchDecision != null) 'lunch_decision': lunchDecision,
+      });
+      final data = res.data is Map ? res.data as Map : <String, dynamic>{};
+      if (data['requires_confirmation'] == true) {
+        setState(() => _busy = false);
+        final missing = (data['missing_workers'] as List? ?? []).whereType<Map>().toList();
+        final skips = await _askLunchReasons(missing);
+        if (skips != null && skips.isNotEmpty) await _submitWorker(w, lunchDecision: skips.first);
+        return;
+      }
+      await _load();
+      _toast((data['message'] ?? '${w['full_name']} submitted for review.').toString());
+    } on DioException catch (e) {
       await _load();
       _toast(_msg(e, 'Submission failed.'), color: Colors.red.shade700);
     }
@@ -1435,6 +1483,16 @@ class _SiteAttendanceScreenState extends State<SiteAttendanceScreen> {
           onPressed: _busy ? null : () => _toggleBreak(w),
           icon: const Icon(Icons.timer_off_rounded, size: 18),
           label: const Text('End break'),
+        ),
+      );
+    } else if (_canSubmitWorker(w)) {
+      primary = SizedBox(
+        width: double.infinity,
+        child: OutlinedButton.icon(
+          style: OutlinedButton.styleFrom(foregroundColor: Colors.indigo),
+          onPressed: _busy ? null : () => _submitWorker(w),
+          icon: const Icon(Icons.send_rounded, size: 18),
+          label: const Text('Submit this worker'),
         ),
       );
     }
