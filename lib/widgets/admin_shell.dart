@@ -23,6 +23,7 @@ import '../screens/biometric_import_screen.dart';
 import '../screens/biometric_processing_screen.dart';
 import '../screens/change_password_screen.dart';
 import '../screens/daily_site_report_screen.dart';
+import '../screens/project_daily_report_screen.dart';
 import '../screens/device_id_mapping_screen.dart';
 import '../screens/hr_management_screen.dart';
 import '../screens/payroll_screen.dart';
@@ -51,6 +52,7 @@ final List<_ShellItem> _shellItems = [
   _ShellItem('workers', Icons.engineering_rounded, 'Workers', () => const WorkersScreen()),
   _ShellItem('attendance_review', Icons.fact_check_rounded, 'Attendance Review', () => const AdminAttendanceScreen()),
   _ShellItem('daily_site_report', Icons.summarize_rounded, 'Daily Site Report', () => const DailySiteReportScreen()),
+  _ShellItem('project_daily_report', Icons.description_rounded, 'Project Daily Report', () => const ProjectDailyReportScreen()),
   _ShellItem('payroll', Icons.payments_rounded, 'Payroll', () => const PayrollScreen()),
   _ShellItem('projects', Icons.business_rounded, 'Projects', () => const ProjectManagementScreen()),
   _ShellItem('worker_distribution', Icons.alt_route_rounded, 'Worker Distribution', () => const WorkerAssignmentScreen()),

@@ -14,6 +14,7 @@ import '../screens/biometric_processing_screen.dart';
 import '../screens/biometric_import_screen.dart';
 import '../screens/change_password_screen.dart';
 import '../screens/daily_site_report_screen.dart';
+import '../screens/project_daily_report_screen.dart';
 class AppDrawer extends StatelessWidget {
   const AppDrawer({super.key});
 
@@ -66,6 +67,7 @@ void _confirmLogout() {
       _DrawerItem(Icons.engineering_rounded, 'Workers', (ctx) => _go(ctx, const WorkersScreen())),
       _DrawerItem(Icons.fact_check_rounded, 'Attendance Review', (ctx) => _go(ctx, const AdminAttendanceScreen())),
       _DrawerItem(Icons.summarize_rounded, 'Daily Site Report', (ctx) => _go(ctx, const DailySiteReportScreen())),
+      _DrawerItem(Icons.description_rounded, 'Project Daily Report', (ctx) => _go(ctx, const ProjectDailyReportScreen())),
       _DrawerItem(Icons.payments_rounded, 'Payroll', (ctx) => _go(ctx, const PayrollScreen())),
       _DrawerItem(Icons.business_rounded, 'Projects', (ctx) => _go(ctx, const ProjectManagementScreen())),
       _DrawerItem(Icons.alt_route_rounded, 'Worker Distribution', (ctx) => _go(ctx, const WorkerAssignmentScreen())),
