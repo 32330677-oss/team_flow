@@ -8,6 +8,7 @@ import 'screens/staff_supervisor_dashboard.dart';
 import 'screens/login_screen.dart';
 import 'widgets/admin_shell.dart';
 import 'screens/supervisor_dashboard.dart';
+import 'screens/user_shell.dart';
 
 void main() {
   runApp(const MyApp());
@@ -61,6 +62,10 @@ class MyApp extends StatelessWidget {
     supervisorId: supervisorId,
     supervisorName: userName,
   );
+} else if (role == 'User') {
+  // Account made by the Admin in "User Accounts": its pages come from its role.
+  String userName = await storage.read(key: 'user_name') ?? 'User';
+  return UserShell(userName: userName);
 }
         
       }

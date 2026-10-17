@@ -33,6 +33,9 @@ import '../screens/staff_attendance_payroll_hub.dart';
 import '../screens/supervisor_management_screen.dart';
 import '../screens/worker_assignment_screen.dart';
 import '../screens/workers_screen.dart';
+import '../screens/access/roles_permissions_screen.dart';
+import '../screens/access/user_accounts_screen.dart';
+import '../screens/dpr/dpr_admin_screen.dart';
 import 'admin_shell_scope.dart';
 
 const Color _kNavy = Color(0xff1a2a6c);
@@ -53,6 +56,7 @@ final List<_ShellItem> _shellItems = [
   _ShellItem('attendance_review', Icons.fact_check_rounded, 'Attendance Review', () => const AdminAttendanceScreen()),
   _ShellItem('daily_site_report', Icons.summarize_rounded, 'Daily Site Report', () => const DailySiteReportScreen()),
   _ShellItem('project_daily_report', Icons.description_rounded, 'Project Daily Report', () => const ProjectDailyReportScreen()),
+  _ShellItem('dpr_admin', Icons.assignment_rounded, 'Daily Progress (DPR)', () => const DprAdminScreen()),
   _ShellItem('payroll', Icons.payments_rounded, 'Payroll', () => const PayrollScreen()),
   _ShellItem('projects', Icons.business_rounded, 'Projects', () => const ProjectManagementScreen()),
   _ShellItem('worker_distribution', Icons.alt_route_rounded, 'Worker Distribution', () => const WorkerAssignmentScreen()),
@@ -63,6 +67,8 @@ final List<_ShellItem> _shellItems = [
   _ShellItem('biometric_processing', Icons.fingerprint_rounded, 'Biometric Processing', () => const BiometricProcessingScreen()),
   _ShellItem('biometric_import', Icons.upload_file_rounded, 'Biometric Import', () => const BiometricImportScreen()),
   _ShellItem('device_id_mapping', Icons.link_rounded, 'Device ID Mapping', () => const DeviceIdMappingScreen()),
+  _ShellItem('roles_permissions', Icons.admin_panel_settings_rounded, 'Roles & Permissions', () => const RolesPermissionsScreen()),
+  _ShellItem('user_accounts', Icons.person_pin_rounded, 'User Accounts', () => const UserAccountsScreen()),
 ];
 
 /// Whether the Admin sidebar is shown, and which item is selected.

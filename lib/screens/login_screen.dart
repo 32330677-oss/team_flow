@@ -5,6 +5,7 @@ import 'staff_supervisor_dashboard.dart';
 import '../services/auth_service.dart';
 import 'supervisor_dashboard.dart';
 import 'forgot_password_screen.dart';
+import 'user_shell.dart';
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -136,6 +137,12 @@ class _LoginScreenState extends State<LoginScreen>
                 supervisorName: (user['full_name'] ?? 'Staff Supervisor').toString(),
               ),
             ),
+          );
+        } else if (role == 'User') {
+          // Account made by the Admin in "User Accounts": its pages come from its role.
+          Navigator.pushReplacement(
+            context,
+            MaterialPageRoute(builder: (context) => UserShell(userName: fullName)),
           );
         } else {
           // role == 'Supervisor' (worker supervisor)
