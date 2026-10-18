@@ -12,6 +12,7 @@ import 'package:flutter/services.dart';
 
 import '../../services/dpr_api.dart';
 import '../../widgets/app_data_table.dart';
+import 'dpr_setup_ucc.dart';
 import 'dpr_widgets.dart';
 
 class DprSetupPage extends StatefulWidget {
@@ -62,7 +63,7 @@ class _Setup extends StatefulWidget {
 }
 
 class _SetupState extends State<_Setup> with SingleTickerProviderStateMixin {
-  late final TabController _tabs = TabController(length: 7, vsync: this);
+  late final TabController _tabs = TabController(length: 12, vsync: this);
   Json? _s;
   Json? _src; // source options (Team Flow / equipment names)
   List<Json> _contracts = [];
@@ -149,10 +150,15 @@ class _SetupState extends State<_Setup> with SingleTickerProviderStateMixin {
                 const Tab(text: 'Contract'),
                 const Tab(text: 'Sources'),
                 Tab(text: 'VO / EOT (${asList(_s?['eot_vo']).length})'),
+                Tab(text: 'Staff (${count('staff')})'),
                 Tab(text: 'Trades (${count('trade')})'),
                 Tab(text: 'Plant (${count('plant')})'),
+                Tab(text: 'Tools (${count('tool')})'),
                 Tab(text: 'Subcontractors (${count('subcon')})'),
-                Tab(text: 'BOQ (${asList(_s?['boq']).length})'),
+                Tab(text: 'BOQ (${asList(_s?['boq']).where((b) => str(b['row_type']) == 'item' || str(b['row_type']).isEmpty).length})'),
+                Tab(text: 'Areas (${asList(_s?['areas']).length})'),
+                Tab(text: 'Fixed pages (${asList(_s?['fixed_pages']).length})'),
+                const Tab(text: 'Layout'),
               ],
             ),
           ),
@@ -166,7 +172,7 @@ class _SetupState extends State<_Setup> with SingleTickerProviderStateMixin {
       Expanded(
         child: TabBarView(controller: _tabs, children: [
           _ContractTab(key: ValueKey('c${contract['updated_at']}'), contract: contract, contracts: _contracts, sections: asList(_s?['sections']),
-              canEdit: canEdit, onSaved: () {
+              ucc: asJson(_s?['ucc']), canEdit: canEdit, onSaved: () {
             _load();
             widget.onRenamed();
           }),
@@ -175,10 +181,15 @@ class _SetupState extends State<_Setup> with SingleTickerProviderStateMixin {
             _load();
           }),
           _EotTab(contractId: cid, rows: asList(_s?['eot_vo']), totals: asJson(_s?['totals']), canEdit: canEdit, onChanged: _load),
+          _LinesTab(contractId: cid, kind: 'staff', lines: lines, src: _src, lists: asJson(_s?['lists']), canEdit: canEdit, onChanged: _load),
           _LinesTab(contractId: cid, kind: 'trade', lines: lines, src: _src, lists: asJson(_s?['lists']), canEdit: canEdit, onChanged: _load),
           _LinesTab(contractId: cid, kind: 'plant', lines: lines, src: _src, lists: asJson(_s?['lists']), canEdit: canEdit, onChanged: _load),
+          _LinesTab(contractId: cid, kind: 'tool', lines: lines, src: _src, lists: asJson(_s?['lists']), canEdit: canEdit, onChanged: _load),
           _LinesTab(contractId: cid, kind: 'subcon', lines: lines, src: _src, lists: asJson(_s?['lists']), canEdit: canEdit, onChanged: _load),
           _BoqTab(contractId: cid, rows: asList(_s?['boq']), canEdit: canEdit, onChanged: _load),
+          DprAreasTab(contractId: cid, areas: asList(_s?['areas']), canEdit: canEdit, onChanged: _load),
+          DprFixedPagesTab(contractId: cid, pages: asList(_s?['fixed_pages']), canEdit: canEdit, onChanged: _load),
+          DprLayoutTab(contract: contract, ucc: asJson(_s?['ucc']), canEdit: canEdit, onChanged: _load),
         ]),
       ),
     ]);
@@ -192,9 +203,11 @@ class _ContractTab extends StatefulWidget {
   final Json contract;
   final List<Json> contracts;
   final List<Json> sections;
+  final Json ucc;
   final bool canEdit;
   final VoidCallback onSaved;
-  const _ContractTab({super.key, required this.contract, required this.contracts, required this.sections, required this.canEdit, required this.onSaved});
+  const _ContractTab(
+      {super.key, required this.contract, required this.contracts, required this.sections, required this.ucc, required this.canEdit, required this.onSaved});
 
   @override
   State<_ContractTab> createState() => _ContractTabState();
@@ -228,6 +241,7 @@ class _ContractTabState extends State<_ContractTab> {
   late bool _active = widget.contract['is_active'] == true;
   late Set<int> _copyFrom = (widget.contract['copy_from_ids'] as List? ?? const []).map((e) => asInt(e)).toSet();
   late Map<String, dynamic> _sections = Map<String, dynamic>.from(asJson(widget.contract['sections']));
+  final GlobalKey<DprUccContractCardState> _uccKey = GlobalKey<DprUccContractCardState>();
   bool _busy = false;
   String? _error;
 
@@ -262,6 +276,7 @@ class _ContractTabState extends State<_ContractTab> {
       'original_completion': _finish == null ? null : ymd(_finish!),
       'copy_from_ids': _copyFrom.toList(),
       'sections': _sections,
+      ...?_uccKey.currentState?.values(),
     };
     if (str(body['contract_value']).isEmpty) body['contract_value'] = null;
     setState(() {
@@ -295,7 +310,10 @@ class _ContractTabState extends State<_ContractTab> {
   @override
   Widget build(BuildContext context) {
     final others = widget.contracts.where((c) => asInt(c['contract_id']) != asInt(widget.contract['contract_id'])).toList();
-    return ListView(padding: const EdgeInsets.all(14), children: [
+    // a Column (not a lazy list): the cards keep their typed values when scrolled out of sight
+    return SingleChildScrollView(
+        padding: const EdgeInsets.all(14),
+        child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
       DprCard(
         title: 'Contract information',
         subtitle: 'Printed in the report header. Report No. = prefix + day number from the commencement date.',
@@ -322,6 +340,14 @@ class _ContractTabState extends State<_ContractTab> {
           _date('Original completion date', _finish, (v) => _finish = v),
         ]),
       ),
+      DprUccContractCard(
+        key: _uccKey,
+        contract: widget.contract,
+        contracts: widget.contracts,
+        ucc: widget.ucc,
+        enabled: widget.canEdit && !_busy,
+      ),
+      if (str(widget.contract['template']) == 'dpr')
       DprCard(
         title: 'Copy day data from',
         subtitle: 'Contracts that work with the same people and machines (e.g. 71 and 26). Their day can be copied into this one with "Copy from…".',
@@ -343,6 +369,7 @@ class _ContractTabState extends State<_ContractTab> {
                 }).toList(),
               ),
       ),
+      if (str(widget.contract['template']) == 'dpr')
       DprCard(
         title: 'Sections printed by default',
         subtitle: 'Each day can still switch a section on or off.',
@@ -373,7 +400,7 @@ class _ContractTabState extends State<_ContractTab> {
             label: const Text('Save contract'),
           ),
         ),
-    ]);
+    ]));
   }
 }
 
@@ -677,7 +704,28 @@ class _LinesTab extends StatelessWidget {
   final Future<void> Function() onChanged;
   const _LinesTab({required this.contractId, required this.kind, required this.lines, required this.src, required this.lists, required this.canEdit, required this.onChanged});
 
-  String get title => kind == 'trade' ? 'Own manpower – trades' : (kind == 'plant' ? 'Own plant & equipment' : 'Subcontractor resource lines');
+  String get title => const {
+        'staff': 'Staff – positions',
+        'trade': 'Tradesmen – trades',
+        'plant': 'Plant & equipment',
+        'tool': 'Tools',
+        'subcon': 'Subcontractor resource lines',
+      }[kind]!;
+  String get nameLabel => const {'staff': 'Position', 'trade': 'Trade', 'plant': 'Equipment', 'tool': 'Tool', 'subcon': 'Resource'}[kind]!;
+
+  Future<void> _loadDefaults(BuildContext context) async {
+    if (!await dprConfirm(context, 'The client\'s rows', 'Add the rows of the client\'s form that this contract does not have yet? '
+        'Rows whose name is a position / equipment type of the systems are counted from them; the others are typed.')) {
+      return;
+    }
+    try {
+      final r = await DprApi.loadDefaultLines(contractId, [kind]);
+      if (context.mounted) dprSnack(context, '${str(r[kind])} row(s) added.');
+      await onChanged();
+    } catch (e) {
+      if (context.mounted) dprSnack(context, e.toString(), error: true);
+    }
+  }
 
   Future<void> _edit(BuildContext context, [Json? line]) async {
     final saved = await showDialog<bool>(
@@ -705,9 +753,11 @@ class _LinesTab extends StatelessWidget {
 
   String _mapText(Json m) {
     final tf = (m['tf'] as List? ?? const []).map((e) => e.toString()).toList();
+    final sp = (m['sp'] as List? ?? const []).map((e) => e.toString()).toList();
     final eq = asList(m['eq']).map((e) => str(e['vendor']).isEmpty ? str(e['type']) : '${str(e['type'])} (${str(e['vendor'])})').toList();
     final parts = <String>[
       if (tf.isNotEmpty) 'Team Flow: ${tf.join(', ')}',
+      if (sp.isNotEmpty) 'Staff list: ${sp.join(', ')}',
       if (eq.isNotEmpty) 'Equipment: ${eq.join(', ')}',
     ];
     return parts.isEmpty ? 'Typed every day' : parts.join(' · ');
@@ -720,16 +770,23 @@ class _LinesTab extends StatelessWidget {
       AppDataTableCard(
         title: title,
         subtitle: 'The order here is the order in the report. A line with a source is counted from the systems; without a source it is typed every day.',
-        icon: kind == 'trade' ? Icons.engineering_rounded : (kind == 'plant' ? Icons.precision_manufacturing_rounded : Icons.handshake_rounded),
-        emptyMessage: 'No line yet.',
+        icon: kind == 'trade' || kind == 'staff'
+            ? Icons.engineering_rounded
+            : (kind == 'plant' || kind == 'tool' ? Icons.precision_manufacturing_rounded : Icons.handshake_rounded),
+        emptyMessage: kind == 'subcon' ? 'No line yet.' : 'No row yet. Add rows, or load the rows of the client\'s form.',
         trailing: canEdit
-            ? ElevatedButton.icon(style: dprPrimaryButton(), onPressed: () => _edit(context), icon: const Icon(Icons.add_rounded, size: 18), label: const Text('Add line'))
+            ? Wrap(spacing: 8, children: [
+                if (kind != 'subcon')
+                  OutlinedButton.icon(
+                      onPressed: () => _loadDefaults(context), icon: const Icon(Icons.playlist_add_rounded, size: 18), label: const Text('Client\'s rows')),
+                ElevatedButton.icon(style: dprPrimaryButton(), onPressed: () => _edit(context), icon: const Icon(Icons.add_rounded, size: 18), label: const Text('Add row')),
+              ])
             : null,
         columns: [
           dprCol('#'),
           if (kind == 'subcon') dprCol('Subcontractor'),
-          dprCol(kind == 'trade' ? 'Trade' : (kind == 'plant' ? 'Equipment' : 'Resource')),
-          dprCol(kind == 'trade' ? 'Category' : (kind == 'plant' ? 'Ownership' : 'Type')),
+          dprCol(nameLabel),
+          dprCol(kind == 'trade' || kind == 'staff' ? 'Category' : (kind == 'plant' || kind == 'tool' ? 'Ownership' : 'Type')),
           dprCol('Counted from'),
           dprCol('Opening days'),
           dprCol('Active'),
@@ -741,7 +798,7 @@ class _LinesTab extends StatelessWidget {
             DataCell(dprCell('${e.key + 1}')),
             if (kind == 'subcon') DataCell(dprCell(str(l['subcontractor']), bold: true, width: 160)),
             DataCell(dprCell(str(l['name']), bold: true, width: 170)),
-            DataCell(dprCell(kind == 'trade' ? str(l['category']) : (kind == 'plant' ? str(l['ownership']) : str(l['res_type'])))),
+            DataCell(dprCell(kind == 'trade' || kind == 'staff' ? str(l['category']) : (kind == 'plant' || kind == 'tool' ? str(l['ownership']) : str(l['res_type'])))),
             DataCell(dprCell(_mapText(asJson(l['source_map'])), width: 280, color: AppColors.textSecondary)),
             DataCell(dprCell(fmtQty(l['opening_days']))),
             DataCell(Switch(
@@ -793,6 +850,7 @@ class _LineDialogState extends State<_LineDialog> {
   late String _ownership = str(widget.line?['ownership']).isEmpty ? 'Own' : str(widget.line?['ownership']);
   late String _resType = str(widget.line?['res_type']).isEmpty ? 'Manpower' : str(widget.line?['res_type']);
   late final List<String> _tf = (asJson(widget.line?['source_map'])['tf'] as List? ?? const []).map((e) => e.toString()).toList();
+  late final List<String> _sp = (asJson(widget.line?['source_map'])['sp'] as List? ?? const []).map((e) => e.toString()).toList();
   late final List<Json> _eq = asList(asJson(widget.line?['source_map'])['eq']);
   final TextEditingController _tfOther = TextEditingController();
   String? _eqType;
@@ -824,10 +882,10 @@ class _LineDialogState extends State<_LineDialog> {
       'name': _name.text.trim(),
       'sort_order': widget.line?['sort_order'],
       'opening_days': _opening.text.trim().isEmpty ? '0' : _opening.text.trim(),
-      'source_map': {'tf': _tf, 'eq': _eq},
+      'source_map': {'tf': _tf, 'sp': _sp, 'eq': _eq},
       'is_active': widget.line == null ? true : widget.line!['is_active'] == true,
-      if (widget.kind == 'trade') 'category': _cat.text.trim(),
-      if (widget.kind == 'plant') 'ownership': _ownership,
+      if (widget.kind == 'trade' || widget.kind == 'staff') 'category': _cat.text.trim(),
+      if (widget.kind == 'plant' || widget.kind == 'tool') 'ownership': _ownership,
       if (widget.kind == 'subcon') 'subcontractor': _sub.text.trim(),
       if (widget.kind == 'subcon') 'res_type': _resType,
       if (widget.kind == 'subcon') 'scope': _scope.text.trim(),
@@ -857,7 +915,9 @@ class _LineDialogState extends State<_LineDialog> {
     final vendors = asList(src?['eq_vendors']).map((v) => str(v['vendor_name'])).toList();
     final cats = (widget.lists['categories'] as List? ?? const []).map((e) => e.toString()).toList();
     final usesTf = widget.kind == 'trade' || (widget.kind == 'subcon' && _resType == 'Manpower');
-    final usesEq = widget.kind == 'plant' || (widget.kind == 'subcon' && _resType == 'Plant');
+    final usesSp = widget.kind == 'staff';
+    final usesEq = widget.kind == 'plant' || widget.kind == 'tool' || (widget.kind == 'subcon' && _resType == 'Plant');
+    final staffPos = asList(src?['sp_positions']);
     return AlertDialog(
       title: Text(widget.line == null ? 'New line' : 'Edit line'),
       content: SizedBox(
@@ -871,7 +931,13 @@ class _LineDialogState extends State<_LineDialog> {
             TextField(
                 controller: _name,
                 enabled: !_busy,
-                decoration: dprInput(widget.kind == 'trade' ? 'Trade / designation' : (widget.kind == 'plant' ? 'Equipment' : 'Resource'))),
+                decoration: dprInput(const {
+                  'staff': 'Position (as printed)',
+                  'trade': 'Trade / designation',
+                  'plant': 'Equipment',
+                  'tool': 'Tool',
+                  'subcon': 'Resource',
+                }[widget.kind]!)),
             const SizedBox(height: 10),
             if (widget.kind == 'trade') ...[
               TextField(controller: _cat, enabled: !_busy, decoration: dprInput('Category (Staff, Supervision, Skilled…)')),
@@ -887,7 +953,7 @@ class _LineDialogState extends State<_LineDialog> {
                     .toList(),
               ),
             ],
-            if (widget.kind == 'plant')
+            if (widget.kind == 'plant' || widget.kind == 'tool')
               DropdownButtonFormField<String>(
                 value: _ownership,
                 decoration: dprInput('Ownership'),
@@ -963,6 +1029,39 @@ class _LineDialogState extends State<_LineDialog> {
                   child: const Text('Add'),
                 ),
               ]),
+            ],
+            if (usesSp) ...[
+              const SizedBox(height: 6),
+              const Text('Staff positions (the number of staff with these positions; counts only, no names):', style: TextStyle(fontSize: 12.5)),
+              const SizedBox(height: 6),
+              Wrap(spacing: 6, runSpacing: 6, children: [
+                ...staffPos.map((p) {
+                  final n = str(p['name']);
+                  final on = _sp.any((x) => x.toLowerCase() == n.toLowerCase());
+                  return FilterChip(
+                    label: Text('$n (${asInt(p['staff'])})'),
+                    selected: on,
+                    selectedColor: AppColors.primary.withValues(alpha: 0.12),
+                    checkmarkColor: AppColors.primary,
+                    onSelected: _busy
+                        ? null
+                        : (v) => setState(() {
+                              if (v) {
+                                _sp.add(n);
+                              } else {
+                                _sp.removeWhere((x) => x.toLowerCase() == n.toLowerCase());
+                              }
+                            }),
+                  );
+                }),
+                ..._sp.where((t) => !staffPos.any((p) => str(p['name']).toLowerCase() == t.toLowerCase())).map((t) => InputChip(
+                      label: Text(t),
+                      onDeleted: _busy ? null : () => setState(() => _sp.remove(t)),
+                    )),
+              ]),
+              const SizedBox(height: 4),
+              const Text('Several positions on one row are added together (e.g. SURVEY ENGINEER + CHIEF SURVEY ENGINEER).',
+                  style: TextStyle(fontSize: 11.5, color: AppColors.textSecondary)),
             ],
             if (usesEq) ...[
               const SizedBox(height: 10),
@@ -1048,7 +1147,37 @@ class _BoqTab extends StatelessWidget {
     try {
       final bytes = await f.readAsBytes();
       final r = await DprApi.importBoq(contractId, bytes, f.name);
-      if (context.mounted) dprSnack(context, 'BOQ imported: ${str(r['added'])} added, ${str(r['updated'])} updated.');
+      if (context.mounted) {
+        dprSnack(context, 'BOQ imported: ${str(r['added'])} added, ${str(r['updated'])} updated, ${str(r['headings'])} heading / text rows.');
+      }
+      await onChanged();
+    } catch (e) {
+      if (context.mounted) dprSnack(context, e.toString(), error: true);
+    }
+  }
+
+  Future<void> _move(BuildContext context, int i, int d) async {
+    final j = i + d;
+    if (j < 0 || j >= rows.length) return;
+    final ids = rows.map((r) => asInt(r['boq_id'])).toList();
+    final t = ids[i];
+    ids[i] = ids[j];
+    ids[j] = t;
+    try {
+      await DprApi.reorderBoq(contractId, ids);
+      await onChanged();
+    } catch (e) {
+      if (context.mounted) dprSnack(context, e.toString(), error: true);
+    }
+  }
+
+  Future<void> _delete(BuildContext context, Json r) async {
+    if (!await dprConfirm(context, 'Delete BOQ row', 'Delete "${str(r['description'])}"? (An item used in activities cannot be deleted: switch it off.)',
+        ok: 'Delete', danger: true)) {
+      return;
+    }
+    try {
+      await DprApi.deleteBoq(contractId, asInt(r['boq_id']));
       await onChanged();
     } catch (e) {
       if (context.mounted) dprSnack(context, e.toString(), error: true);
@@ -1057,42 +1186,49 @@ class _BoqTab extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    double total = 0;
-    for (final r in rows) {
-      final q = asNum(r['contract_qty']);
-      final rt = asNum(r['rate']);
-      if (q != null && rt != null && r['is_active'] == true) total += q * rt;
-    }
     return ListView(padding: const EdgeInsets.all(14), children: [
       AppDataTableCard(
         title: 'Bill of quantities',
-        subtitle: '${rows.length} items · total amount ≈ ${total.toStringAsFixed(2)} (exact total in the report)',
+        subtitle: '${rows.where((r) => str(r['row_type']) == 'item').length} items · headings and text rows print as in the client\'s form. '
+            'Excel columns: Row type, Group, Item No., Cost Code, Description, Unit, Quantity, Budget, Rate, Done before.',
         icon: Icons.list_alt_rounded,
-        emptyMessage: 'No BOQ item. Add them one by one or import an Excel file (Item No., Description, Unit, Contract Qty, Rate).',
+        emptyMessage: 'No BOQ row. Add them one by one or import an Excel file.',
         trailing: canEdit
             ? Wrap(spacing: 8, children: [
                 OutlinedButton.icon(onPressed: () => _import(context), icon: const Icon(Icons.upload_file_rounded, size: 18), label: const Text('Import Excel')),
                 ElevatedButton.icon(style: dprPrimaryButton(), onPressed: () => _edit(context), icon: const Icon(Icons.add_rounded, size: 18), label: const Text('Add item')),
               ])
             : null,
-        columns: [dprCol('Item No.'), dprCol('Description'), dprCol('Unit'), dprCol('Contract Qty'), dprCol('Rate'), dprCol('Opening qty'),
-          dprCol('Remarks'), dprCol('Active'), dprCol('')],
-        rows: rows
-            .map((r) => DataRow(cells: [
-                  DataCell(dprCell(str(r['item_no']), bold: true)),
-                  DataCell(dprCell(str(r['description']), width: 300)),
+        columns: [dprCol('Group'), dprCol('Item No.'), dprCol('Description'), dprCol('Unit'), dprCol('Contract Qty'), dprCol('Budget'), dprCol('Rate'),
+          dprCol('Done before'), dprCol('Remarks'), dprCol('Active'), dprCol('')],
+        rows: rows.asMap().entries.map((en) {
+          final r = en.value;
+          final heading = str(r['row_type']) == 'section';
+          final text = str(r['row_type']) == 'text';
+          return DataRow(
+                color: WidgetStateProperty.all(heading ? const Color(0xffe2efda) : (text ? AppColors.background : null)),
+                cells: [
+                  DataCell(dprCell(str(r['group_name']).isEmpty ? '—' : str(r['group_name']), color: AppColors.textSecondary)),
+                  DataCell(dprCell(heading || text ? (heading ? 'Heading' : 'Text') : str(r['item_no']), bold: !text)),
+                  DataCell(dprCell(str(r['description']), width: 300, bold: heading)),
                   DataCell(dprCell(str(r['unit']))),
                   DataCell(dprCell(fmtQty(r['contract_qty']))),
+                  DataCell(dprCell(fmtQty(r['budget']))),
                   DataCell(dprCell(fmtQty(r['rate']))),
                   DataCell(dprCell(fmtQty(r['opening_qty'], dash: true))),
                   DataCell(dprCell(str(r['remarks']), width: 160)),
                   DataCell(Icon(r['is_active'] == true ? Icons.check_circle_rounded : Icons.cancel_outlined,
                       size: 18, color: r['is_active'] == true ? const Color(0xff047857) : AppColors.textSecondary)),
                   DataCell(canEdit
-                      ? IconButton(icon: const Icon(Icons.edit_rounded, size: 18, color: AppColors.primary), onPressed: () => _edit(context, r))
+                      ? Row(mainAxisSize: MainAxisSize.min, children: [
+                          IconButton(tooltip: 'Up', icon: const Icon(Icons.arrow_upward_rounded, size: 17), onPressed: () => _move(context, en.key, -1)),
+                          IconButton(tooltip: 'Down', icon: const Icon(Icons.arrow_downward_rounded, size: 17), onPressed: () => _move(context, en.key, 1)),
+                          IconButton(icon: const Icon(Icons.edit_rounded, size: 18, color: AppColors.primary), onPressed: () => _edit(context, r)),
+                          IconButton(icon: const Icon(Icons.delete_outline_rounded, size: 18, color: AppColors.danger), onPressed: () => _delete(context, r)),
+                        ])
                       : const SizedBox.shrink()),
-                ]))
-            .toList(),
+                ]);
+        }).toList(),
       ),
     ]);
   }
@@ -1121,10 +1257,14 @@ class _BoqDialogState extends State<_BoqDialog> {
     'unit': TextEditingController(text: str(widget.row?['unit'])),
     'contract_qty': TextEditingController(text: _t(str(widget.row?['contract_qty']))),
     'rate': TextEditingController(text: _t(str(widget.row?['rate']))),
+    'budget': TextEditingController(text: _t(str(widget.row?['budget']))),
+    'group_name': TextEditingController(text: str(widget.row?['group_name'])),
+    'cost_code': TextEditingController(text: str(widget.row?['cost_code'])),
     'opening_qty': TextEditingController(text: _t(str(widget.row?['opening_qty'])) == '0' ? '' : _t(str(widget.row?['opening_qty']))),
     'remarks': TextEditingController(text: str(widget.row?['remarks'])),
   };
   late bool _active = widget.row == null || widget.row!['is_active'] == true;
+  late String _type = str(widget.row?['row_type']).isEmpty ? 'item' : str(widget.row?['row_type']);
   bool _busy = false;
   String? _error;
 
@@ -1144,6 +1284,7 @@ class _BoqDialogState extends State<_BoqDialog> {
     try {
       await DprApi.saveBoq(widget.contractId, widget.row == null ? null : asInt(widget.row!['boq_id']), {
         for (final e in _c.entries) e.key: e.value.text.trim(),
+        'row_type': _type,
         'sort_order': widget.row?['sort_order'] ?? 0,
         'is_active': _active,
       });
@@ -1168,28 +1309,45 @@ class _BoqDialogState extends State<_BoqDialog> {
           decoration: dprInput(label),
         );
     return AlertDialog(
-      title: Text(widget.row == null ? 'New BOQ item' : 'Edit BOQ item'),
+      title: Text(widget.row == null ? 'New BOQ row' : 'Edit BOQ row'),
       content: SizedBox(
-        width: 520,
+        width: 560,
         child: SingleChildScrollView(
           child: Column(mainAxisSize: MainAxisSize.min, children: [
+            Wrap(spacing: 8, children: [
+              for (final t in const [('item', 'Item (quantities)'), ('section', 'Heading'), ('text', 'Text / scope')])
+                ChoiceChip(label: Text(t.$2), selected: _type == t.$1, onSelected: _busy ? null : (_) => setState(() => _type = t.$1)),
+            ]),
+            const SizedBox(height: 10),
             Row(children: [
-              Expanded(child: TextField(controller: _c['item_no'], enabled: !_busy, decoration: dprInput('Item No.'))),
+              if (_type == 'item') ...[
+                Expanded(child: TextField(controller: _c['item_no'], enabled: !_busy, decoration: dprInput('Item No. / Task code'))),
+                const SizedBox(width: 10),
+              ],
+              Expanded(child: TextField(controller: _c['cost_code'], enabled: !_busy, decoration: dprInput('Cost code'))),
               const SizedBox(width: 10),
               Expanded(child: TextField(controller: _c['unit'], enabled: !_busy, decoration: dprInput('Unit'))),
             ]),
             const SizedBox(height: 10),
+            TextField(controller: _c['group_name'], enabled: !_busy, decoration: dprInput('Group (empty = main BOQ, e.g. ADDITIONAL WORKS)')),
+            const SizedBox(height: 10),
             TextField(controller: _c['description'], enabled: !_busy, minLines: 2, maxLines: 4, decoration: dprInput('Description')),
             const SizedBox(height: 10),
             Row(children: [
-              Expanded(child: numField('contract_qty', 'Contract Qty')),
-              const SizedBox(width: 10),
-              Expanded(child: numField('rate', 'Rate')),
+              Expanded(child: numField('contract_qty', _type == 'item' ? 'Contract Qty' : 'Quantity shown (optional)')),
+              if (_type == 'item') ...[
+                const SizedBox(width: 10),
+                Expanded(child: numField('budget', 'Budget (optional)')),
+                const SizedBox(width: 10),
+                Expanded(child: numField('rate', 'Rate (optional)')),
+              ],
             ]),
             const SizedBox(height: 10),
             Row(children: [
-              Expanded(child: numField('opening_qty', 'Done before the system (optional)')),
-              const SizedBox(width: 10),
+              if (_type == 'item') ...[
+                Expanded(child: numField('opening_qty', 'Done before the system (optional)')),
+                const SizedBox(width: 10),
+              ],
               Expanded(child: TextField(controller: _c['remarks'], enabled: !_busy, decoration: dprInput('Remarks'))),
             ]),
             SwitchListTile(

@@ -24,6 +24,7 @@ import 'package:printing/printing.dart';
 import '../../services/dpr_api.dart';
 import '../../widgets/app_data_table.dart';
 import '../payroll_export_service.dart';
+import 'dpr_ucc_report.dart';
 import 'dpr_widgets.dart';
 
 class DprReportPage extends StatelessWidget {
@@ -35,7 +36,13 @@ class DprReportPage extends StatelessWidget {
       const DprContractBar(),
       Expanded(
         child: DprSelection(
-          builder: (ctx, cid, date) => DprDayEditor(key: ValueKey('$cid|$date'), contractId: cid, date: date),
+          // the client's form (default) or the DPR workbook, as chosen in Setup for the contract
+          builder: (ctx, cid, date) => ValueListenableBuilder<Map<int, String>>(
+            valueListenable: DprState.templates,
+            builder: (_, t, __) => (t[cid] ?? 'ucc') == 'dpr'
+                ? DprDayEditor(key: ValueKey('dpr|$cid|$date'), contractId: cid, date: date)
+                : UccDayEditor(key: ValueKey('ucc|$cid|$date'), contractId: cid, date: date),
+          ),
         ),
       ),
     ]);
@@ -238,7 +245,7 @@ class _DprDayEditorState extends State<DprDayEditor> with SingleTickerProviderSt
   Future<void> _issue({bool revise = false}) async {
     final res = await Navigator.of(context).push<bool>(MaterialPageRoute(
       fullscreenDialog: true,
-      builder: (_) => _IssuePage(contractId: cid, date: date, revise: revise, model: model),
+      builder: (_) => DprIssuePage(contractId: cid, date: date, revise: revise, model: model),
     ));
     if (res == true) {
       if (mounted) dprSnack(context, revise ? 'New revision issued.' : 'Report issued.');
@@ -1831,18 +1838,18 @@ class _CopyDialogState extends State<_CopyDialog> {
 
 /// Full preview before issuing (or revising): the PDF, what is missing, the
 /// warnings, then confirm.
-class _IssuePage extends StatefulWidget {
+class DprIssuePage extends StatefulWidget {
   final int contractId;
   final String date;
   final bool revise;
   final Json model;
-  const _IssuePage({required this.contractId, required this.date, required this.revise, required this.model});
+  const DprIssuePage({super.key, required this.contractId, required this.date, required this.revise, required this.model});
 
   @override
-  State<_IssuePage> createState() => _IssuePageState();
+  State<DprIssuePage> createState() => DprIssuePageState();
 }
 
-class _IssuePageState extends State<_IssuePage> {
+class DprIssuePageState extends State<DprIssuePage> {
   Uint8List? _pdf;
   String? _error;
   bool _busy = false;

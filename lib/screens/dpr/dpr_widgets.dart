@@ -180,6 +180,7 @@ class _DprContractBarState extends State<DprContractBar> {
     try {
       final list = await DprApi.contracts();
       final active = list.where((c) => c['is_active'] == true).toList();
+      DprState.templates.value = {for (final c in list) asInt(c['contract_id']): str(c['template']).isEmpty ? 'ucc' : str(c['template'])};
       if (!mounted) return;
       setState(() {
         _contracts = active;

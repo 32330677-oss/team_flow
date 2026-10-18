@@ -71,6 +71,7 @@ class _DashboardState extends State<_Dashboard> {
           ? DprMessage(icon: Icons.error_outline_rounded, color: AppColors.danger, text: _error!)
           : const Center(child: CircularProgressIndicator(color: AppColors.primary));
     }
+    if (str(d['template']) == 'ucc') return _ucc(d);
     final k = asJson(d['kpis']);
     final h = asJson(d['header']);
     final days = asList(d['days']);
@@ -155,6 +156,62 @@ class _DashboardState extends State<_Dashboard> {
     );
   }
 
+  /// Dashboard of a contract in the client's form.
+  Widget _ucc(Json d) {
+    final t = asJson(d['today']);
+    final days = asList(d['days'])
+        .map((x) => {...x, 'own_manpower': x['trades'], 'subcon_manpower': x['staff'], 'total_manpower': x['manpower'], 'total_plant': x['plant']})
+        .toList();
+    final boq = asList(d['boq']);
+    return RefreshIndicator(
+      color: AppColors.primary,
+      onRefresh: _load,
+      child: ListView(padding: const EdgeInsets.all(14), children: [
+        DprBanner(lines: (d['warnings'] as List? ?? const []).map((e) => e.toString()).toList()),
+        Wrap(spacing: 10, runSpacing: 10, children: [
+          DprKpi(label: 'Manpower today', value: fmtQty(t['manpower']), icon: Icons.groups_rounded,
+              note: 'present ${fmtQty(t['present'])} · absent ${fmtQty(t['absent'])}'),
+          DprKpi(label: 'Staff', value: fmtQty(t['staff']), icon: Icons.badge_rounded),
+          DprKpi(label: 'Tradesmen', value: fmtQty(t['trades']), icon: Icons.engineering_rounded),
+          DprKpi(label: 'Plant operative', value: fmtQty(t['plant_operative']), icon: Icons.precision_manufacturing_rounded, color: const Color(0xff047857),
+              note: 'breakdown ${fmtQty(t['plant_breakdown'])} · idle ${fmtQty(t['plant_idle'])}'),
+          DprKpi(label: 'Activities today', value: str(t['activities']), icon: Icons.construction_rounded),
+          DprKpi(label: 'WIR today', value: str(t['wir']), icon: Icons.fact_check_rounded),
+          DprKpi(label: 'BOQ items started', value: '${str(d['boq_items_started'])} / ${str(d['boq_items'])}', icon: Icons.trending_up_rounded,
+              color: const Color(0xff047857), note: '${str(d['boq_items_done'])} completed'),
+        ]),
+        const SizedBox(height: 14),
+        DprCard(
+          title: 'Manpower & plant – last 30 days',
+          subtitle: 'Tap a day to open its report. Dot: green = issued, amber = draft, grey = nothing yet',
+          icon: Icons.bar_chart_rounded,
+          child: _DaysChart(days: days, onTap: widget.onOpenDay, ownLabel: 'Tradesmen', subLabel: 'Staff'),
+        ),
+        AppDataTableCard(
+          title: 'Overall progress – cumulative to ${fmtDay(widget.date)}',
+          subtitle: '% = cumulative ÷ quantity (or budget). Red = more than the quantity.',
+          icon: Icons.list_alt_rounded,
+          emptyMessage: 'No BOQ yet.',
+          columns: [dprCol('Group'), dprCol('Item'), dprCol('Description'), dprCol('Unit'), dprCol('Quantity'), dprCol('Today'), dprCol('Cumul'), dprCol('%'),
+            dprCol('Balance')],
+          rows: boq
+              .map((b) => DataRow(cells: [
+                    DataCell(dprCell(str(b['group']).isEmpty ? '—' : str(b['group']), color: AppColors.textSecondary)),
+                    DataCell(dprCell(str(b['item_no']), bold: true)),
+                    DataCell(dprCell(str(b['description']), width: 240)),
+                    DataCell(dprCell(str(b['unit']))),
+                    DataCell(dprCell(fmtQty(b['qty'] ?? b['budget']))),
+                    DataCell(dprCell(fmtQty(b['curr']))),
+                    DataCell(dprCell(fmtQty(b['cum']), bold: true, color: b['over'] == true ? AppColors.danger : null)),
+                    DataCell(_pctBar(asNum(b['pct']))),
+                    DataCell(dprCell(fmtQty(b['balance']), color: b['over'] == true ? AppColors.danger : null)),
+                  ]))
+              .toList(),
+        ),
+      ]),
+    );
+  }
+
   Widget _progressLine(String label, double v, Color c) => Row(children: [
         SizedBox(width: 140, child: Text(label, style: const TextStyle(fontWeight: FontWeight.w600))),
         Expanded(
@@ -191,7 +248,9 @@ class _DashboardState extends State<_Dashboard> {
 class _DaysChart extends StatelessWidget {
   final List<Json> days;
   final ValueChanged<String>? onTap;
-  const _DaysChart({required this.days, this.onTap});
+  final String ownLabel;
+  final String subLabel;
+  const _DaysChart({required this.days, this.onTap, this.ownLabel = 'Own manpower', this.subLabel = 'Subcontractor manpower'});
 
   @override
   Widget build(BuildContext context) {
@@ -211,7 +270,7 @@ class _DaysChart extends StatelessWidget {
               final st = str(d['status']);
               final dot = st == 'Issued' ? const Color(0xff047857) : (st == 'Draft' ? const Color(0xffb45309) : AppColors.border);
               return Tooltip(
-                message: '${fmtDay(d['date'])} (${str(d['day'])})\nOwn manpower $own · Subcon $sub · Plant $pl\nReport: $st',
+                message: '${fmtDay(d['date'])} (${str(d['day'])})\n$ownLabel $own · $subLabel $sub · Plant $pl\nReport: $st',
                 child: InkWell(
                   onTap: onTap == null ? null : () => onTap!(str(d['date'])),
                   child: SizedBox(
@@ -234,8 +293,8 @@ class _DaysChart extends StatelessWidget {
       ),
       const SizedBox(height: 6),
       Wrap(spacing: 14, children: [
-        _legend(AppColors.primary, 'Own manpower'),
-        _legend(AppColors.accent, 'Subcontractor manpower'),
+        _legend(AppColors.primary, ownLabel),
+        _legend(AppColors.accent, subLabel),
       ]),
     ]);
   }
@@ -331,6 +390,12 @@ class _AllocState extends State<_Alloc> {
       return _error != null
           ? DprMessage(icon: Icons.error_outline_rounded, color: AppColors.danger, text: _error!)
           : const Center(child: CircularProgressIndicator(color: AppColors.primary));
+    }
+    if (str(m['template']) == 'ucc') {
+      return const DprMessage(
+        icon: Icons.grid_view_rounded,
+        text: 'This contract uses the client\'s form: crews per activity are printed on the area pages (Daily report → activity → crews).',
+      );
     }
     final a = asJson(m['allocation']);
     final acts = asList(a['activities']);
@@ -605,18 +670,22 @@ class _DprDifferencesPageState extends State<DprDifferencesPage> {
           subtitle: '${rows.length} entries',
           icon: Icons.compare_arrows_rounded,
           emptyMessage: 'No manual value: every figure comes from the systems.',
-          columns: [dprCol('Contract'), dprCol('Date'), dprCol('Figure'), dprCol('System'), dprCol('Manual'), dprCol('Difference'),
+          columns: [dprCol('Contract'), dprCol('Date'), dprCol('Applies'), dprCol('Figure'), dprCol('System'), dprCol('Manual'), dprCol('Difference'),
             dprCol('Reason'), dprCol('By'), dprCol('When'), dprCol('Status')],
           rows: rows.map((r) {
-            final diff = r['difference'];
-            final dn = diff == null ? null : asInt(diff);
+            final dn = asNum(r['difference']);
+            final scope = str(r['scope']);
             return DataRow(cells: [
               DataCell(dprCell(str(r['contract_code']), bold: true)),
               DataCell(dprCell(fmtDay(r['report_date']))),
+              DataCell(dprCell(scope == 'forward'
+                  ? 'From this day on${str(r['to_date']).isEmpty ? '' : ' to ${fmtDay(r['to_date'])}'}'
+                  : (scope == 'chain' ? 'In the cumulative' : 'This day only'))),
               DataCell(dprCell(str(r['field']), width: 200)),
-              DataCell(dprCell(r['system_value'] == null ? '—' : str(r['system_value']))),
-              DataCell(dprCell(str(r['manual_value']), bold: true, color: const Color(0xffb45309))),
-              DataCell(dprCell(dn == null ? '—' : '${dn > 0 ? '+' : ''}$dn', bold: true, color: dn == null || dn == 0 ? null : (dn > 0 ? const Color(0xff047857) : AppColors.danger))),
+              DataCell(dprCell(r['system_value'] == null ? '—' : fmtQty(r['system_value']))),
+              DataCell(dprCell(fmtQty(r['manual_value']), bold: true, color: const Color(0xffb45309))),
+              DataCell(dprCell(dn == null ? '—' : '${dn > 0 ? '+' : ''}${fmtQty(dn.toString().replaceFirst(RegExp(r'\.0$'), ''))}',
+                  bold: true, color: dn == null || dn == 0 ? null : (dn > 0 ? const Color(0xff047857) : AppColors.danger))),
               DataCell(dprCell(str(r['reason']), width: 220)),
               DataCell(dprCell(str(r['created_by']))),
               DataCell(dprCell(str(r['created_at']))),

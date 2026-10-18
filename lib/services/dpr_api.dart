@@ -30,6 +30,8 @@ class DprState {
   static final ValueNotifier<int?> contractId = ValueNotifier<int?>(null);
   static final ValueNotifier<DateTime> date = ValueNotifier<DateTime>(_today());
   static Set<String> permissions = <String>{};
+  /// contract id -> 'ucc' (the client's form) or 'dpr' (the DPR workbook), filled by the contract bar.
+  static final ValueNotifier<Map<int, String>> templates = ValueNotifier<Map<int, String>>(<int, String>{});
 
   static DateTime _today() {
     final n = DateTime.now();
@@ -234,4 +236,37 @@ class DprApi {
   static Future<Json> saveRegister(int cid, String kind, int? id, Json body) async => asJson(await _send(
       id == null ? 'POST' : 'PUT', id == null ? '/dpr/contracts/$cid/registers/$kind' : '/dpr/contracts/$cid/registers/$kind/$id', body));
   static Future<void> deleteRegister(int cid, String kind, int id) => _send('DELETE', '/dpr/contracts/$cid/registers/$kind/$id');
+
+  // ---------------------------------------------------------------- v2: the client's form
+  /// Workers of the day on every Team Flow site (counts only).
+  static Future<Json> teamFlowToday(String date, {int? contractId}) async =>
+      asJson(await _get('/dpr/team-flow-today', query: {'date': date, if (contractId != null) 'contract_id': contractId}));
+  static Future<Json> patchDayTo(int cid, String date, int version, Json fields, List<int> applyTo) async =>
+      asJson(await _send('PATCH', _day(cid, date), {'version': version, 'fields': fields, 'apply_to': applyTo}));
+  /// A manual value: scope 'day' (this report only), 'forward' (from this day on), 'chain' (counts in the cumulative).
+  static Future<Json> setManual(int cid, String date, Json body) async => asJson(await _send('PUT', '${_day(cid, date)}/manual', body));
+  static Future<Json> previewManual(int cid, String date, Json body) async =>
+      asJson(await _send('POST', '${_day(cid, date)}/manual/preview', body));
+  static Future<void> revertManual(int cid, String date, Json body) => _send('POST', '${_day(cid, date)}/manual/revert', body);
+  static Future<List<Json>> manualHistory(int cid, String date, String key) async =>
+      asList(await _get('${_day(cid, date)}/manual/history', query: {'key': key}));
+  static Future<Json> saveMaterial(int cid, String date, int? id, Json body) async => asJson(await _send(
+      id == null ? 'POST' : 'PUT', id == null ? '${_day(cid, date)}/materials' : '${_day(cid, date)}/materials/$id', body));
+  static Future<void> deleteMaterial(int cid, String date, int id) => _send('DELETE', '${_day(cid, date)}/materials/$id');
+  static Future<void> reorderActivities(int cid, String date, List<int> ids) =>
+      _send('PUT', '${_day(cid, date)}/activities-order', {'activity_ids': ids});
+  // setup
+  static Future<Json> loadDefaultLines(int cid, List<String> kinds) async =>
+      asJson(await _send('POST', '/dpr/contracts/$cid/default-lines', {'kinds': kinds}));
+  static Future<void> reorderBoq(int cid, List<int> ids) => _send('PUT', '/dpr/contracts/$cid/boq-order', {'boq_ids': ids});
+  static Future<void> deleteBoq(int cid, int id) => _send('DELETE', '/dpr/contracts/$cid/boq/$id');
+  static Future<Json> saveArea(int cid, int? id, Json body) async =>
+      asJson(await _send(id == null ? 'POST' : 'PUT', id == null ? '/dpr/contracts/$cid/areas' : '/dpr/contracts/$cid/areas/$id', body));
+  static Future<Json> addFixedPage(int cid, List<int> bytes, String name, String title) async =>
+      asJson(await _send('POST', '/dpr/contracts/$cid/fixed-pages', FormData.fromMap({
+        'file': MultipartFile.fromBytes(bytes, filename: name),
+        'title': title,
+      })));
+  static Future<Json> updateFixedPage(int cid, int id, Json body) async => asJson(await _send('PUT', '/dpr/contracts/$cid/fixed-pages/$id', body));
+  static Future<Uint8List> fixedPageBytes(int cid, int id) => _bytes('/dpr/contracts/$cid/fixed-pages/$id/file');
 }
