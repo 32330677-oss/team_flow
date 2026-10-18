@@ -220,16 +220,17 @@ class DprApi {
   static Future<Uint8List> photoBytes(int cid, int photoId) => _bytes('/dpr/contracts/$cid/photos/$photoId/file');
   static Future<Json> copyDay(int cid, String date, int fromId, List<String> parts) async =>
       asJson(await _send('POST', '${_day(cid, date)}/copy', {'from_contract_id': fromId, 'parts': parts}));
-  static Future<Uint8List> draftPdf(int cid, String date) => _bytes('${_day(cid, date)}/pdf');
-  static Future<Uint8List> draftXlsx(int cid, String date) => _bytes('${_day(cid, date)}/xlsx');
+  /// design: 'ucc' = the client's form, 'ours' = our design (same data).
+  static Future<Uint8List> draftPdf(int cid, String date, {String design = 'ucc'}) => _bytes('${_day(cid, date)}/pdf?design=$design');
+  static Future<Uint8List> draftXlsx(int cid, String date, {String design = 'ucc'}) => _bytes('${_day(cid, date)}/xlsx?design=$design');
   static Future<Json> issue(int cid, String date, Json body) async => asJson(await _send('POST', '${_day(cid, date)}/issue', body));
   static Future<Json> revise(int cid, String date, Json body) async => asJson(await _send('POST', '${_day(cid, date)}/revise', body));
 
   // archive, dashboard, registers
   static Future<List<Json>> reports(int cid, {String? from, String? to}) async =>
       asList(await _get('/dpr/contracts/$cid/reports', query: {if (from != null) 'from': from, if (to != null) 'to': to}));
-  static Future<Uint8List> reportPdf(int cid, int rid) => _bytes('/dpr/contracts/$cid/reports/$rid/pdf');
-  static Future<Uint8List> reportXlsx(int cid, int rid) => _bytes('/dpr/contracts/$cid/reports/$rid/xlsx');
+  static Future<Uint8List> reportPdf(int cid, int rid, {String design = 'ucc'}) => _bytes('/dpr/contracts/$cid/reports/$rid/pdf?design=$design');
+  static Future<Uint8List> reportXlsx(int cid, int rid, {String design = 'ucc'}) => _bytes('/dpr/contracts/$cid/reports/$rid/xlsx?design=$design');
   static Future<Json> dashboard(int cid, String date) async => asJson(await _get('/dpr/contracts/$cid/dashboard', query: {'date': date}));
   static Future<List<Json>> register(int cid, String kind, {String? status}) async =>
       asList(await _get('/dpr/contracts/$cid/registers/$kind', query: {if (status != null) 'status': status}));

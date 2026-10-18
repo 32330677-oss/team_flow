@@ -110,12 +110,14 @@ class DprUccContractCardState extends State<DprUccContractCard> {
     final en = widget.enabled;
     return DprCard(
       title: 'Report form & how figures are read',
-      subtitle: 'The client\'s form (UCC-IMS-CM-3003A) or the DPR workbook. Saved with "Save contract".',
+      subtitle: 'One day page for both designs: the PDF / Excel asks "Client\'s form" or "Our design". Saved with "Save contract".',
       icon: Icons.assignment_rounded,
       child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
         Wrap(spacing: 8, children: [
           ChoiceChip(label: const Text('Client\'s form (UCC)'), selected: _template == 'ucc', onSelected: en ? (_) => setState(() => _template = 'ucc') : null),
-          ChoiceChip(label: const Text('DPR workbook'), selected: _template == 'dpr', onSelected: en ? (_) => setState(() => _template = 'dpr') : null),
+          // the old workbook (its own day page) stays for contracts already on it; "our design" is chosen when printing
+          if (str(widget.contract['template']) == 'dpr')
+            ChoiceChip(label: const Text('DPR workbook (old)'), selected: _template == 'dpr', onSelected: en ? (_) => setState(() => _template = 'dpr') : null),
         ]),
         const SizedBox(height: 12),
         if (_template == 'ucc') ...[

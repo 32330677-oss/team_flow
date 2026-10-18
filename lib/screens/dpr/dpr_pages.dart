@@ -530,9 +530,15 @@ class _ArchiveState extends State<_Archive> {
   Future<void> _download(Json r, String format) async {
     try {
       final id = asInt(r['report_id']);
-      final bytes = format == 'pdf' ? await DprApi.reportPdf(widget.contractId, id) : await DprApi.reportXlsx(widget.contractId, id);
+      // a report of the client's form is saved in both designs: ask which one
+      final design = str(r['template']) == 'dpr' ? 'ucc' : await dprAskDesign(context, format);
+      if (design == null) return;
+      final bytes = format == 'pdf'
+          ? await DprApi.reportPdf(widget.contractId, id, design: design)
+          : await DprApi.reportXlsx(widget.contractId, id, design: design);
       final rev = asInt(r['revision']);
-      await PayrollExportService.exportBytes(bytes, '${str(r['report_no'])}_${str(r['report_date'])}${rev > 0 ? '_Rev$rev' : ''}.$format');
+      await PayrollExportService.exportBytes(
+          bytes, '${design == 'ours' ? 'DPR_' : ''}${str(r['report_no'])}_${str(r['report_date'])}${rev > 0 ? '_Rev$rev' : ''}.$format');
     } catch (e) {
       if (mounted) dprSnack(context, e.toString(), error: true);
     }

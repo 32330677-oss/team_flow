@@ -111,6 +111,13 @@ class _SetupState extends State<_Setup> with SingleTickerProviderStateMixin {
   }
 
   Json get contract => asJson(_s?['contract']);
+  /// Sections offered on the contract tab: the workbook's, or "our design" for the client's form.
+  List<Json> _sectionList() {
+    final setup = _s ?? <String, dynamic>{};
+    if (str(contract['template']) == 'dpr') return asList(setup['sections']);
+    final ours = asList(setup['ours_sections']);
+    return ours.isNotEmpty ? ours : asList(setup['sections']);
+  }
   List<Json> get lines => asList(_s?['lines']);
 
   Future<void> _copySetup() async {
@@ -171,7 +178,8 @@ class _SetupState extends State<_Setup> with SingleTickerProviderStateMixin {
       ),
       Expanded(
         child: TabBarView(controller: _tabs, children: [
-          _ContractTab(key: ValueKey('c${contract['updated_at']}'), contract: contract, contracts: _contracts, sections: asList(_s?['sections']),
+          _ContractTab(key: ValueKey('c${contract['updated_at']}'), contract: contract, contracts: _contracts,
+              sections: _sectionList(),
               ucc: asJson(_s?['ucc']), canEdit: canEdit, onSaved: () {
             _load();
             widget.onRenamed();
@@ -369,10 +377,11 @@ class _ContractTabState extends State<_ContractTab> {
                 }).toList(),
               ),
       ),
-      if (str(widget.contract['template']) == 'dpr')
       DprCard(
-        title: 'Sections printed by default',
-        subtitle: 'Each day can still switch a section on or off.',
+        title: str(widget.contract['template']) == 'dpr' ? 'Sections printed by default' : 'Our design – sections printed',
+        subtitle: str(widget.contract['template']) == 'dpr'
+            ? 'Each day can still switch a section on or off.'
+            : 'Used when "Our design" is chosen for the PDF / Excel (the client\'s form has its own layout).',
         icon: Icons.print_rounded,
         child: Wrap(
           spacing: 8,
@@ -1505,5 +1514,53 @@ class _CopySetupDialogState extends State<_CopySetupDialog> {
         ),
       ],
     );
+  }
+}
+
+// ---------------------------------------------------------------- from the day page (same dialogs as Setup)
+/// Adds a row (staff / trade / plant / tool) to the contract from the day page.
+/// The row belongs to the contract (every day), exactly as if it was added in Setup.
+Future<bool> dprAddLine(BuildContext context, int contractId, String kind) async {
+  Json setup;
+  Json? src;
+  try {
+    setup = await DprApi.setup(contractId);
+    final ids = (asJson(setup['contract'])['tf_site_ids'] as List? ?? const []).map((e) => asInt(e)).toList();
+    try {
+      src = await DprApi.sourceOptions(ids);
+    } catch (_) {
+      src = null; // the names of the systems are optional in the dialog
+    }
+  } catch (e) {
+    if (context.mounted) dprSnack(context, e.toString(), error: true);
+    return false;
+  }
+  if (!context.mounted) return false;
+  final saved = await showDialog<bool>(
+    context: context,
+    barrierDismissible: false,
+    builder: (_) => _LineDialog(contractId: contractId, kind: kind, line: null, src: src, lists: asJson(setup['lists'])),
+  );
+  return saved == true;
+}
+
+/// Adds a BOQ item to the contract from the day page; returns the new item (null = cancelled).
+Future<Json?> dprAddBoqItem(BuildContext context, int contractId) async {
+  int maxId(Json s) => asList(s['boq']).fold<int>(0, (a, b) => asInt(b['boq_id']) > a ? asInt(b['boq_id']) : a);
+  try {
+    final before = maxId(await DprApi.setup(contractId));
+    if (!context.mounted) return null;
+    final saved = await showDialog<bool>(context: context, barrierDismissible: false, builder: (_) => _BoqDialog(contractId: contractId, row: null));
+    if (saved != true) return null;
+    final after = await DprApi.setup(contractId);
+    final added = asList(after['boq'])
+        .where((b) => asInt(b['boq_id']) > before && (str(b['row_type']).isEmpty || str(b['row_type']) == 'item'))
+        .toList();
+    if (added.isEmpty) return null; // a heading / text row: nothing to choose
+    final b = added.last;
+    return {'boq_id': b['boq_id'], 'item_no': b['item_no'], 'description': b['description'], 'unit': b['unit'], 'contract_qty': b['contract_qty']};
+  } catch (e) {
+    if (context.mounted) dprSnack(context, e.toString(), error: true);
+    return null;
   }
 }

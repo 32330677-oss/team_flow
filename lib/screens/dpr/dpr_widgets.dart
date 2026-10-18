@@ -421,6 +421,32 @@ Widget dprCell(String text, {bool bold = false, Color? color, double? width, Tex
 
 DataColumn dprCol(String label, {bool numeric = false}) => DataColumn(label: Text('  $label'), numeric: numeric);
 
+/// Which design to print: 'ucc' (the client's form) or 'ours' (our design, same data). null = cancelled.
+Future<String?> dprAskDesign(BuildContext context, String format) {
+  Widget option(BuildContext dCtx, String value, IconData icon, String title, String text) => ListTile(
+        leading: Icon(icon, color: AppColors.primary),
+        title: Text(title, style: const TextStyle(fontWeight: FontWeight.w700)),
+        subtitle: Text(text),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10), side: const BorderSide(color: AppColors.border)),
+        onTap: () => Navigator.pop(dCtx, value),
+      );
+  return showDialog<String>(
+    context: context,
+    builder: (dCtx) => AlertDialog(
+      title: Text('Which design? (${format.toUpperCase()})'),
+      content: SizedBox(
+        width: 420,
+        child: Column(mainAxisSize: MainAxisSize.min, children: [
+          option(dCtx, 'ucc', Icons.assignment_rounded, 'Client\'s form (UCC)', 'UCC-IMS-CM-3003A, as sent to the client.'),
+          const SizedBox(height: 8),
+          option(dCtx, 'ours', Icons.description_rounded, 'Our design', 'The company\'s DPR: weather details, HSE, cumulative days, plan of the next day.'),
+        ]),
+      ),
+      actions: [TextButton(onPressed: () => Navigator.pop(dCtx), child: const Text('Cancel'))],
+    ),
+  );
+}
+
 Future<bool> dprConfirm(BuildContext context, String title, String text, {String ok = 'OK', bool danger = false}) async {
   final r = await showDialog<bool>(
     context: context,

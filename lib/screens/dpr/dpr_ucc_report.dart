@@ -23,11 +23,18 @@ import '../../services/dpr_api.dart';
 import '../../widgets/app_data_table.dart';
 import '../payroll_export_service.dart';
 import 'dpr_report_screen.dart';
+import 'dpr_setup_screen.dart';
 import 'dpr_ucc_widgets.dart';
 import 'dpr_widgets.dart';
 
-const _dayText = ['weather_remarks', 'remarks'];
+const _dayText = ['weather_remarks', 'remarks', 'weather_am', 'weather_pm', 'tbt_topic', 'hse_observations', 'next_day_plan'];
 const _dayDec = ['temp_max', 'temp_min'];
+// our design (same day row): weather details and HSE figures
+const _dayMore = [('humidity', 'Humidity %'), ('wind', 'Wind km/h'), ('hours_lost', 'Hours lost')];
+const _hseInts = [
+  ('incidents', 'Incidents'), ('near_misses', 'Near misses'), ('first_aid', 'First aid cases'), ('lti', 'LTI'),
+  ('ptws', 'PTWs issued'), ('hse_inspections', 'HSE inspections'), ('tbt_attendees', 'Toolbox talk attendees'),
+];
 
 class UccDayEditor extends StatefulWidget {
   final int contractId;
@@ -70,7 +77,7 @@ class _UccDayEditorState extends State<UccDayEditor> with SingleTickerProviderSt
   @override
   void initState() {
     super.initState();
-    for (final k in [..._dayText, ..._dayDec]) {
+    for (final k in [..._dayText, ..._dayDec, ..._dayMore.map((x) => x.$1), ..._hseInts.map((x) => x.$1)]) {
       _ctl[k] = TextEditingController();
     }
     _load(first: true);
@@ -211,9 +218,11 @@ class _UccDayEditorState extends State<UccDayEditor> with SingleTickerProviderSt
 
   Future<void> _download(String format) async {
     try {
-      final bytes = format == 'pdf' ? await DprApi.draftPdf(cid, date) : await DprApi.draftXlsx(cid, date);
+      final design = await dprAskDesign(context, format);
+      if (design == null) return;
+      final bytes = format == 'pdf' ? await DprApi.draftPdf(cid, date, design: design) : await DprApi.draftXlsx(cid, date, design: design);
       final code = str(asJson(_b?['contract'])['code']);
-      await PayrollExportService.exportBytes(bytes, 'Daily_Report_${code}_${date}_DRAFT.$format');
+      await PayrollExportService.exportBytes(bytes, '${design == 'ours' ? 'DPR' : 'Daily_Report'}_${code}_${date}_DRAFT.$format');
     } catch (e) {
       if (mounted) dprSnack(context, e.toString(), error: true);
     }
@@ -377,9 +386,12 @@ class _UccDayEditorState extends State<UccDayEditor> with SingleTickerProviderSt
           _activitiesCard(),
           _materialsCard(),
           _wirCard(),
+          _hseCard(),
+          _planCard(),
           _notesCard(),
           _photosCard(),
           _layoutCard(),
+          _oursSectionsCard(),
         ],
       ),
     );
@@ -548,6 +560,29 @@ class _UccDayEditorState extends State<UccDayEditor> with SingleTickerProviderSt
             decoration: dprInput('Remarks (optional)'),
             onChanged: (v) => _changed('weather_remarks', v),
           ),
+        if (!linked) ...[
+          const SizedBox(height: 12),
+          const Text('More details – printed in our design', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: AppColors.textSecondary)),
+          const SizedBox(height: 6),
+          Wrap(spacing: 10, runSpacing: 10, children: [
+            for (final k in const [('weather_am', 'Morning'), ('weather_pm', 'Afternoon')])
+              SizedBox(
+                width: 160,
+                child: TextField(controller: _ctl[k.$1], enabled: edit, decoration: dprInput(k.$2), onChanged: (v) => _changed(k.$1, v.trim())),
+              ),
+            for (final k in _dayMore)
+              SizedBox(
+                width: 120,
+                child: TextField(
+                  controller: _ctl[k.$1],
+                  enabled: edit,
+                  keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                  decoration: dprInput(k.$2),
+                  onChanged: (v) => _changed(k.$1, v.trim()),
+                ),
+              ),
+          ]),
+        ],
         if (edit && others.isNotEmpty) ...[
           const SizedBox(height: 8),
           Wrap(spacing: 6, crossAxisAlignment: WrapCrossAlignment.center, children: [
@@ -612,7 +647,7 @@ class _UccDayEditorState extends State<UccDayEditor> with SingleTickerProviderSt
     );
   }
 
-  Widget _rowsTable(String section, String table, String title, Json data, List<(String, String)> fields) {
+  Widget _rowsTable(String section, String table, String title, Json data, List<(String, String)> fields, {bool withTotal = true}) {
     final rows = asList(data['rows']);
     final total = asJson(data['total']);
     final tableOn = asJson(layout['tables'])[table] != false;
@@ -636,6 +671,7 @@ class _UccDayEditorState extends State<UccDayEditor> with SingleTickerProviderSt
                 return DataCell(_cellBox(cell, () => _figure(key, '${str(r['name'])} – ${f.$2}', cell, kind: 'count', sourced: r['sourced'] == true, section: section)));
               }),
             ])),
+        if (withTotal)
         DataRow(color: WidgetStateProperty.all(AppColors.background), cells: [
           DataCell(dprCell('TOTAL', bold: true)),
           ...fields.map((f) {
@@ -644,6 +680,24 @@ class _UccDayEditorState extends State<UccDayEditor> with SingleTickerProviderSt
           }),
         ]),
       ],
+    );
+  }
+
+  /// "+ Add row" under a table: the row is added to the contract (Setup), for every day.
+  Widget _addRow(String kind, String label, String section) {
+    if (!DprState.can('dpr.setup') || asJson(links[section]).isNotEmpty) return const SizedBox.shrink();
+    return Align(
+      alignment: Alignment.centerLeft,
+      child: TextButton.icon(
+        onPressed: () async {
+          if (await dprAddLine(context, cid, kind)) {
+            if (mounted) dprSnack(context, '$label added to the contract (every day).');
+            await _afterChange();
+          }
+        },
+        icon: const Icon(Icons.add_rounded, size: 18),
+        label: Text('Add $label'),
+      ),
     );
   }
 
@@ -659,8 +713,10 @@ class _UccDayEditorState extends State<UccDayEditor> with SingleTickerProviderSt
       child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
         _linkBanner('manpower'),
         _rowsTable('manpower', 'staff', 'Staff', asJson(mp['staff']), f),
-        const SizedBox(height: 10),
+        _addRow('staff', 'staff position', 'manpower'),
+        const SizedBox(height: 6),
         _rowsTable('manpower', 'trades', 'Tradesmen', asJson(mp['trades']), f),
+        _addRow('trade', 'trade', 'manpower'),
         const SizedBox(height: 8),
         Wrap(spacing: 10, crossAxisAlignment: WrapCrossAlignment.center, children: [
           const Text('GRAND TOTAL', style: TextStyle(fontWeight: FontWeight.w800)),
@@ -686,8 +742,10 @@ class _UccDayEditorState extends State<UccDayEditor> with SingleTickerProviderSt
       child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
         _linkBanner('plant'),
         _rowsTable('plant', 'plant', 'Plant', asJson(pl['plant']), f),
-        const SizedBox(height: 10),
+        _addRow('plant', 'equipment', 'plant'),
+        const SizedBox(height: 6),
         _rowsTable('plant', 'tools', 'Tools', asJson(pl['tools']), f),
+        _addRow('tool', 'tool', 'plant'),
       ]),
     );
   }
@@ -933,11 +991,63 @@ class _UccDayEditorState extends State<UccDayEditor> with SingleTickerProviderSt
     );
   }
 
+  // ---------------------------------------------------------------- HSE, next working day (both designs)
+  Widget _numField(String key, String label, {double width = 150}) => SizedBox(
+        width: width,
+        child: TextField(
+          controller: _ctl[key],
+          enabled: canEdit,
+          keyboardType: TextInputType.number,
+          decoration: dprInput(label),
+          onChanged: (v) => _changed(key, v.trim()),
+        ),
+      );
+
+  Widget _hseCard() {
+    return DprCard(
+      title: 'Health, safety & environment',
+      subtitle: 'Printed in both designs when something is typed (today, totals to date, LTI-free days).',
+      icon: Icons.health_and_safety_rounded,
+      actions: [_printSwitch('hse')],
+      child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+        Wrap(spacing: 10, runSpacing: 10, children: [for (final k in _hseInts) _numField(k.$1, k.$2)]),
+        const SizedBox(height: 10),
+        TextField(controller: _ctl['tbt_topic'], enabled: canEdit, decoration: dprInput('Toolbox talk topic'), onChanged: (v) => _changed('tbt_topic', v)),
+        const SizedBox(height: 10),
+        TextField(
+          controller: _ctl['hse_observations'],
+          enabled: canEdit,
+          minLines: 2,
+          maxLines: 5,
+          decoration: dprInput('HSE observations & corrective actions'),
+          onChanged: (v) => _changed('hse_observations', v),
+        ),
+      ]),
+    );
+  }
+
+  Widget _planCard() {
+    return DprCard(
+      title: 'Planned activities – next working day',
+      subtitle: 'Printed in both designs when written.',
+      icon: Icons.event_note_rounded,
+      actions: [_printSwitch('plan')],
+      child: TextField(
+        controller: _ctl['next_day_plan'],
+        enabled: canEdit,
+        minLines: 2,
+        maxLines: 6,
+        decoration: dprInput('Planned activities'),
+        onChanged: (v) => _changed('next_day_plan', v),
+      ),
+    );
+  }
+
   Widget _notesCard() {
     final linked = asJson(links['notes']).isNotEmpty;
     return DprCard(
       title: 'General remarks',
-      subtitle: 'Not in the client\'s form: switch it on in the layout to print it.',
+      subtitle: 'Printed in our design. In the client\'s form only when switched on (layout).',
       icon: Icons.sticky_note_2_rounded,
       actions: [_printSwitch('notes')],
       child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
@@ -1020,6 +1130,49 @@ class _UccDayEditorState extends State<UccDayEditor> with SingleTickerProviderSt
   }
 
   // ---------------------------------------------------------------- layout of the day
+  /// What "our design" prints this day (contract default: Setup → Contract).
+  Widget _oursSectionsCard() {
+    final list = asList(_b?['ours_sections']);
+    final dayRaw = _b?['ours_sections_day'];
+    final eff = dayRaw == null ? asJson(_b?['ours_sections_contract']) : asJson(dayRaw);
+    return DprCard(
+      title: 'Our design – what is printed this day',
+      subtitle: dayRaw == null ? 'Same as the contract default (Setup → Contract).' : 'Changed for this day only.',
+      icon: Icons.description_rounded,
+      actions: [
+        if (canEdit && dayRaw != null)
+          TextButton.icon(
+            onPressed: () {
+              setState(() => _b!['ours_sections_day'] = null);
+              _changed('sections', null);
+            },
+            icon: const Icon(Icons.restart_alt_rounded, size: 18),
+            label: const Text('Contract default'),
+          ),
+      ],
+      child: Wrap(
+        spacing: 8,
+        runSpacing: 8,
+        children: list.map((x) {
+          final k = str(x['key']);
+          return FilterChip(
+            label: Text(str(x['label'])),
+            selected: eff[k] != false,
+            selectedColor: AppColors.primary.withValues(alpha: 0.12),
+            checkmarkColor: AppColors.primary,
+            onSelected: canEdit
+                ? (v) {
+                    final m = <String, dynamic>{...eff, k: v};
+                    setState(() => _b!['ours_sections_day'] = m);
+                    _changed('sections', m);
+                  }
+                : null,
+          );
+        }).toList(),
+      ),
+    );
+  }
+
   Widget _layoutCard() {
     final dayLayout = _b?['layout_day'];
     return DprCard(
@@ -1110,11 +1263,23 @@ class _UccActivityDialogState extends State<_UccActivityDialog> {
     super.dispose();
   }
 
-  Json? get _item => _boqId == null ? null : widget.boq.where((b) => asInt(b['boq_id']) == _boqId).firstOrNull;
+  late final List<Json> _boq = [...widget.boq];
+  Json? get _item => _boqId == null ? null : _boq.where((b) => asInt(b['boq_id']) == _boqId).firstOrNull;
 
   Future<void> _pickBoq() async {
-    final r = await showDialog<int>(context: context, builder: (_) => _BoqSearch(items: widget.boq));
+    final r = await showDialog<int>(
+      context: context,
+      builder: (_) => _BoqSearch(items: _boq, onNew: DprState.can('dpr.setup') ? _newBoq : null),
+    );
     if (r != null) setState(() => _boqId = r == -1 ? null : r);
+  }
+
+  /// A BOQ item that is not in the contract yet: added to the contract (Setup) and chosen.
+  Future<int?> _newBoq() async {
+    final j = await dprAddBoqItem(context, widget.contractId);
+    if (j == null || !mounted) return null;
+    setState(() => _boq.add(j));
+    return asInt(j['boq_id']);
   }
 
   Future<void> _save() async {
@@ -1276,7 +1441,8 @@ class _UccActivityDialogState extends State<_UccActivityDialog> {
 
 class _BoqSearch extends StatefulWidget {
   final List<Json> items;
-  const _BoqSearch({required this.items});
+  final Future<int?> Function()? onNew;
+  const _BoqSearch({required this.items, this.onNew});
 
   @override
   State<_BoqSearch> createState() => _BoqSearchState();
@@ -1300,7 +1466,7 @@ class _BoqSearchState extends State<_BoqSearch> {
           ListTile(dense: true, leading: const Icon(Icons.block_rounded), title: const Text('No BOQ item (free activity)'), onTap: () => Navigator.pop(context, -1)),
           Expanded(
             child: list.isEmpty
-                ? const Center(child: Text('No BOQ item. Add the BOQ in Setup.'))
+                ? const Center(child: Text('No BOQ item yet.'))
                 : ListView.builder(
                     itemCount: list.length,
                     itemBuilder: (_, i) => ListTile(
@@ -1314,7 +1480,18 @@ class _BoqSearchState extends State<_BoqSearch> {
           ),
         ]),
       ),
-      actions: [TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel'))],
+      actions: [
+        if (widget.onNew != null)
+          TextButton.icon(
+            onPressed: () async {
+              final id = await widget.onNew!();
+              if (id != null && context.mounted) Navigator.pop(context, id);
+            },
+            icon: const Icon(Icons.add_rounded, size: 18),
+            label: const Text('New BOQ item'),
+          ),
+        TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
+      ],
     );
   }
 }
