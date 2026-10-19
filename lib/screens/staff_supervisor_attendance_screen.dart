@@ -53,6 +53,12 @@ class _StaffRow {
   final String? origCheckIn;
   final String? origCheckOut;
 
+  /// The employee was assigned to this supervisor only AFTER this date and
+  /// another supervisor had them on it: the day is view only here, except a
+  /// record the Admin rejected (it can be corrected and resubmitted).
+  final bool viewOnly;
+  final String? viewOnlyReason;
+
   /// #2: only rows the supervisor actually changed are sent on Save Draft.
   bool dirty = false;
   bool checkInEdited = false;
@@ -83,6 +89,8 @@ class _StaffRow {
     this.source,
     this.origCheckIn,
     this.origCheckOut,
+    this.viewOnly = false,
+    this.viewOnlyReason,
   });
 
   /// Submitted is already in the admin queue; Approved is final.
@@ -90,7 +98,8 @@ class _StaffRow {
   bool get isLocked =>
       workflowStatus == 'Submitted' ||
       workflowStatus == 'Approved' ||
-      staffCurrentStatus == 'Inactive';
+      staffCurrentStatus == 'Inactive' ||
+      (viewOnly && workflowStatus != 'Rejected');
 }
 /// Result of the on-screen hours calculation for one Present row.
 class _ShiftPreview {
@@ -435,6 +444,8 @@ class _StaffSupervisorAttendanceScreenState
           source: hasRecord ? raw['source']?.toString() : null,
           origCheckIn: exact(raw['check_in_time']),
           origCheckOut: exact(raw['check_out_time']),
+          viewOnly: raw['view_only'] == true,
+          viewOnlyReason: raw['view_only_reason']?.toString(),
         );
 
         // Keep unsaved local edits of rows that were not part of this save.
@@ -2021,6 +2032,18 @@ for (final r in rows) {
             ],
 
             // --------------------------------------------------------
+            // Day of the previous supervisor (view only)
+            // --------------------------------------------------------
+            if (row.viewOnly && row.viewOnlyReason != null) ...[
+              const SizedBox(height: 6),
+              _inlineNote(
+                Icons.visibility_outlined,
+                row.viewOnlyReason!,
+                Colors.blueGrey.shade700,
+              ),
+            ],
+
+            // --------------------------------------------------------
             // Rejection reason
             // --------------------------------------------------------
             if (row.rejectionNote != null) ...[
@@ -2056,7 +2079,7 @@ for (final r in rows) {
             if (locked) ...[
               const SizedBox(height: 6),
               Text(
-                '${row.workflowStatus == 'Submitted' ? 'Submitted — waiting for admin review' : (row.workflowStatus == 'Approved' ? 'Approved by admin — locked' : 'Inactive staff — view only')} '
+                '${row.workflowStatus == 'Submitted' ? 'Submitted — waiting for admin review' : (row.workflowStatus == 'Approved' ? 'Approved by admin — locked' : (row.viewOnly ? 'Previous supervisor\'s day — view only' : 'Inactive staff — view only'))} '
                 '${row.status == 'Present' ? '(${_fmtTime(row.checkIn)} → ${row.checkOutPending ? 'check-out missing' : _fmtTime(row.checkOut)})' : '(${row.status ?? '-'})'}',
                 style: TextStyle(
                   fontSize: 11,
