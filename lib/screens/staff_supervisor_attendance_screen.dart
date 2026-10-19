@@ -3,6 +3,7 @@ import 'package:dio/dio.dart';
 import 'package:intl/intl.dart';
 import '../constants.dart';
 import '../widgets/custom_app_bar.dart';
+import '../widgets/arrow_time_picker.dart';
 
 class StaffSupervisorAttendanceScreen extends StatefulWidget {
   const StaffSupervisorAttendanceScreen({super.key});
@@ -648,7 +649,7 @@ class _StaffSupervisorAttendanceScreenState
       helpText: '$title date',
     );
     if (date == null || !mounted) return null;
-    final time = await showTimePicker(
+    final time = await showArrowTimePicker(
       context: context,
       initialTime: initial == null
           ? const TimeOfDay(hour: 12, minute: 0)
@@ -1205,7 +1206,7 @@ for (final r in rows) {
   ) {
     return OutlinedButton.icon(
       onPressed: () async {
-        final picked = await showTimePicker(
+        final picked = await showArrowTimePicker(
           context: context,
           initialTime: value,
         );
@@ -2161,7 +2162,7 @@ for (final r in rows) {
                               // B5: the missing OUT is shown as missing; it is
                               // only filled by an explicit time choice.
                               onPressed: () async {
-                                final picked = await showTimePicker(
+                                final picked = await showArrowTimePicker(
                                   context: context,
                                   initialTime: row.checkOut,
                                   helpText: 'Enter the real check-out time',
