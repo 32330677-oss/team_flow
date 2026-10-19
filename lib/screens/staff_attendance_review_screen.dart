@@ -197,7 +197,11 @@ class _StaffAttendanceReviewScreenState extends State<StaffAttendanceReviewScree
     var succeeded = <int>[];
     final failed = <int, String>{};
     try {
-      final r = await ApiConfig.dio.post('/staff-attendance/review/bulk', data: {
+      final r = await ApiConfig.dio.post('/staff-attendance/review/bulk',
+          // The default 10 s timeout is too short for many records: the app
+          // would give up while the server keeps approving.
+          options: Options(receiveTimeout: const Duration(minutes: 3), sendTimeout: const Duration(seconds: 30)),
+          data: {
         'status': status,
         'admin_note': note,
         'items': [
@@ -222,8 +226,15 @@ class _StaffAttendanceReviewScreenState extends State<StaffAttendanceReviewScree
         }
       }
     } on DioException catch (e) {
-      // The whole request failed (network, validation): nothing was changed.
-      final msg = _errorMessage(e, 'Request failed');
+      // The whole request failed. On a timeout / dropped connection the server
+      // may still have processed some records: the refresh below removes those
+      // from the list, so whatever stays red was really NOT processed.
+      final timedOut = e.type == DioExceptionType.receiveTimeout ||
+          e.type == DioExceptionType.connectionError ||
+          e.type == DioExceptionType.unknown;
+      final msg = timedOut
+          ? 'No answer from the server (connection or timeout). Not processed — retry.'
+          : _errorMessage(e, 'Request failed (HTTP ${e.response?.statusCode ?? '-'})');
       for (final id in ids) {
         failed[id] = msg;
       }
