@@ -17,6 +17,9 @@ typedef _DateGroups = Map<String, List<Map<String, dynamic>>>;
 
 class _StaffAttendanceReviewScreenState extends State<StaffAttendanceReviewScreen> {
   final Set<int> _selectedIds = <int>{};
+  // Records whose last approve/reject failed, with the reason. They stay in the
+  // list (still Submitted), stay selected and are highlighted until they succeed.
+  final Map<int, String> _failedReasons = <int, String>{};
   _DateGroups _grouped = {};
   bool _loading = true;
   bool _working = false;
@@ -52,9 +55,20 @@ class _StaffAttendanceReviewScreenState extends State<StaffAttendanceReviewScree
       }
 
       if (!mounted) return;
+      final stillPending = ordered.values
+          .expand((v) => v)
+          .where((i) => '${i['status']}' == 'Submitted')
+          .map((i) => int.tryParse('${i['staff_attendance_id']}'))
+          .whereType<int>()
+          .toSet();
       setState(() {
         _grouped = ordered;
-        _selectedIds.clear();
+        // Forget failures for records that are no longer pending; keep the
+        // rest selected so the Admin can retry them with one click.
+        _failedReasons.removeWhere((id, _) => !stillPending.contains(id));
+        _selectedIds
+          ..clear()
+          ..addAll(_failedReasons.keys);
         _loading = false;
       });
     } on DioException catch (e) {
@@ -178,36 +192,158 @@ class _StaffAttendanceReviewScreenState extends State<StaffAttendanceReviewScree
 
     setState(() => _working = true);
 
-    final succeeded = <int>[];
-    final failed = <int>[];
-    String? firstError;
-    for (final id in ids) {
-      try {
-        final flagged = _hasOpenAnomaly(_itemById(id));
-        await ApiConfig.dio.post('/staff-attendance/review', data: {
-          'staff_attendance_id': id,
-          'status': status,
-          'admin_note': note,
-          if (flagged && ackNote != null) 'acknowledge_anomaly': true,
-          if (flagged && ackNote != null) 'anomaly_note': ackNote,
-        });
-        succeeded.add(id);
-      } on DioException catch (e) {
-        failed.add(id);
-        firstError ??= _errorMessage(e, 'Request failed');
-      } catch (_) {
-        failed.add(id);
+    // ONE request for all selected records (any dates). The server reviews
+    // each record in its own transaction and reports every failure.
+    var succeeded = <int>[];
+    final failed = <int, String>{};
+    try {
+      final r = await ApiConfig.dio.post('/staff-attendance/review/bulk', data: {
+        'status': status,
+        'admin_note': note,
+        'items': [
+          for (final id in ids)
+            {
+              'staff_attendance_id': id,
+              if (ackNote != null && _hasOpenAnomaly(_itemById(id))) 'acknowledge_anomaly': true,
+              if (ackNote != null && _hasOpenAnomaly(_itemById(id))) 'anomaly_note': ackNote,
+            },
+        ],
+      });
+      final data = r.data is Map ? r.data['data'] : null;
+      if (data is Map) {
+        succeeded = ((data['succeeded'] as List?) ?? const [])
+            .map((e) => int.tryParse('$e'))
+            .whereType<int>()
+            .toList();
+        for (final f in (data['failed'] as List?) ?? const []) {
+          if (f is! Map) continue;
+          final id = int.tryParse('${f['staff_attendance_id']}');
+          if (id != null) failed[id] = '${f['message'] ?? 'Failed'}';
+        }
+      }
+    } on DioException catch (e) {
+      // The whole request failed (network, validation): nothing was changed.
+      final msg = _errorMessage(e, 'Request failed');
+      for (final id in ids) {
+        failed[id] = msg;
+      }
+    } catch (_) {
+      for (final id in ids) {
+        failed[id] = 'Request failed';
       }
     }
 
     if (!mounted) return;
-    setState(() => _working = false);
+    setState(() {
+      _working = false;
+      _failedReasons
+        ..removeWhere((id, _) => succeeded.contains(id))
+        ..addAll(failed);
+    });
     if (failed.isEmpty) {
-      _showMessage('${succeeded.length} record(s) processed successfully.', true);
+      _showMessage('${succeeded.length} record(s) ${status == 'Approved' ? 'approved' : 'rejected'} successfully.', true);
     } else {
-      _showMessage('${succeeded.length} succeeded, ${failed.length} failed.${firstError != null ? ' $firstError' : ''}', false);
+      _showMessage(
+          '${succeeded.length} succeeded, ${failed.length} failed. Failed records stay in the list, highlighted in red and still selected.',
+          false);
+      await _showFailures(failed);
     }
     await _fetchData();
+  }
+
+  Future<void> _showFailures(Map<int, String> failed) async {
+    await showDialog<void>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        icon: Icon(Icons.error_outline, color: Colors.red.shade700, size: 34),
+        title: Text('${failed.length} record(s) were not processed'),
+        content: SizedBox(
+          width: 480,
+          child: SingleChildScrollView(
+            child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              for (final e in failed.entries)
+                ListTile(
+                  dense: true,
+                  contentPadding: EdgeInsets.zero,
+                  leading: Icon(Icons.close, color: Colors.red.shade700, size: 18),
+                  title: Text(
+                    '${_itemById(e.key)?['full_name'] ?? 'Record #${e.key}'} · '
+                    '${'${_itemById(e.key)?['record_date'] ?? ''}'.split('T').first}',
+                  ),
+                  subtitle: Text(e.value),
+                ),
+            ],
+          ),
+          ),
+        ),
+        actions: [FilledButton(onPressed: () => Navigator.pop(ctx), child: const Text('OK'))],
+      ),
+    );
+  }
+
+  /// Every record that can still be approved or rejected, across all dates.
+  List<int> get _allPendingIds => _idsOf(
+        _grouped.values.expand((v) => v).where((i) => '${i['status']}' == 'Submitted').toList(),
+      );
+
+  Future<void> _rejectSelected(List<int> ids) async {
+    final note = await _promptForReason(context);
+    if (note != null && note.trim().isNotEmpty) {
+      await _reviewSelected(ids, 'Rejected', note: note.trim());
+    }
+  }
+
+  /// Sticky bar at the bottom: selection count + actions, always visible.
+  Widget? _actionBar() {
+    final selected = _selectedIds.where(_allPendingIds.contains).toList();
+    if (selected.isEmpty && !_working) return null;
+    return Material(
+      elevation: 8,
+      color: Colors.white,
+      child: SafeArea(
+        top: false,
+        child: Column(mainAxisSize: MainAxisSize.min, children: [
+          if (_working) const LinearProgressIndicator(minHeight: 3),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 10, 16, 10),
+            child: Wrap(
+              alignment: WrapAlignment.spaceBetween,
+              crossAxisAlignment: WrapCrossAlignment.center,
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                Row(mainAxisSize: MainAxisSize.min, children: [
+                  Text('${selected.length} selected', style: const TextStyle(fontWeight: FontWeight.w700)),
+                  TextButton(
+                    onPressed: _working ? null : () => setState(_selectedIds.clear),
+                    child: const Text('Clear'),
+                  ),
+                ]),
+                Row(mainAxisSize: MainAxisSize.min, children: [
+                  FilledButton.icon(
+                    onPressed: _working || selected.isEmpty ? null : () => _rejectSelected(selected),
+                    icon: const Icon(Icons.close, size: 16),
+                    label: Text('Reject ${selected.length}'),
+                    style: FilledButton.styleFrom(backgroundColor: Colors.red.shade700),
+                  ),
+                  const SizedBox(width: 8),
+                  FilledButton.icon(
+                    onPressed: _working || selected.isEmpty ? null : () => _reviewSelected(selected, 'Approved'),
+                    icon: _working
+                        ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                        : const Icon(Icons.check, size: 16),
+                    label: Text('Approve ${selected.length}'),
+                    style: FilledButton.styleFrom(backgroundColor: Colors.green.shade700),
+                  ),
+                ]),
+              ],
+            ),
+          ),
+        ]),
+      ),
+    );
   }
 
   Future<String?> _promptForReason(BuildContext context) async {
@@ -331,6 +467,7 @@ class _StaffAttendanceReviewScreenState extends State<StaffAttendanceReviewScree
     final status = '${item['status'] ?? 'Submitted'}';
     final rejected = status == 'Rejected';
     final selected = _selectedIds.contains(id);
+    final failReason = _failedReasons[id];
     final attendanceStatus = '${item['attendance_status'] ?? 'Present'}';
     final isPresent = attendanceStatus == 'Present';
     final overtimeHours = double.tryParse('${item['overtime_hours'] ?? 0}') ?? 0;
@@ -403,8 +540,32 @@ class _StaffAttendanceReviewScreenState extends State<StaffAttendanceReviewScree
           : supervisorNote;
     }
 
+    if (failReason != null) {
+      final failNote = Row(mainAxisSize: MainAxisSize.min, children: [
+        Icon(Icons.error_outline, size: 16, color: Colors.red.shade700),
+        const SizedBox(width: 4),
+        ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 240),
+          child: Tooltip(
+            message: 'Last attempt failed: $failReason',
+            child: Text('Failed: $failReason',
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(fontSize: 12, color: Colors.red.shade800, fontWeight: FontWeight.w600)),
+          ),
+        ),
+      ]);
+      notes = Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
+        children: [failNote, if (notes is! Text) notes],
+      );
+    }
+
     return DataRow(
       selected: selected,
+      color: failReason != null ? WidgetStatePropertyAll(Colors.red.shade50) : null,
       cells: [
         _cell(Checkbox(
           value: selected,
@@ -495,7 +656,6 @@ class _StaffAttendanceReviewScreenState extends State<StaffAttendanceReviewScree
     final ids = _idsOf(items.where((i) => '${i['status']}' == 'Submitted').toList());
     final allSelected = ids.isNotEmpty && ids.every(_selectedIds.contains);
     final someSelected = ids.any(_selectedIds.contains);
-    final selected = ids.where(_selectedIds.contains).toList();
     final rows = items.map(_staffRow).whereType<DataRow>().toList();
 
     return Padding(
@@ -527,31 +687,6 @@ class _StaffAttendanceReviewScreenState extends State<StaffAttendanceReviewScree
             columns: _columns,
             rows: rows,
           ),
-          if (selected.isNotEmpty)
-            Padding(
-              padding: const EdgeInsets.only(top: 10),
-              child: Wrap(spacing: 8, runSpacing: 8, children: [
-                FilledButton.icon(
-                  onPressed: _working ? null : () => _reviewSelected(selected, 'Approved'),
-                  icon: const Icon(Icons.check, size: 16),
-                  label: Text('Approve ${selected.length}', style: const TextStyle(fontSize: 12.5)),
-                  style: FilledButton.styleFrom(backgroundColor: Colors.green.shade700),
-                ),
-                FilledButton.icon(
-                  onPressed: _working
-                      ? null
-                      : () async {
-                          final note = await _promptForReason(context);
-                          if (note != null && note.trim().isNotEmpty) {
-                            await _reviewSelected(selected, 'Rejected', note: note.trim());
-                          }
-                        },
-                  icon: const Icon(Icons.close, size: 16),
-                  label: Text('Reject ${selected.length}', style: const TextStyle(fontSize: 12.5)),
-                  style: FilledButton.styleFrom(backgroundColor: Colors.red.shade700),
-                ),
-              ]),
-            ),
         ],
       ),
     );
@@ -603,11 +738,32 @@ class _StaffAttendanceReviewScreenState extends State<StaffAttendanceReviewScree
                               : Row(children: [Expanded(child: cards[0]), const SizedBox(width: 10), Expanded(child: cards[1])]);
                         }),
                         const SizedBox(height: 10),
+                        if (_allPendingIds.isNotEmpty)
+                          Builder(builder: (context) {
+                            final all = _allPendingIds;
+                            final allSel = all.every(_selectedIds.contains);
+                            final someSel = all.any(_selectedIds.contains);
+                            return Card(
+                              elevation: 0,
+                              child: CheckboxListTile(
+                                controlAffinity: ListTileControlAffinity.leading,
+                                tristate: true,
+                                value: allSel ? true : (someSel ? null : false),
+                                onChanged: _working
+                                    ? null
+                                    : (_) => setState(() => allSel ? _selectedIds.clear() : _selectedIds.addAll(all)),
+                                title: Text('Select all waiting records (${all.length}) — all dates',
+                                    style: const TextStyle(fontWeight: FontWeight.w700)),
+                                subtitle: const Text('Or tick a date / single rows below. Actions are in the bar at the bottom.'),
+                              ),
+                            );
+                          }),
+                        const SizedBox(height: 10),
                         ..._grouped.entries.map((entry) => _dateSection(entry.key, entry.value)),
                       ],
                     ),
             ),
-      bottomNavigationBar: _working ? const LinearProgressIndicator(minHeight: 3) : null,
+      bottomNavigationBar: _actionBar(),
     );
   }
 }
