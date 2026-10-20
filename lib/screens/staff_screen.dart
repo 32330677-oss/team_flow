@@ -1165,8 +1165,134 @@ class _AddEditStaffSheetState
     };
   }
 
+  /// Hire date corrected on an existing staff member: ask the server what it
+  /// would change (employment start, first salary/hours period, first
+  /// supervisor / site assignment) or why it is refused, and confirm.
+  /// Returns null to cancel the save; {} when the date did not change.
+  Future<Map<String, String>?> _confirmHireDateChange() async {
+    if (widget.staff == null) return const {};
+    final oldDate = widget.staff?['hire_date']?.toString().split('T').first ?? '';
+    final newDate = _hireDateController.text.trim();
+    if (newDate.isEmpty || newDate == oldDate) return const {};
+
+    Map<String, dynamic> plan;
+    try {
+      final r = await ApiConfig.dio.get(
+        '/staff/${widget.staff?['staff_id']}/hire-date-impact',
+        queryParameters: {'new_date': newDate},
+      );
+      plan = Map<String, dynamic>.from(r.data['data'] as Map);
+    } on DioException catch (e) {
+      final msg = e.response?.data is Map ? (e.response?.data['message'] ?? 'Could not check the hire date change.') : 'Could not check the hire date change.';
+      if (mounted) setState(() => _errorMessage = '$msg');
+      return null;
+    }
+    if (!mounted) return null;
+
+    final blockers = (plan['blockers'] as List? ?? const []).whereType<Map>().toList();
+    final moves = (plan['moves'] as List? ?? const []).whereType<Map>().toList();
+    final mode = '${plan['mode'] ?? 'full'}';
+
+    if (mode == 'refused') {
+      await showDialog<void>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          icon: Icon(Icons.block, color: Colors.red.shade700, size: 32),
+          title: const Text('Hire date cannot be changed'),
+          content: SizedBox(
+            width: 460,
+            child: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  for (final b in blockers)
+                    Padding(
+                      padding: const EdgeInsets.only(bottom: 8),
+                      child: Text('• ${b['message']}'),
+                    ),
+                ],
+              ),
+            ),
+          ),
+          actions: [FilledButton(onPressed: () => Navigator.pop(ctx), child: const Text('OK'))],
+        ),
+      );
+      return null;
+    }
+
+    final reasonCtl = TextEditingController();
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Correct the hire date'),
+        content: SizedBox(
+          width: 460,
+          child: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text('Hire date: $oldDate  →  $newDate',
+                    style: const TextStyle(fontWeight: FontWeight.w700)),
+                const SizedBox(height: 6),
+                if (mode == 'hire_date_only') ...[
+                  Container(
+                    padding: const EdgeInsets.all(10),
+                    decoration: BoxDecoration(color: Colors.orange.shade50, borderRadius: BorderRadius.circular(8)),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Only the hire date shown changes. Payroll and attendance keep starting on '
+                          '${plan['old_date'] ?? oldDate}, because:',
+                          style: TextStyle(color: Colors.orange.shade900, fontSize: 13),
+                        ),
+                        const SizedBox(height: 4),
+                        for (final b in blockers)
+                          Text('• ${b['message']}', style: TextStyle(color: Colors.orange.shade900, fontSize: 12.5)),
+                      ],
+                    ),
+                  ),
+                ] else
+                  Text(
+                    plan['direction'] == 'later'
+                        ? 'Payroll and attendance will start on $newDate. The days before it are no longer employment days.'
+                        : 'Payroll and attendance will start on $newDate.',
+                    style: TextStyle(color: Colors.grey.shade700, fontSize: 13),
+                  ),
+                if (moves.isNotEmpty) ...[
+                  const SizedBox(height: 10),
+                  const Text('Also moved to the new date:', style: TextStyle(fontWeight: FontWeight.w600)),
+                  for (final m in moves)
+                    Text('• ${m['label']}: ${m['from']} → ${m['to']}'),
+                ],
+                const SizedBox(height: 12),
+                TextField(
+                  controller: reasonCtl,
+                  decoration: const InputDecoration(labelText: 'Reason (optional)', border: OutlineInputBorder()),
+                ),
+              ],
+            ),
+          ),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
+          FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Continue')),
+        ],
+      ),
+    );
+    final reason = reasonCtl.text.trim();
+    reasonCtl.dispose();
+    if (ok != true) return null;
+    return {if (reason.isNotEmpty) 'hire_date_reason': reason};
+  }
+
   Future<void> _submit() async {
     if (!_formKey.currentState!.validate()) return;
+
+    final hireDateChange = await _confirmHireDateChange();
+    if (hireDateChange == null) return;
 
     Map<String, String>? compensationChange;
     if (widget.staff != null) {
@@ -1211,6 +1337,7 @@ class _AddEditStaffSheetState
                 ) ??
                 8.00,
         if (compensationChange != null) ...compensationChange,
+        ...hireDateChange,
       };
 
       if (isEditing) {

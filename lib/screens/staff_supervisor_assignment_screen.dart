@@ -171,6 +171,84 @@ class _StaffSupervisorAssignmentScreenState extends State<StaffSupervisorAssignm
     }
   }
 
+  /// Correct the FIRST day of one assignment (a date entered wrong).
+  /// The server checks the hire date, the last day and overlaps.
+  Future<void> _changeStartDate(Map a) async {
+    final id = a['staff_assignment_id'];
+    final current = '${a['assigned_date'] ?? ''}'.split('T')[0];
+    final initial = DateTime.tryParse(current) ?? DateTime.now();
+    final now = DateTime.now();
+    final picked = await showDatePicker(
+      context: context,
+      initialDate: initial.isAfter(now) ? now : initial,
+      firstDate: DateTime(2020),
+      lastDate: now,
+      helpText: 'New FIRST day under ${a['supervisor_name'] ?? 'this supervisor'}',
+    );
+    if (picked == null || !mounted) return;
+    final newStart = picked.toIso8601String().split('T')[0];
+    if (newStart == current) return;
+
+    final reasonCtl = TextEditingController();
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Change start date'),
+        content: SizedBox(
+          width: 420,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text('${a['supervisor_name'] ?? ''}: $current  →  $newStart',
+                  style: const TextStyle(fontWeight: FontWeight.w700)),
+              const SizedBox(height: 6),
+              Text(
+                'The supervisor records this staff member\'s attendance from $newStart. '
+                'Attendance and payroll are not changed.',
+                style: TextStyle(color: Colors.grey.shade700, fontSize: 13),
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: reasonCtl,
+                decoration: const InputDecoration(labelText: 'Reason (required)', border: OutlineInputBorder()),
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
+          FilledButton(
+            onPressed: () {
+              if (reasonCtl.text.trim().length < 3) {
+                _showSnack('A reason is required.', Colors.orange);
+                return;
+              }
+              Navigator.pop(ctx, true);
+            },
+            child: const Text('Save'),
+          ),
+        ],
+      ),
+    );
+    final reason = reasonCtl.text.trim();
+    reasonCtl.dispose();
+    if (ok != true) return;
+
+    try {
+      final r = await ApiConfig.dio.patch(
+        '/staff/$_staffId/supervisor-assignments/$id/start-date',
+        data: {'new_start_date': newStart, 'reason': reason},
+      );
+      if (!mounted) return;
+      _showSnack(r.data is Map ? (r.data['message'] ?? 'Start date changed') : 'Start date changed', Colors.green.shade700);
+      _loadAll();
+    } on DioException catch (e) {
+      final msg = e.response?.data is Map ? (e.response?.data['message'] ?? 'Failed to change the start date') : 'Failed to change the start date';
+      _showSnack(msg, Colors.red);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final hasOpenAssignment = _history.any((a) => a['unassigned_date'] == null);
@@ -259,13 +337,25 @@ class _StaffSupervisorAssignmentScreenState extends State<StaffSupervisorAssignm
                       DataColumn(label: Text('From')),
                       DataColumn(label: Text('To')),
                       DataColumn(label: Text('Notes')),
+                      DataColumn(label: Text('')),
                     ],
                     rows: _history.map((a) {
+                      final from = '${a['assigned_date'] ?? ''}'.split('T')[0];
+                      final to = a['unassigned_date'] == null ? null : '${a['unassigned_date']}'.split('T')[0];
+                      // A cancelled row (last day before first day) has no day to move.
+                      final cancelled = to != null && to.compareTo(from) < 0;
                       return DataRow(cells: [
                         DataCell(Text(a['supervisor_name'] ?? '')),
-                        DataCell(Text('${a['assigned_date'] ?? ''}'.split('T')[0])),
-                        DataCell(Text(a['unassigned_date'] == null ? 'Present' : '${a['unassigned_date']}'.split('T')[0])),
+                        DataCell(Text(from)),
+                        DataCell(Text(to ?? 'Present')),
                         DataCell(Text(a['notes'] ?? '-')),
+                        DataCell(cancelled
+                            ? const SizedBox.shrink()
+                            : IconButton(
+                                icon: const Icon(Icons.edit_calendar_outlined, size: 18),
+                                tooltip: 'Change start date',
+                                onPressed: () => _changeStartDate(a),
+                              )),
                       ]);
                     }).toList(),
                   ),
