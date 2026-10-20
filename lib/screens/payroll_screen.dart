@@ -945,34 +945,86 @@ Future<void> _selectDate(TextEditingController controller, {bool isStartDate = f
 
   // The server generates and streams the final .xlsx — the client only
   // downloads/shares the bytes. No calculation happens here.
-  /// Asked on every export of a batch that has versions or a note:
-  /// include the VERSION NOTES section or not. null = cancelled.
-  Future<bool?> _askIncludeVersionNotes(Map batch) async {
+  /// Asked on every export of a batch that has versions or a note: tick the
+  /// versions whose notes go in the VERSION NOTES section (v1 -> this one).
+  /// Returns the ticked batch ids ([] = no notes), or null when cancelled.
+  Future<List<int>?> _askVersionNotes(Map batch) async {
     final version = int.tryParse('${batch['version_number'] ?? 1}') ?? 1;
     final note = '${batch['supersede_reason'] ?? ''}'.trim();
-    if (version <= 1 && note.isEmpty) return false;
-    bool include = false;
-    return showDialog<bool>(
+    if (version <= 1 && note.isEmpty) return const [];
+    final batchId = '${batch['payroll_batch_id']}';
+
+    List<Map> versions = const [];
+    try {
+      final r = await ApiConfig.dio.get('/admin/payroll/batch/$batchId/versions');
+      if (r.data is Map && r.data['data'] is List) {
+        final all = (r.data['data'] as List).whereType<Map>().toList();
+        final idx = all.indexWhere((v) => '${v['payroll_batch_id']}' == batchId);
+        versions = idx < 0 ? all : all.sublist(0, idx + 1); // v1 -> this batch
+      }
+    } catch (_) {/* fall back to "no notes" below */}
+    if (!mounted) return null;
+    if (versions.isEmpty) return const [];
+
+    final ticked = <int>{};
+    return showDialog<List<int>>(
       context: context,
       builder: (ctx) => StatefulBuilder(
         builder: (ctx, setD) => AlertDialog(
-          title: const Text('Export'),
-          content: CheckboxListTile(
-            contentPadding: EdgeInsets.zero,
-            controlAffinity: ListTileControlAffinity.leading,
-            value: include,
-            onChanged: (v) => setD(() => include = v == true),
-            title: const Text('Include version notes'),
-            subtitle: Text('v$version: what changed vs earlier versions${note.isNotEmpty ? ', and the note' : ''}.'),
+          title: const Text('Version notes to print'),
+          content: SizedBox(
+            width: 520,
+            child: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text('Tick the versions to show under the table. None ticked = no version notes.',
+                      style: TextStyle(color: Colors.grey.shade700, fontSize: 12.5)),
+                  const SizedBox(height: 6),
+                  for (final v in versions)
+                    Builder(builder: (_) {
+                      final id = int.tryParse('${v['payroll_batch_id']}') ?? 0;
+                      final isThis = '${v['payroll_batch_id']}' == batchId;
+                      final lines = <String>[
+                        if ('${v['changes_summary'] ?? ''}'.isNotEmpty) '${v['changes_summary']}',
+                        if ('${v['note'] ?? ''}'.trim().isNotEmpty) 'Note: ${v['note']}',
+                      ];
+                      return CheckboxListTile(
+                        dense: true,
+                        contentPadding: EdgeInsets.zero,
+                        controlAffinity: ListTileControlAffinity.leading,
+                        value: ticked.contains(id),
+                        onChanged: (on) => setD(() => on == true ? ticked.add(id) : ticked.remove(id)),
+                        title: Text(
+                          'v${v['version_number']}${isThis ? ' (this document)' : ''} · Batch #${v['payroll_batch_id']} · ${v['status']}',
+                          style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13),
+                        ),
+                        subtitle: Text(lines.isEmpty ? 'First version' : lines.join('\n'),
+                            style: const TextStyle(fontSize: 11.5)),
+                      );
+                    }),
+                ],
+              ),
+            ),
           ),
           actions: [
             TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
-            FilledButton(onPressed: () => Navigator.pop(ctx, include), child: const Text('Export')),
+            TextButton(
+              onPressed: () => setD(() => ticked
+                ..clear()
+                ..addAll(versions.map((v) => int.tryParse('${v['payroll_batch_id']}') ?? 0))),
+              child: const Text('Tick all'),
+            ),
+            FilledButton(onPressed: () => Navigator.pop(ctx, ticked.toList()..sort()), child: const Text('Export')),
           ],
         ),
       ),
     );
   }
+
+  Map<String, dynamic> _versionNotesQuery(List<int> ids) =>
+      ids.isEmpty ? const {} : {'version_notes': '1', 'versions': ids.join(',')};
 
   Future<void> _exportBatchExcel(Map batch) async {
     final batchId = int.tryParse('${batch['payroll_batch_id']}');
@@ -980,12 +1032,12 @@ Future<void> _selectDate(TextEditingController controller, {bool isStartDate = f
       _showSnack('Invalid payroll batch.', dangerColor);
       return;
     }
-    final withNotes = await _askIncludeVersionNotes(batch);
-    if (withNotes == null) return;
+    final noteIds = await _askVersionNotes(batch);
+    if (noteIds == null) return;
     try {
     final response = await ApiConfig.dio.get<List<int>>(
   '/admin/payroll/batch/$batchId/export.xlsx',
-  queryParameters: {if (withNotes) 'version_notes': '1'},
+  queryParameters: _versionNotesQuery(noteIds),
   options: Options(
     responseType: ResponseType.bytes,
     receiveTimeout: const Duration(seconds: 90),
@@ -1025,12 +1077,12 @@ Future<void> _exportBatchPdf(Map batch) async {
     _showSnack('Invalid payroll batch.', dangerColor);
     return;
   }
-  final withNotes = await _askIncludeVersionNotes(batch);
-  if (withNotes == null) return;
+  final noteIds = await _askVersionNotes(batch);
+  if (noteIds == null) return;
   try {
     final response = await ApiConfig.dio.get<List<int>>(
       '/admin/payroll/batch/$batchId/export.pdf',
-      queryParameters: {if (withNotes) 'version_notes': '1'},
+      queryParameters: _versionNotesQuery(noteIds),
       options: Options(
   responseType: ResponseType.bytes,
   receiveTimeout: const Duration(seconds: 90),
