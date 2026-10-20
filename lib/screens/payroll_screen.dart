@@ -316,10 +316,87 @@ class _PayrollScreenState extends State<PayrollScreen> {
     }
   }
 
-  Future<void> _generatePayroll({bool acknowledgePending = false}) async {
+  /// The active (Generated, not finalized) Regular batch of exactly this
+  /// period and site, if any: generating again makes a new VERSION of it.
+  Future<Map?> _findActiveVersion() async {
+    try {
+      final r = await ApiConfig.dio.get('/admin/payroll/report');
+      final data = r.data is Map ? r.data['data'] : r.data;
+      if (data is! List) return null;
+      final start = _startDateController.text;
+      final end = _endDateController.text;
+      for (final b in data) {
+        if (b is! Map) continue;
+        final sameSite = '${b['scope_site_id'] ?? ''}' == '${_selectedSiteId ?? ''}';
+        if ('${b['start_date']}'.startsWith(start) &&
+            '${b['end_date']}'.startsWith(end) &&
+            sameSite &&
+            '${b['batch_type'] ?? 'Regular'}' == 'Regular' &&
+            b['status'] == 'Generated' &&
+            !(b['is_finalized'] == 1 || b['is_finalized'] == true)) {
+          return b;
+        }
+      }
+    } catch (_) {/* the server still versions the batch; only the note is skipped */}
+    return null;
+  }
+
+  /// Returns the optional note ('' = none), or null when the Admin cancels.
+  Future<String?> _askVersionNote(Map existing) async {
+    final ctl = TextEditingController();
+    final next = (int.tryParse('${existing['version_number'] ?? 1}') ?? 1) + 1;
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text('Generate version $next'),
+        content: SizedBox(
+          width: 460,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'This period already has Batch #${existing['payroll_batch_id']} (v${existing['version_number'] ?? 1}). '
+                'Generating again creates v$next and replaces it. The old version stays in the history.',
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: ctl,
+                maxLines: 2,
+                maxLength: 500,
+                decoration: const InputDecoration(
+                  labelText: 'Note (optional)',
+                  hintText: 'Why is it generated again?',
+                  border: OutlineInputBorder(),
+                ),
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
+          FilledButton(onPressed: () => Navigator.pop(ctx, true), child: Text('Generate v$next')),
+        ],
+      ),
+    );
+    final note = ctl.text.trim();
+    ctl.dispose();
+    return ok == true ? note : null;
+  }
+
+  Future<void> _generatePayroll({bool acknowledgePending = false, String? versionNote}) async {
     if (_startDateController.text.isEmpty || _endDateController.text.isEmpty) {
       _showSnack('Please select start and end dates', Colors.orange);
       return;
+    }
+    if (versionNote == null) {
+      final existing = await _findActiveVersion();
+      if (existing != null) {
+        versionNote = await _askVersionNote(existing);
+        if (versionNote == null) return;
+      } else {
+        versionNote = '';
+      }
     }
     setState(() => _isGenerating = true);
     try {
@@ -328,6 +405,7 @@ class _PayrollScreenState extends State<PayrollScreen> {
         'end_date': _endDateController.text,
         if (_selectedSiteId != null) 'site_id': _selectedSiteId,
         if (acknowledgePending) 'acknowledge_pending': true,
+        if (versionNote.isNotEmpty) 'version_note': versionNote,
       });
       if (response.data['success'] == true || response.statusCode == 200 || response.statusCode == 201) {
         _showSnack('Payroll batch generated successfully', Colors.green);
@@ -344,7 +422,7 @@ class _PayrollScreenState extends State<PayrollScreen> {
         if (data['code'] == 'PENDING_ATTENDANCE' && !acknowledgePending) {
           if (mounted) setState(() => _isGenerating = false);
           if (await _confirmPendingAttendance(data)) {
-            await _generatePayroll(acknowledgePending: true);
+            await _generatePayroll(acknowledgePending: true, versionNote: versionNote ?? '');
           }
           return;
         }
@@ -626,14 +704,22 @@ Future<void> _selectDate(TextEditingController controller, {bool isStartDate = f
       final List workers = data['workers'] ?? [];
       final List offcyclePaid = data['offcycle_paid'] ?? [];
       final Map offSummary = data['offcycle_summary'] is Map ? data['offcycle_summary'] : {};
-      _showBatchDetailsSheet(batch, workers, offcyclePaid, offSummary);
+      // Version history of this period (notes + automatic change summary).
+      List versions = const [];
+      try {
+        final v = await ApiConfig.dio.get('/admin/payroll/batch/$batchId/versions');
+        if (v.data is Map && v.data['data'] is List) versions = v.data['data'];
+      } catch (_) {/* details still open without the history */}
+      if (!mounted) return;
+      _showBatchDetailsSheet(batch, workers, offcyclePaid, offSummary, versions);
     } catch (e) {
       if (mounted && Navigator.canPop(context)) Navigator.pop(context);
       _showSnack('Error loading batch details: $e', dangerColor);
     }
   }
 
-  void _showBatchDetailsSheet(Map batch, List workers, [List offcyclePaid = const [], Map offSummary = const {}]) {
+  void _showBatchDetailsSheet(Map batch, List workers,
+      [List offcyclePaid = const [], Map offSummary = const {}, List versions = const []]) {
     final bool offCycle = isOffCycleBatch(batch);
     final currency = batch['currency'];
     showModalBottomSheet(
@@ -700,6 +786,7 @@ Future<void> _selectDate(TextEditingController controller, {bool isStartDate = f
                 style: const TextStyle(color: offCycleColor, fontSize: 12.5, fontWeight: FontWeight.w600),
               ),
             ),
+          _VersionHistoryPanel(versions: versions, batchId: batch['payroll_batch_id']),
         ],
       ),
     ),
@@ -858,15 +945,47 @@ Future<void> _selectDate(TextEditingController controller, {bool isStartDate = f
 
   // The server generates and streams the final .xlsx — the client only
   // downloads/shares the bytes. No calculation happens here.
+  /// Asked on every export of a batch that has versions or a note:
+  /// include the VERSION NOTES section or not. null = cancelled.
+  Future<bool?> _askIncludeVersionNotes(Map batch) async {
+    final version = int.tryParse('${batch['version_number'] ?? 1}') ?? 1;
+    final note = '${batch['supersede_reason'] ?? ''}'.trim();
+    if (version <= 1 && note.isEmpty) return false;
+    bool include = false;
+    return showDialog<bool>(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setD) => AlertDialog(
+          title: const Text('Export'),
+          content: CheckboxListTile(
+            contentPadding: EdgeInsets.zero,
+            controlAffinity: ListTileControlAffinity.leading,
+            value: include,
+            onChanged: (v) => setD(() => include = v == true),
+            title: const Text('Include version notes'),
+            subtitle: Text('v$version: what changed vs earlier versions${note.isNotEmpty ? ', and the note' : ''}.'),
+          ),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
+            FilledButton(onPressed: () => Navigator.pop(ctx, include), child: const Text('Export')),
+          ],
+        ),
+      ),
+    );
+  }
+
   Future<void> _exportBatchExcel(Map batch) async {
     final batchId = int.tryParse('${batch['payroll_batch_id']}');
     if (batchId == null) {
       _showSnack('Invalid payroll batch.', dangerColor);
       return;
     }
+    final withNotes = await _askIncludeVersionNotes(batch);
+    if (withNotes == null) return;
     try {
     final response = await ApiConfig.dio.get<List<int>>(
   '/admin/payroll/batch/$batchId/export.xlsx',
+  queryParameters: {if (withNotes) 'version_notes': '1'},
   options: Options(
     responseType: ResponseType.bytes,
     receiveTimeout: const Duration(seconds: 90),
@@ -906,9 +1025,12 @@ Future<void> _exportBatchPdf(Map batch) async {
     _showSnack('Invalid payroll batch.', dangerColor);
     return;
   }
+  final withNotes = await _askIncludeVersionNotes(batch);
+  if (withNotes == null) return;
   try {
     final response = await ApiConfig.dio.get<List<int>>(
       '/admin/payroll/batch/$batchId/export.pdf',
+      queryParameters: {if (withNotes) 'version_notes': '1'},
       options: Options(
   responseType: ResponseType.bytes,
   receiveTimeout: const Duration(seconds: 90),
@@ -1115,7 +1237,27 @@ Future<void> _exportBatchPdf(Map batch) async {
         '${(batch['is_finalized'] == 1 || batch['is_finalized'] == true) ? '' : ' • Not Finalized'}',
 ),
                                 isThreeLine: true,
-                                trailing: _statusChip(batch['status']?.toString() ?? 'Pending'),
+                                trailing: Column(
+                                  mainAxisAlignment: MainAxisAlignment.center,
+                                  crossAxisAlignment: CrossAxisAlignment.end,
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    _statusChip(batch['status']?.toString() ?? 'Pending'),
+                                    Builder(builder: (_) {
+                                      // "Replaced by vN" for an old version (when history is shown).
+                                      final next = _payrollBatches.cast<dynamic>().firstWhere(
+                                            (b) => b is Map && '${b['supersedes_batch_id']}' == '${batch['payroll_batch_id']}',
+                                            orElse: () => null,
+                                          );
+                                      if (next == null) return const SizedBox.shrink();
+                                      return Padding(
+                                        padding: const EdgeInsets.only(top: 4),
+                                        child: Text('Replaced by v${next['version_number']} (#${next['payroll_batch_id']})',
+                                            style: TextStyle(fontSize: 10.5, color: Colors.grey.shade700)),
+                                      );
+                                    }),
+                                  ],
+                                ),
                                 onTap: () => _openBatchDetails(batch['payroll_batch_id']),
                               ),
                             );
@@ -2292,6 +2434,83 @@ class _OffCycleDialogState extends State<_OffCycleDialog> {
                   label: Text(_creating ? 'Creating…' : 'Create off-cycle batch', style: const TextStyle(color: Colors.white)),
                   style: ElevatedButton.styleFrom(backgroundColor: offCycleColor),
                 ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Version history of a payroll period, shown in the batch details: every
+/// version (newest first) with who / when / total, the automatic summary of
+/// what changed vs the previous version, and the optional note.
+class _VersionHistoryPanel extends StatelessWidget {
+  final List versions;
+  final dynamic batchId;
+
+  const _VersionHistoryPanel({required this.versions, required this.batchId});
+
+  static String _subtitleFor(Map v) {
+    final lines = <String>[
+      if ('${v['changes_summary'] ?? ''}'.isNotEmpty) '${v['changes_summary']}',
+      if ('${v['note'] ?? ''}'.trim().isNotEmpty) 'Note: ${v['note']}',
+    ];
+    return lines.isEmpty ? 'First version' : lines.join('\n');
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final list = versions.whereType<Map>().toList();
+    final idx = list.indexWhere((v) => '${v['payroll_batch_id']}' == '$batchId');
+    if (idx < 0) return const SizedBox.shrink();
+    final current = list[idx];
+    final note = '${current['note'] ?? ''}'.trim();
+    if (list.length <= 1 && note.isEmpty) return const SizedBox.shrink();
+    final replaced = current['replaced_by'];
+
+    return Padding(
+      padding: const EdgeInsets.only(top: 6),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          if (replaced is Map)
+            Text('Replaced by v${replaced['version_number']} (Batch #${replaced['payroll_batch_id']})',
+                style: TextStyle(color: Colors.red.shade700, fontSize: 12.5, fontWeight: FontWeight.w600)),
+          if (note.isNotEmpty)
+            Text('Note: $note', style: TextStyle(color: Colors.blueGrey.shade800, fontSize: 12.5)),
+          if ('${current['changes_summary'] ?? ''}'.isNotEmpty)
+            Text('Changes vs v${(current['previous'] as Map?)?['version_number'] ?? ''}: ${current['changes_summary']}',
+                style: TextStyle(color: Colors.grey.shade700, fontSize: 12)),
+          Theme(
+            data: Theme.of(context).copyWith(dividerColor: Colors.transparent),
+            child: ExpansionTile(
+              tilePadding: EdgeInsets.zero,
+              childrenPadding: const EdgeInsets.only(bottom: 6),
+              dense: true,
+              title: Text('Version history (${list.length})',
+                  style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600)),
+              children: [
+                for (final v in list.reversed)
+                  ListTile(
+                    dense: true,
+                    contentPadding: EdgeInsets.zero,
+                    leading: CircleAvatar(
+                      radius: 14,
+                      backgroundColor: '${v['payroll_batch_id']}' == '$batchId' ? Colors.indigo : Colors.grey.shade300,
+                      child: Text('v${v['version_number']}',
+                          style: TextStyle(
+                              fontSize: 10,
+                              color: '${v['payroll_batch_id']}' == '$batchId' ? Colors.white : Colors.black87)),
+                    ),
+                    title: Text(
+                      'Batch #${v['payroll_batch_id']} · ${'${v['generated_at'] ?? ''}'.replaceFirst('T', ' ').split('.').first} · '
+                      '${v['generated_by'] ?? ''} · ${v['status']}',
+                      style: const TextStyle(fontSize: 12.5),
+                    ),
+                    subtitle: Text(_subtitleFor(v), style: const TextStyle(fontSize: 11.5)),
+                  ),
               ],
             ),
           ),
